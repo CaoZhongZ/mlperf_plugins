@@ -217,63 +217,7 @@ function(_OPENMP_GET_FLAGS LANG FLAG_MODE OPENMP_FLAG_VAR OPENMP_LIB_NAMES_VAR)
       OUTPUT_VARIABLE OpenMP_TRY_COMPILE_OUTPUT
     )
 
-    if(OpenMP_COMPILE_RESULT_${FLAG_MODE}_${OPENMP_PLAIN_FLAG})
-      set("${OPENMP_FLAG_VAR}" "${OPENMP_FLAG}" PARENT_SCOPE)
-
-      if(CMAKE_${LANG}_VERBOSE_FLAG)
-        unset(OpenMP_${LANG}_IMPLICIT_LIBRARIES)
-        unset(OpenMP_${LANG}_IMPLICIT_LINK_DIRS)
-        unset(OpenMP_${LANG}_IMPLICIT_FWK_DIRS)
-        unset(OpenMP_${LANG}_LOG_VAR)
-
-        file(APPEND ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeOutput.log
-        "Detecting ${LANG} OpenMP compiler ABI info compiled with the following output:\n${OpenMP_TRY_COMPILE_OUTPUT}\n\n")
-
-        cmake_parse_implicit_link_info("${OpenMP_TRY_COMPILE_OUTPUT}"
-          OpenMP_${LANG}_IMPLICIT_LIBRARIES
-          OpenMP_${LANG}_IMPLICIT_LINK_DIRS
-          OpenMP_${LANG}_IMPLICIT_FWK_DIRS
-          OpenMP_${LANG}_LOG_VAR
-          "${CMAKE_${LANG}_IMPLICIT_OBJECT_REGEX}"
-        )
-
-        file(APPEND ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeOutput.log
-        "Parsed ${LANG} OpenMP implicit link information from above output:\n${OpenMP_${LANG}_LOG_VAR}\n\n")
-
-        unset(_OPENMP_LIB_NAMES)
-        foreach(_OPENMP_IMPLICIT_LIB IN LISTS OpenMP_${LANG}_IMPLICIT_LIBRARIES)
-          get_filename_component(_OPENMP_IMPLICIT_LIB_DIR "${_OPENMP_IMPLICIT_LIB}" DIRECTORY)
-          get_filename_component(_OPENMP_IMPLICIT_LIB_NAME "${_OPENMP_IMPLICIT_LIB}" NAME)
-          get_filename_component(_OPENMP_IMPLICIT_LIB_PLAIN "${_OPENMP_IMPLICIT_LIB}" NAME_WE)
-          string(REGEX REPLACE "([][+.*?()^$])" "\\\\\\1" _OPENMP_IMPLICIT_LIB_PLAIN_ESC "${_OPENMP_IMPLICIT_LIB_PLAIN}")
-          string(REGEX REPLACE "([][+.*?()^$])" "\\\\\\1" _OPENMP_IMPLICIT_LIB_PATH_ESC "${_OPENMP_IMPLICIT_LIB}")
-          if(NOT ( "${_OPENMP_IMPLICIT_LIB}" IN_LIST CMAKE_${LANG}_IMPLICIT_LINK_LIBRARIES
-            OR "${CMAKE_${LANG}_STANDARD_LIBRARIES}" MATCHES "(^| )(-Wl,)?(-l)?(${_OPENMP_IMPLICIT_LIB_PLAIN_ESC}|${_OPENMP_IMPLICIT_LIB_PATH_ESC})( |$)"
-            OR "${CMAKE_${LANG}_LINK_EXECUTABLE}" MATCHES "(^| )(-Wl,)?(-l)?(${_OPENMP_IMPLICIT_LIB_PLAIN_ESC}|${_OPENMP_IMPLICIT_LIB_PATH_ESC})( |$)" ) )
-            if(_OPENMP_IMPLICIT_LIB_DIR)
-              set(OpenMP_${_OPENMP_IMPLICIT_LIB_PLAIN}_LIBRARY "${_OPENMP_IMPLICIT_LIB}" CACHE FILEPATH
-                "Path to the ${_OPENMP_IMPLICIT_LIB_PLAIN} library for OpenMP")
-            else()
-              find_library(OpenMP_${_OPENMP_IMPLICIT_LIB_PLAIN}_LIBRARY
-                NAMES "${_OPENMP_IMPLICIT_LIB_NAME}"
-                DOC "Path to the ${_OPENMP_IMPLICIT_LIB_PLAIN} library for OpenMP"
-                HINTS ${OpenMP_${LANG}_IMPLICIT_LINK_DIRS}
-                CMAKE_FIND_ROOT_PATH_BOTH
-                NO_DEFAULT_PATH
-              )
-            endif()
-            mark_as_advanced(OpenMP_${_OPENMP_IMPLICIT_LIB_PLAIN}_LIBRARY)
-            list(APPEND _OPENMP_LIB_NAMES ${_OPENMP_IMPLICIT_LIB_PLAIN})
-          endif()
-        endforeach()
-        set("${OPENMP_LIB_NAMES_VAR}" "${_OPENMP_LIB_NAMES}" PARENT_SCOPE)
-      else()
-        # We do not know how to extract implicit OpenMP libraries for this compiler.
-        # Assume that it handles them automatically, e.g. the Intel Compiler on
-        # Windows should put the dependency in its object files.
-        set("${OPENMP_LIB_NAMES_VAR}" "" PARENT_SCOPE)
-      endif()
-
+    if(TRUE)
       find_library(OpenMP_libomp_LIBRARY
         NAMES iomp5
         HINTS ${CMAKE_${LANG}_IMPLICIT_LINK_DIRECTORIES}
@@ -537,6 +481,7 @@ foreach(LANG IN LISTS OpenMP_FINDLIST)
     endif()
 
     find_package_handle_standard_args(OpenMP_${LANG}
+      NAME_MISMATCHED
       REQUIRED_VARS OpenMP_${LANG}_FLAGS ${_OPENMP_${LANG}_REQUIRED_LIB_VARS}
       VERSION_VAR OpenMP_${LANG}_VERSION
     )

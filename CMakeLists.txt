@@ -20,7 +20,7 @@ endif()
 find_package(OpenMP REQUIRED)
 
 # Force options here in case cmake emit /usr/local/include
-add_compile_options(-Wall -isystem ${OpenMP_CXX_INCLUDE_DIRS})
+add_compile_options(-Wall -Wno-unused-function -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma -isystem ${OpenMP_CXX_INCLUDE_DIRS})
 
 set(DNNL_CPU_RUNTIME "OMP")
 add_subdirectory(onednn)
@@ -29,7 +29,9 @@ add_subdirectory(onednn)
 # Intel OpenMP denpendency
 
 # Bert Torch inference SUT
-add_library(mlperf_plugins SHARED csrc/init.cpp csrc/linear.cpp csrc/cpu.cpp)
+add_library(mlperf_plugins SHARED
+  csrc/init.cpp csrc/linear.cpp csrc/cpu.cpp csrc/softmax.cpp csrc/i_softmax_tpp.cpp
+  csrc/i_gelu_tpp.cpp csrc/activation.cpp csrc/i_layernorm_tpp.cpp csrc/normalization.cpp)
 set_property(TARGET mlperf_plugins PROPERTY CXX_STANDARD 14)
 
 message("Extra Torch C++ flags: ${TORCH_CXX_FLAGS}")
@@ -46,6 +48,8 @@ else()
 endif()
 
 target_compile_options(mlperf_plugins BEFORE PUBLIC ${TORCH_CXX_FLAGS} ${OpenMP_CXX_OPTIONS})
-target_include_directories(mlperf_plugins SYSTEM PUBLIC include onednn/include ${TORCH_INCLUDE_DIRS})
+target_include_directories(mlperf_plugins SYSTEM PUBLIC include ${TORCH_INCLUDE_DIRS})
+target_include_directories(mlperf_plugins PRIVATE onednn/include libxsmm/include)
+target_link_directories(mlperf_plugins PRIVATE ${PROJECT_SOURCE_DIR}/libxsmm/lib)
 target_link_libraries(dnnl PUBLIC ${OpenMP_CXX_LIBRARIES})
-target_link_libraries(mlperf_plugins "${TORCH_LIBRARIES}" dnnl ${OpenMP_CXX_LIBRARIES})
+target_link_libraries(mlperf_plugins "${TORCH_LIBRARIES}" dnnl xsmm ${OpenMP_CXX_LIBRARIES})

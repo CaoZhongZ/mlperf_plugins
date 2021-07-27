@@ -1,3 +1,4 @@
+#pragma once
 #include <torch/torch.h>
 
 namespace intel_mlperf {
@@ -8,16 +9,16 @@ at::Tensor linear(
     const c10::optional<double> scale,
     const c10::optional<int64_t> zero);
 
-at::Tensor prepack_linear_weight(
-    const at::Tensor& weight);
-
-at::Tensor linear_add_(
-    at::Tensor& self,
+at::Tensor linear_gelu(
     const at::Tensor& input,
     const at::Tensor& weight,
-    const c10::optional<torch::Tensor>& bias,
+    const c10::optional<at::Tensor>& bias,
+    const c10::optional<double> M,
     const c10::optional<double> scale,
     const c10::optional<int64_t> zero);
+
+at::Tensor prepack_linear_weight(
+    const at::Tensor& weight);
 
 at::Tensor baddbmm_out_(
     const at::Tensor& self,
