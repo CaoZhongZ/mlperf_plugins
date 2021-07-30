@@ -8,7 +8,8 @@ namespace intel_mlperf {
 at::Tensor i_softmax(
     const at::Tensor& input,
     const at::Tensor& att_mask,
-    double M, double oscale) {
+    const at::Scalar& M,
+    const at::Scalar& oscale) {
 
   auto in_sz = input.sizes();
   auto batch = std::accumulate(
@@ -23,7 +24,7 @@ at::Tensor i_softmax(
 
   compute.ref(
       output.data_ptr(), input.data_ptr(),
-      att_mask.data_ptr(), M, oscale);
+      att_mask.data_ptr(), M.toFloat(), oscale.toFloat());
 
   return output;
 }

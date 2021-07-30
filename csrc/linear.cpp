@@ -267,8 +267,8 @@ at::Tensor linear(
     const at::Tensor& input,
     const at::Tensor& weight,
     const c10::optional<at::Tensor>& bias,
-    const c10::optional<double> scale,
-    const c10::optional<int64_t> zero) {
+    const c10::optional<at::Scalar>& scale,
+    const c10::optional<at::Scalar>& zero) {
 
   static thread_local primitive_cache cached(cache_capacity);
 
@@ -335,7 +335,7 @@ at::Tensor linear(
   auto m_weight = memory(*compute_ext.weights_desc(), g_cpu(), weight.data_ptr());
 
   // Use runtime output scale
-  float _scale = scale.value_or(1.);
+  float _scale = scale.value_or(at::Scalar(1.f)).toFloat();
   memory m_oscale({{1}, dt::f32, {1}}, g_cpu(), &_scale);
 
   memory::dims dst_sz;
@@ -388,9 +388,9 @@ at::Tensor linear_gelu(
     const at::Tensor& input,
     const at::Tensor& weight,
     const c10::optional<at::Tensor>& bias,
-    const c10::optional<double> M,
-    const c10::optional<double> scale,
-    const c10::optional<int64_t> zero) {
+    const c10::optional<at::Scalar>& M,
+    const c10::optional<at::Scalar>& scale,
+    const c10::optional<at::Scalar>& zero) {
 
   static thread_local primitive_cache cached(cache_capacity);
 
@@ -462,7 +462,7 @@ at::Tensor linear_gelu(
   auto m_weight = memory(*compute_ext.weights_desc(), g_cpu(), weight.data_ptr());
 
   // Use runtime output scale
-  float _scale = M.value_or(1.);
+  float _scale = M.value_or(1.).toFloat();
   memory m_oscale({{1}, dt::f32, {1}}, g_cpu(), &_scale);
 
   memory::dims dst_sz;
@@ -516,8 +516,8 @@ at::Tensor baddbmm_out_onednn(
     const at::Tensor& self,
     const at::Tensor& batch1,
     const at::Tensor& batch2,
-    double beta,
-    double alpha);
+    const at::Scalar& beta,
+    const at::Scalar& alpha);
 
 template <int N> struct parallel_gemm {
   template <typename T>
@@ -581,8 +581,8 @@ at::Tensor baddbmm_out_gemm_s8s8s32_(
     const at::Tensor& self,
     const at::Tensor& batch1,
     const at::Tensor& batch2,
-    double beta,
-    double alpha) {
+    float beta,
+    float alpha) {
   // matricis are 2 dimension, others are constructs
   auto start_dim = dim - 2;
 
@@ -651,13 +651,15 @@ at::Tensor baddbmm_out_(
     const at::Tensor& self,
     const at::Tensor& batch1,
     const at::Tensor& batch2,
-    double beta,
-    double alpha) {
+    const at::Scalar& beta,
+    const at::Scalar& alpha) {
   switch (batch1.dim()) {
   case 4:
-    return baddbmm_out_gemm_s8s8s32_<4>(self, batch1, batch2, beta, alpha);
+    return baddbmm_out_gemm_s8s8s32_<4>(
+        self, batch1, batch2, beta.toFloat(), alpha.toFloat());
   case 3:
-    return baddbmm_out_gemm_s8s8s32_<3>(self, batch1, batch2, beta, alpha);
+    return baddbmm_out_gemm_s8s8s32_<3>(
+        self, batch1, batch2, beta.toFloat(), alpha.toFloat());
   }
   throw std::exception();
 }
@@ -666,8 +668,8 @@ at::Tensor matmul_out_(
     const at::Tensor& self,
     const at::Tensor& batch1,
     const at::Tensor& batch2,
-    c10::optional<double> oscale,
-    c10::optional<int64_t> zero) {
+    const c10::optional<at::Scalar>& oscale,
+    const c10::optional<at::Scalar>& zero) {
 
   auto self_dims = dims_from(self.sizes());
   auto b1_dims = dims_from(batch1.sizes());
@@ -701,7 +703,7 @@ at::Tensor matmul_out_(
   memory b1_m(*ext_compute.src_desc(), g_cpu(), batch1.data_ptr());
   memory b2_m(*ext_compute.weights_desc(), g_cpu(), batch2.data_ptr());
 
-  float scale = oscale.value_or(1.0);
+  float scale = oscale.value_or(1.0).toFloat();
   memory m_oscale({{1}, dt::f32, {1}}, g_cpu(), &scale);
 
   auto scratch = scratch_tensor_from(ext_compute.scratchpad_desc());

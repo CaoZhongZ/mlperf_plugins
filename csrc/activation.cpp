@@ -4,7 +4,10 @@
 #include "i_gelu_tpp.hpp"
 
 namespace intel_mlperf {
-at::Tensor i_gelu (const at::Tensor& input, double M, double oscale) {
+at::Tensor i_gelu (
+    const at::Tensor& input,
+    const at::Scalar& M,
+    const at::Scalar& oscale) {
   auto sizes = input.sizes();
 
   auto batch = sizes[0] * sizes[1];
@@ -23,7 +26,7 @@ at::Tensor i_gelu (const at::Tensor& input, double M, double oscale) {
     auto pin = reinterpret_cast<int32_t (*)[line]>(in);
     auto pout = reinterpret_cast<int8_t (*)[line]>(out);
 
-    i_gelu_tpp<16>::ref(pout[b], pin[b], M, oscale, line);
+    i_gelu_tpp<16>::ref(pout[b], pin[b], M.toFloat(), oscale.toFloat(), line);
   }
 
   return output;

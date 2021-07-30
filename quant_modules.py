@@ -243,10 +243,11 @@ class TensorQuantizer(nn.Module):
 
     @property
     def scale(self):
-        return 127. / self._get_amax()
+        return torch.tensor(127., dtype=torch.float32) / self._get_amax()
 
     def forward(self, input):
-        output = round_and_clamp(input * self.scale, -127., 127.)
+        bound = torch.tensor(127., dtype=torch.float32)
+        output = round_and_clamp(input * self.scale, -bound, bound)
         output = output.type(torch.int8)
         return output
 
@@ -264,10 +265,12 @@ class LinearWeightQuantizer(nn.Module):
         return amax
 
     def scale(self, input):
-        return 127. / self._get_amax(input)
+        bound = torch.tensor(127., dtype=torch.float32)
+        return bound / self._get_amax(input)
 
     def forward(self, input):
-        output = round_and_clamp(input * self.scale(input), -127., 127.)
+        bound = torch.tensor(127., dtype=torch.float32)
+        output = round_and_clamp(input * self.scale(input), -bound, bound)
         output = output.type(torch.int8)
         return P.prepack_linear_weight(output)
 
@@ -284,9 +287,18 @@ class QuantLinear(nn.Linear):
         self._input_quantizer = TensorQuantizer(True)
         self._weight_quantizer = LinearWeightQuantizer(False)
 
-    def forward(self, input, o_scale : float, o_zero : int = 0):
+    def forward(self, input):
+        quant_input = self._input_quantizer(input)
         quant_weight = self._weight_quantizer(self.weight)
-        output = P.linear(input, quant_weight, self.bias, o_scale, o_zero)
+
+        i_scale = self._input_quantizer.scale
+        w_scale = self._weight_quantizer.scale(self.weight)
+
+        scale = i_scale * w_scale
+        bias = self.bias * scale
+
+        output = P.linear(quant_input, quant_weight, bias, None, None)
+        output = output / scale
 
         return output
 

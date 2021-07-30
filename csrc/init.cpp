@@ -8,10 +8,10 @@
 
 TORCH_LIBRARY(intel_mlperf, m) {
   m.def(
-    "linear(Tensor input, Tensor weight, Tensor ? bias, float ? scale, int ? zero) -> Tensor",
+    "linear(Tensor input, Tensor weight, Tensor ? bias, Scalar ? scale, Scalar ? zero) -> Tensor",
     intel_mlperf::linear);
   m.def(
-    "linear_gelu(Tensor input, Tensor weight, Tensor ? bias, float ? M, float ? scale, int ? zero) -> Tensor",
+    "linear_gelu(Tensor input, Tensor weight, Tensor ? bias, Scalar ? M, Scalar ? scale, Scalar ? zero) -> Tensor",
     intel_mlperf::linear_gelu);
   m.def(
       "prepack_linear_weight(Tensor weight) -> Tensor",
@@ -20,17 +20,17 @@ TORCH_LIBRARY(intel_mlperf, m) {
   m.def("matmul_out_", intel_mlperf::matmul_out_);
   m.def("reorder_test(Tensor input) -> Tensor", intel_mlperf::reorder_test);
   m.def(
-      "i_softmax(Tensor input, Tensor att_mask, float M, float oscale) -> Tensor",
+      "i_softmax(Tensor input, Tensor att_mask, Scalar M, Scalar oscale) -> Tensor",
       intel_mlperf::i_softmax
       );
   m.def(
-      "i_gelu(Tensor input, float M, float oscale) -> Tensor",
+      "i_gelu(Tensor input, Scalar M, Scalar oscale) -> Tensor",
       intel_mlperf::i_gelu);
   m.def(
-      "i_residual_layernorm(Tensor input1, Tensor input2, Tensor weight, Tensor bias, float scale_1, float scale_2, float oscale, float ? eps) -> Tensor",
+      "i_residual_layernorm(Tensor input1, Tensor input2, Tensor weight, Tensor bias, Scalar scale_1, Scalar scale_2, Scalar oscale, Scalar ? eps) -> Tensor",
       intel_mlperf::i_residual_layernorm);
   m.def(
-      "i_layernorm(Tensor input, Tensor weight, Tensor bias, float oscale, float ? eps) -> Tensor",
+      "i_layernorm(Tensor input, Tensor weight, Tensor bias, Scalar oscale, Scalar ? eps) -> Tensor",
       intel_mlperf::i_layernorm);
 }
 

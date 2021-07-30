@@ -7,12 +7,15 @@ at::Tensor i_residual_layernorm (
     const at::Tensor& input2,
     const at::Tensor& weight,
     const at::Tensor& bias,
-    double scale_1, double scale_2,
-    double oscale, c10::optional<double> eps);
+    const at::Scalar& scale_1,
+    const at::Scalar& scale_2,
+    const at::Scalar& oscale,
+    const c10::optional<at::Scalar>& eps);
 
 at::Tensor i_layernorm (
     const at::Tensor& input,
     const at::Tensor& weight,
     const at::Tensor& bias,
-    double oscale, c10::optional<double> eps);
+    const at::Scalar& oscale,
+    const c10::optional<at::Scalar>& eps);
 }
