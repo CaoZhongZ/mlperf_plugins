@@ -52,4 +52,4 @@ target_include_directories(mlperf_plugins SYSTEM PUBLIC include ${TORCH_INCLUDE_
 target_include_directories(mlperf_plugins PRIVATE onednn/include libxsmm/include)
 target_link_directories(mlperf_plugins PRIVATE ${PROJECT_SOURCE_DIR}/libxsmm/lib)
 target_link_libraries(dnnl PUBLIC ${OpenMP_CXX_LIBRARIES})
-target_link_libraries(mlperf_plugins "${TORCH_LIBRARIES}" dnnl xsmm ${OpenMP_CXX_LIBRARIES})
+target_link_libraries(mlperf_plugins "${TORCH_LIBRARIES}" dnnl ${OpenMP_CXX_LIBRARIES})
