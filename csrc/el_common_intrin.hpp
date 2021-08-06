@@ -2,8 +2,8 @@
 #include <immintrin.h>
 
 static inline __m512i _mm512_scale_minmax_i8_ps(__m512 x, __m512 vS) {
-  auto max = _mm512_set1_ps(127);
-  auto min = _mm512_set1_ps(-127);
+  auto max = _mm512_set1_ps(127.f);
+  auto min = _mm512_set1_ps(-127.f);
 
   auto m = _mm512_roundscale_ps(x * vS, _MM_FROUND_TO_NEAREST_INT);
   auto c1 = _mm512_min_ps(m, max);

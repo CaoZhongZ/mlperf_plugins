@@ -12,10 +12,8 @@ at::Tensor i_softmax(
     const at::Scalar& oscale) {
 
   auto in_sz = input.sizes();
-  auto batch = std::accumulate(
-      in_sz.begin(), in_sz.end() - 2, 1, std::multiplies<int64_t>());
 
-  i_softmax_tpp<16> compute(batch, *(in_sz.end() -2), *(in_sz.end()-1));
+  i_softmax_tpp<16> compute(in_sz[0], in_sz[1], in_sz[2], in_sz[3]);
 
   // We only have ref yet.
   auto output = at::empty(in_sz,

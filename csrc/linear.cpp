@@ -384,6 +384,10 @@ at::Tensor linear(
   return output;
 }
 
+//
+// M is for middle output
+// scale is for final output
+//
 at::Tensor linear_gelu(
     const at::Tensor& input,
     const at::Tensor& weight,
@@ -415,18 +419,15 @@ at::Tensor linear_gelu(
   primitive compute;
 
   auto key = concat(
-      _src_sz, weight_sz,
-      bias ? true : false,
+      _src_sz, weight_sz, (bool)bias,
       bias ? bias->scalar_type() : at::ScalarType::Undefined,
-      scale ? true : false
+      (bool)M, (bool)scale
   );
 
   auto i_compute = cached.find(key);
 
   if (i_compute == cached.end()) {
     auto src_md = md_from(_input);
-
-    /* TODO: adjust weight md according to input */
     auto weight_md = md_from(weight);
     auto bias_md = bias ? md_from(bias.value()) : memory::desc();
     memory::desc dst_md(_dst_sz, scale ? dt::s8 : dt::f32, tag::ab);
@@ -438,7 +439,8 @@ at::Tensor linear_gelu(
         prop_kind::forward_inference, src_md, weight_md, dst_md);
 
     post_ops po;
-    po.append_eltwise(1.0f, algorithm::eltwise_gelu_erf, 0.f, 0.f);
+    po.append_eltwise(
+        scale.value_or(1.f).toFloat(), algorithm::eltwise_gelu_erf, 0.f, 0.f);
 
     primitive_attr attr;
     attr.set_post_ops(po);
@@ -446,6 +448,7 @@ at::Tensor linear_gelu(
     if (M) {
       attr.set_output_scales(0, {DNNL_RUNTIME_F32_VAL});
     }
+
     // slow
     auto pd = inner_product_forward::primitive_desc(desc, attr, g_cpu());
     compute = inner_product_forward(pd);
@@ -462,8 +465,8 @@ at::Tensor linear_gelu(
   auto m_weight = memory(*compute_ext.weights_desc(), g_cpu(), weight.data_ptr());
 
   // Use runtime output scale
-  float _scale = M.value_or(1.).toFloat();
-  memory m_oscale({{1}, dt::f32, {1}}, g_cpu(), &_scale);
+  float _M = M.value_or(1.).toFloat();
+  memory m_oscale({{1}, dt::f32, {1}}, g_cpu(), &_M);
 
   memory::dims dst_sz;
   dst_sz.reserve(input.dim());
@@ -481,32 +484,33 @@ at::Tensor linear_gelu(
 
   // What happens when zero
   auto scratch_md = get_scratch_md(compute);
-  auto scratch_tensor =  scratch_tensor_from(compute_ext.scratchpad_desc());
+  auto scratch_tensor = scratch_tensor_from(compute_ext.scratchpad_desc());
   memory m_scratch(*scratch_md, g_cpu(), scratch_tensor.data_ptr());
 
   stream s(g_cpu());
 
+  std::unordered_map<int, memory> args {
+    {DNNL_ARG_SRC, m_input},
+    {DNNL_ARG_WEIGHTS, m_weight},
+    {DNNL_ARG_DST, m_dst},
+    {DNNL_ARG_ATTR_OUTPUT_SCALES, m_oscale},
+    {DNNL_ARG_SCRATCHPAD, m_scratch}
+  };
+
   if (bias) {
     auto m_bias = memory(
         *compute_ext.weights_desc(1), g_cpu(), bias.value().data_ptr());
-
-    compute.execute(s, {
-      {DNNL_ARG_SRC, m_input},
-      {DNNL_ARG_WEIGHTS, m_weight},
-      {DNNL_ARG_BIAS, m_bias},
-      {DNNL_ARG_DST, m_dst},
-      {DNNL_ARG_ATTR_OUTPUT_SCALES, m_oscale},
-      {DNNL_ARG_SCRATCHPAD, m_scratch}
-    });
-  } else {
-    compute.execute(s, {
-      {DNNL_ARG_SRC, m_input},
-      {DNNL_ARG_WEIGHTS, m_weight},
-      {DNNL_ARG_DST, m_dst},
-      {DNNL_ARG_ATTR_OUTPUT_SCALES, m_oscale},
-      {DNNL_ARG_SCRATCHPAD, m_scratch}
-    });
+    args.emplace(std::make_pair(DNNL_ARG_BIAS, m_bias));
   }
+
+  if (scale) {
+    auto _scale = scale.value().toFloat();
+    auto m_scale = memory(
+       {{1}, dt::f32, {1}}, g_cpu(), &_scale);
+    args.emplace(std::make_pair(DNNL_ARG_SCALE, m_scale));
+  }
+
+  compute.execute(s, args);
 
   return output;
 }

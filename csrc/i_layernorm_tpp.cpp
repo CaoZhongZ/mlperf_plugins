@@ -70,7 +70,11 @@ void i_layernorm_tpp<16>::ref(
   auto vmean2 = _mm512_mean_reduce_ps(vsum2, rl);
   auto vvar2 =  vmean2 - vmean * vmean + veps;
 
+#ifdef usercp
   auto r_vvar = _mm512_rsqrt14_ps(vvar2);
+#else
+  auto r_vvar = 1. / _mm512_sqrt_ps(vvar2);
+#endif
   auto voscale = _mm512_set1_ps(oscale);
   auto* pout = reinterpret_cast<int8_t *>(out);
   // pass 2

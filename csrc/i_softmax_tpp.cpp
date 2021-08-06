@@ -1,6 +1,7 @@
 #include <cstdint>
 #include <immintrin.h>
 #include "i_softmax_tpp.hpp"
+#include "el_common_intrin.hpp"
 
 namespace intel_mlperf {
 
@@ -22,6 +23,32 @@ static inline __m512 snd_order_poly_exp(
   const auto c2 = _mm512_set1_ps(c[2]);
 
   auto y = (f * c0 + c1) * f + c2;
+  auto exp = _mm512_scalef_ps(y, z);
+
+  return exp;
+}
+
+static inline __m256 third_order_poly_exp(
+    __m256 z, __m256 f, const float c[]) {
+  const auto c0 = _mm256_set1_ps(c[0]);
+  const auto c1 = _mm256_set1_ps(c[1]);
+  const auto c2 = _mm256_set1_ps(c[2]);
+  const auto c3 = _mm256_set1_ps(c[3]);
+
+  auto y = ((f * c0 + c1) * f + c2) * f + c3;
+  auto exp = _mm256_scalef_ps(y, z);
+
+  return exp;
+}
+
+static inline __m512 third_order_poly_exp(
+    __m512 z, __m512 f, const float c[]) {
+  const auto c0 = _mm512_set1_ps(c[0]);
+  const auto c1 = _mm512_set1_ps(c[1]);
+  const auto c2 = _mm512_set1_ps(c[2]);
+  const auto c3 = _mm512_set1_ps(c[3]);
+
+  auto y = ((f * c0 + c1) * f + c2) * f + c3;
   auto exp = _mm512_scalef_ps(y, z);
 
   return exp;
@@ -49,6 +76,30 @@ static inline __m512 exp_ps_0_1(__m512 x) {
   auto f = x1 - z;
 
   return snd_order_poly_exp(z, f, _c);
+}
+
+static inline __m256 exp_ps_zero_one_third(__m256 x) {
+  const auto log2e = _mm256_set1_ps(1.442695f);
+  const auto half = _mm256_set1_ps(0.5f);
+  const float _c [] = {0.05550410866f, 0.15697034396f, 0.49454875509f, 0.70654502287f};
+  
+  auto x1 = x * log2e + half;
+  auto z = _mm256_floor_ps(x1);
+  auto f = x1 - z;
+
+  return third_order_poly_exp(z, f, _c);
+}
+
+static inline __m512 exp_ps_zero_one_third(__m512 x) {
+  const auto log2e = _mm512_set1_ps(1.442695f);
+  const auto half = _mm512_set1_ps(0.5f);
+  const float _c [] = {0.05550410866f, 0.15697034396f, 0.49454875509f, 0.70654502287f};
+  
+  auto x1 = x * log2e + half;
+  auto z = _mm512_floor_ps(x1);
+  auto f = x1 - z;
+
+  return third_order_poly_exp(z, f, _c);
 }
 
 // Smaller range [-ln2, 0)
@@ -396,24 +447,19 @@ struct i32_scale_softmax_scale_i8<16, N> {
 
 #   pragma unroll N
     for (int i = 0; i < N; ++ i) {
+#ifdef usercp
+      vsum[i] = voscale * _mm512_rcp14_ps(_mm512_add_reduce_ps(vsum[i]));
+#else
       vsum[i] = voscale / _mm512_add_reduce_ps(vsum[i]);
+#endif
     }
-
-    auto __127 = _mm512_set1_ps(127.);
-    auto __n127 = _mm512_set1_ps(-127.);
 
     auto pout = reinterpret_cast<int8_t (*)[ld]>(out);
     for (d2 = 0; d2 < ld/16 * 16; d2 += 16) {
 #     pragma unroll N
       for (int i = 0; i < N; ++ i) {
         auto l = _mm512_loadu_ps(&exp_out[i][d2]);
-        auto m = _mm512_mul_round_ps(
-            l, vsum[i], _MM_FROUND_NO_EXC | _MM_FROUND_TO_NEAREST_INT);
-
-        // Clip [-127, 127]
-        auto c1 = _mm512_min_ps(m, __127);
-        auto c2 = _mm512_max_ps(c1, __n127);
-        auto i_4 = _mm512_cvtps_epi32(c2);
+        auto i_4 = _mm512_scale_minmax_i8_ps(l, vsum[i]);
         _mm512_mask_cvtepi32_storeu_epi8(&pout[i][d2], 0xffff, i_4);
       }
     }
@@ -424,12 +470,7 @@ struct i32_scale_softmax_scale_i8<16, N> {
 #     pragma unroll N
       for (int i = 0; i < N; ++ i) {
         auto l = _mm512_loadu_ps(&exp_out[i][d2]);
-        auto m = _mm512_mul_round_ps(
-            l, vsum[i], _MM_FROUND_NO_EXC | _MM_FROUND_TO_NEAREST_INT);
-        // clip
-        auto c1 = _mm512_min_ps(m, __127);
-        auto c2 = _mm512_max_ps(c1, __n127);
-        auto i_4 = _mm512_cvtps_epi32(c2);
+        auto i_4 = _mm512_scale_minmax_i8_ps(l, vsum[i]);
         _mm512_mask_cvtepi32_storeu_epi8(&pout[i][d2], mask, i_4);
       }
     }
@@ -503,14 +544,17 @@ static inline void f_i32_scale_softmax_scale_i8(
 template <int vec_length>
 void i_softmax_tpp<vec_length>::ref(
     void *out, void *in, void *att_mask, float M, float oscale) {
-  auto* p_att_mask = reinterpret_cast<float *>(att_mask);
-
 # pragma omp parallel for
   for (auto d0 = 0; d0 < dim0; ++ d0) {
-    auto* p_in = reinterpret_cast<int32_t (*)[dim1 * dim2]>(in);
-    auto* p_out = reinterpret_cast<int8_t (*)[dim1 * dim2]>(out);
-    f_i32_scale_softmax_scale_i8(
-        p_out[d0], p_in[d0], p_att_mask, M, oscale, dim2, dim1);
+    for (auto d1 = 0; d1 < dim1; ++ d1) {
+
+      auto* p_att_mask = reinterpret_cast<float (*)[1 * 1 * dim3]>(att_mask);
+      auto* p_in = reinterpret_cast<int32_t (*)[dim1][dim2 * dim3]>(in);
+      auto* p_out = reinterpret_cast<int8_t (*)[dim1][dim2 * dim3]>(out);
+
+      f_i32_scale_softmax_scale_i8(
+          p_out[d0][d1], p_in[d0][d1], p_att_mask[d0], M, oscale, dim3, dim2);
+    }
   }
   /*
 # pragma omp parallel for collapse(2)

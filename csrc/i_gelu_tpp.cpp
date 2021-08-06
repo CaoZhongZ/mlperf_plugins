@@ -105,4 +105,70 @@ void i_gelu_tpp<vec_length>::ref(
 
 template void i_gelu_tpp<16>::ref(void *, void *, float, float, int64_t);
 
+template <int vec_l, int N>
+struct f32_scale_i8 {
+  inline static void run(
+      int8_t *out, float *in, float oscale);
+  inline static void run(
+      int8_t *out, float *in, float oscale, __mmask16 tail);
+};
+
+template <int N>
+struct f32_scale_i8<16, N> {
+  static constexpr int64_t batch = 16 * N;
+
+  inline static void run(
+      int8_t *out, float *in, float oscale) {
+    auto vS = _mm512_set1_ps(oscale);
+
+#   pragma unroll N
+    for (int i = 0; i < N; ++ i) {
+      auto f = _mm512_load_ps(&in[i * 16]);
+      auto z = _mm512_scale_minmax_i8_ps(f, vS);
+      _mm512_mask_cvtepi32_storeu_epi8(&out[i * 16], 0xffff, z);
+    }
+  }
+
+  inline static void run(
+      int8_t *out, int32_t *in, float oscale, __mmask16 tail) {
+    auto vS = _mm512_set1_ps(oscale);
+
+#   pragma unroll N -1
+    for (int i = 0; i < N -1; ++ i) {
+      auto f = _mm512_load_ps(&in[i * 16]);
+      auto z = _mm512_scale_minmax_i8_ps(f, vS);
+      _mm512_mask_cvtepi32_storeu_epi8(&out[i * 16], 0xffff, z);
+    }
+    {
+      auto i = N-1;
+      auto zero = _mm512_setzero_ps();
+      auto f = _mm512_mask_loadu_ps(zero, tail, &in[i * 16]);
+      auto z = _mm512_scale_minmax_i8_ps(f, vS);
+      _mm512_mask_cvtepi32_storeu_epi8(&out[i * 16], tail, z);
+    }
+  }
+};
+
+
+//
+// expecting nelem is integer multiply of batch, expand functionality in
+// the furture
+//
+template <int vec_length>
+void i_identity_tpp<vec_length>::ref(
+    int8_t *out, float *in, float oscale, int64_t nelem) {
+
+  auto constexpr b = i32_scale_gelu_scale_i8<vec_length, 16>::batch;
+  auto n_batch = nelem / b;
+
+  auto pin = in;
+  auto pout = reinterpret_cast<int8_t *>(out);
+
+  for (int p = 0; p < n_batch; ++ p, pout += b, pin += b) {
+    f32_scale_i8<vec_length, 16>::run(pout, pin, oscale);
+  }
+}
+
+template void i_identity_tpp<16>::ref(int8_t *, float *, float, int64_t);
+
 }

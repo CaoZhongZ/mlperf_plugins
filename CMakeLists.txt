@@ -19,6 +19,11 @@ endif()
 
 find_package(OpenMP REQUIRED)
 
+OPTION(USERCP "usercp" ON) # Enabled by default
+IF(USERCP)
+    ADD_DEFINITIONS(-Dusercp)
+ENDIF(USERCP)
+
 # Force options here in case cmake emit /usr/local/include
 add_compile_options(-Wall -Wno-unused-function -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma -isystem ${OpenMP_CXX_INCLUDE_DIRS})
 

@@ -34,7 +34,7 @@ at::Tensor i_layernorm (
       auto* pout = reinterpret_cast<int8_t (*)[reduce_l]>(out);
 
       i_layernorm_tpp<16>::ref(
-          pout[i], pin[i], pw, pb, oscale.toFloat(), reduce_l, eps.value_or(1e-5).toFloat());
+          pout[i], pin[i], pw, pb, oscale.toFloat(), reduce_l, eps.value_or(1e-12).toFloat());
     }
   } else if (data_type == c10::ScalarType::Float) {
 #   pragma omp parallel for
@@ -45,7 +45,7 @@ at::Tensor i_layernorm (
       auto* pout = reinterpret_cast<int8_t (*)[reduce_l]>(out);
 
       i_layernorm_tpp<16>::ref(
-          pout[i], pin[i], pw, pb, oscale.toFloat(), reduce_l, eps.value_or(1e-5).toFloat());
+          pout[i], pin[i], pw, pb, oscale.toFloat(), reduce_l, eps.value_or(1e-12).toFloat());
     }
   } // throw here
 
@@ -87,9 +87,47 @@ at::Tensor i_residual_layernorm (
     i_residual_layernorm_tpp<16>::ref(
         pout[i], psrc1[i], psrc2[i],
         pw, pb, scale_1.toFloat(), scale_2.toFloat(),
-        oscale.toFloat(), reduce_l, eps.value_or(1e-5).toFloat());
+        oscale.toFloat(), reduce_l, eps.value_or(1e-12).toFloat());
   }
 
   return output;
 }
+
+at::Tensor i_residual_layernorm_ (
+    at::Tensor& input1,
+    const at::Tensor& input2,
+    const at::Tensor& weight,
+    const at::Tensor& bias,
+    const at::Scalar& scale_1,
+    const at::Scalar& scale_2,
+    const at::Scalar& oscale,
+    const c10::optional<at::Scalar>& eps) {
+  auto in_sz = input1.sizes();
+
+  auto batch = in_sz[0] * in_sz[1];
+  auto reduce_l = in_sz[2];
+
+  auto* src1 = input1.data_ptr();
+  auto* src2 = input2.data_ptr();
+  auto* w = weight.data_ptr();
+  auto* b = bias.data_ptr();
+  auto* out = src1;
+
+# pragma omp parallel for
+  for (auto i = 0; i < batch; ++i) {
+    auto* psrc1 = reinterpret_cast<int8_t (*)[reduce_l]>(src1);
+    auto* psrc2 = reinterpret_cast<int8_t (*)[reduce_l]>(src2);
+    auto* pw = reinterpret_cast<float *>(w);
+    auto* pb = reinterpret_cast<float *>(b);
+    auto* pout = reinterpret_cast<int8_t (*)[reduce_l]>(out);
+
+    i_residual_layernorm_tpp<16>::ref(
+        pout[i], psrc1[i], psrc2[i],
+        pw, pb, scale_1.toFloat(), scale_2.toFloat(),
+        oscale.toFloat(), reduce_l, eps.value_or(1e-12).toFloat());
+  }
+
+  return input1;
+}
+
 }
