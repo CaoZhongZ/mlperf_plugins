@@ -8,6 +8,11 @@ at::Tensor i_gelu (
     const at::Scalar& M,
     const at::Scalar& oscale);
 
+at::Tensor i_gelu_ (
+    at::Tensor& input,
+    const at::Scalar& M,
+    const at::Scalar& oscale);
+
 at::Tensor i_identity (
     const at::Tensor& input,
     const c10::optional<at::Scalar>& M,

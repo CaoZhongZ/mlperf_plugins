@@ -24,6 +24,10 @@ TORCH_LIBRARY(intel_mlperf, m) {
       intel_mlperf::i_softmax
       );
   m.def(
+      "i_softmax_(Tensor(a!) input, Tensor att_mask, Scalar M, Scalar oscale) -> Tensor(a!)",
+      intel_mlperf::i_softmax_
+      );
+  m.def(
       "i_gelu(Tensor input, Scalar M, Scalar oscale) -> Tensor",
       intel_mlperf::i_gelu);
   m.def(

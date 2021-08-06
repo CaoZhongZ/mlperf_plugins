@@ -26,4 +26,21 @@ at::Tensor i_softmax(
 
   return output;
 }
+
+at::Tensor i_softmax_(
+    at::Tensor& self,
+    const at::Tensor& att_mask,
+    const at::Scalar& M,
+    const at::Scalar& oscale) {
+
+  auto in_sz = self.sizes();
+
+  i_softmax_tpp<16> compute(in_sz[0], in_sz[1], in_sz[2], in_sz[3]);
+
+  compute.ref(
+      self.data_ptr(), self.data_ptr(),
+      att_mask.data_ptr(), M.toFloat(), oscale.toFloat());
+
+  return self;
+}
 }

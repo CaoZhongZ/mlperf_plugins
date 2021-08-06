@@ -32,6 +32,30 @@ at::Tensor i_gelu (
   return output;
 }
 
+at::Tensor i_gelu_ (
+    at::Tensor& self,
+    const at::Scalar& M,
+    const at::Scalar& oscale) {
+  auto sizes = self.sizes();
+
+  auto batch = sizes[0] * sizes[1];
+  auto line  = sizes[2];
+
+  auto *in = self.data_ptr();
+  auto *out = in;
+
+# pragma omp parallel for
+  for (auto b = 0; b < batch; ++b) {
+    // Move out will cause Apple Clang crash
+    auto pin = reinterpret_cast<int32_t (*)[line]>(in);
+    auto pout = reinterpret_cast<int8_t (*)[line]>(out);
+
+    i_gelu_tpp<16>::ref(pout[b], pin[b], M.toFloat(), oscale.toFloat(), line);
+  }
+
+  return self;
+}
+
 at::Tensor i_identity(
     const at::Tensor& input,
     const c10::optional<at::Scalar>& M,
