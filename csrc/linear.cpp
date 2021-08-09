@@ -8,6 +8,7 @@
 #include <dnnl.hpp>
 #include <numeric>
 #include <immintrin.h>
+#include <unordered_map>
 #include "cpu.hpp"
 #include "linear.hpp"
 #include "lru_cache.hpp"
@@ -47,6 +48,8 @@ memory::data_type cast(at::ScalarType type) {
       return dt::f32;
     case at::ScalarType::Int:
       return dt::s32;
+    case at::ScalarType::Byte:
+      return dt::u8;
     default:
       return dt::undef;
   }
@@ -97,6 +100,15 @@ T concat(const T& t1, at::ScalarType d) {
 
 template <typename T>
 T concat(const T& t1, bool b) {
+  T t;
+  t.insert(t.end(), t1.begin(), t1.end());
+  t.push_back(b);
+
+  return t;
+}
+
+template <typename T>
+T concat(const T& t1, int b) {
   T t;
   t.insert(t.end(), t1.begin(), t1.end());
   t.push_back(b);
@@ -294,9 +306,9 @@ at::Tensor linear(
 
   auto key = concat(
       _src_sz, weight_sz,
-      bias ? true : false,
+      (bool)bias,
       bias ? bias->scalar_type() : at::ScalarType::Undefined,
-      scale ? true : false
+      (bool)scale, (bool)zero
   );
 
   auto i_compute = cached.find(key);
@@ -309,11 +321,15 @@ at::Tensor linear(
     auto bias_md = bias ? md_from(bias.value()) : memory::desc();
     memory::desc dst_md(_dst_sz, scale ? dt::s8 : dt::s32, tag::ab);
 
+    // Singnaling skip compensation in BRGEMM
+    prop_kind prop = zero ? prop_kind::forward_training
+      : prop_kind::forward_inference;
+
     auto desc = bias ?
       inner_product_forward::desc(
-        prop_kind::forward_inference, src_md, weight_md, bias_md, dst_md) :
+        prop, src_md, weight_md, bias_md, dst_md) :
       inner_product_forward::desc(
-        prop_kind::forward_inference, src_md, weight_md, dst_md);
+        prop, src_md, weight_md, dst_md);
 
     primitive_attr attr;
     if (scale) {
@@ -421,7 +437,7 @@ at::Tensor linear_gelu(
   auto key = concat(
       _src_sz, weight_sz, (bool)bias,
       bias ? bias->scalar_type() : at::ScalarType::Undefined,
-      (bool)M, (bool)scale
+      (bool)M, (bool)scale, (bool)zero
   );
 
   auto i_compute = cached.find(key);
@@ -431,16 +447,21 @@ at::Tensor linear_gelu(
     auto weight_md = md_from(weight);
     auto bias_md = bias ? md_from(bias.value()) : memory::desc();
     memory::desc dst_md(_dst_sz, scale ? dt::s8 : dt::f32, tag::ab);
+    // Singnaling skip compensation in BRGEMM
+    prop_kind prop = zero ? prop_kind::forward_training
+      : prop_kind::forward_inference;
 
     auto desc = bias ?
       inner_product_forward::desc(
-        prop_kind::forward_inference, src_md, weight_md, bias_md, dst_md) :
+        prop, src_md, weight_md, bias_md, dst_md) :
       inner_product_forward::desc(
-        prop_kind::forward_inference, src_md, weight_md, dst_md);
+        prop, src_md, weight_md, dst_md);
 
     post_ops po;
+    // TODO: 1.f will disable runtime scaling
+    // Use scale selectively open/close this
     po.append_eltwise(
-        scale.value_or(1.f).toFloat(), algorithm::eltwise_gelu_erf, 0.f, 0.f);
+        2.2f, algorithm::eltwise_gelu_erf_2dts, 0.f, 0.f);
 
     primitive_attr attr;
     attr.set_post_ops(po);
@@ -503,12 +524,10 @@ at::Tensor linear_gelu(
     args.emplace(std::make_pair(DNNL_ARG_BIAS, m_bias));
   }
 
-  if (scale) {
-    auto _scale = scale.value().toFloat();
-    auto m_scale = memory(
-       {{1}, dt::f32, {1}}, g_cpu(), &_scale);
-    args.emplace(std::make_pair(DNNL_ARG_SCALE, m_scale));
-  }
+  auto _scale = scale.value_or(1.f).toFloat();
+  auto m_scale = memory(
+     {{1}, dt::f32, {1}}, g_cpu(), &_scale);
+  args.emplace(std::make_pair(DNNL_ARG_SCALE, m_scale));
 
   compute.execute(s, args);
 
@@ -679,7 +698,9 @@ at::Tensor matmul_out_(
   auto b1_dims = dims_from(batch1.sizes());
   auto b2_dims = dims_from(batch2.sizes());
 
-  auto key = concat(self_dims, b1_dims, b2_dims, (bool)oscale);
+  auto key = concat(
+      self_dims, b1_dims, b2_dims, (bool)oscale, (bool)zero,
+      (int)cast(batch1.scalar_type()));
 
   static thread_local primitive_cache cached(cache_capacity);
   primitive compute;
@@ -695,6 +716,11 @@ at::Tensor matmul_out_(
       attr.set_output_scales(0, {DNNL_RUNTIME_F32_VAL});
 
     matmul::desc matmul_d(b1_md, b2_md, self_md);
+
+    matmul_d.data.prop_kind =
+      zero ? dnnl_prop_kind_t::dnnl_forward_training:
+      dnnl_prop_kind_t::dnnl_forward_inference;
+
     matmul::primitive_desc matmul_pd(matmul_d, attr, g_cpu());
     compute = matmul::primitive(matmul_pd);
     cached.insert(std::make_pair(key, compute));
@@ -714,13 +740,15 @@ at::Tensor matmul_out_(
   memory m_scratch(*ext_compute.scratchpad_desc(), g_cpu(), scratch.data_ptr());
   stream s(g_cpu());
 
-  compute.execute(s, {
+  std::unordered_map<int, memory> args {
     {DNNL_ARG_SRC, b1_m},
     {DNNL_ARG_WEIGHTS, b2_m},
     {DNNL_ARG_ATTR_OUTPUT_SCALES, m_oscale},
     {DNNL_ARG_DST, self_m},
     {DNNL_ARG_SCRATCHPAD, m_scratch}
-  });
+  };
+
+  compute.execute(s, args);
   return self;
 }
 

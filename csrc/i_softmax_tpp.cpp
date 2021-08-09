@@ -374,6 +374,12 @@ struct i32_scale_softmax_scale_i8 {
       void *out, void *in, void *att_mask, float M, float oscale, int64_t ld);
 };
 
+template <int vec_length, int N>
+struct i32_scale_attlen_softmax_scale_i8 {
+  inline static void run(
+      void *out, void *in, int32_t att_len, float M, float oscale, int64_t ld);
+};
+
 template <int N>
 struct i32_scale_softmax_scale_i8<16, N> {
   inline static void run(
@@ -430,15 +436,13 @@ struct i32_scale_softmax_scale_i8<16, N> {
       vsum[i] = _mm512_setzero_ps();
     }
 
-    alignas(64) float exp_out[N][ld_16];
-
     for (d2 = 0; d2 < ld_16; d2 += 16) {
 #     pragma unroll N
       for (int i = 0; i < N; ++ i) {
         auto f = _mm512_loadu_ps(&dout[i][d2]);
         auto d = f - vmax[i];
         auto e = exp_ps_0_1(d);
-        _mm512_storeu_ps(&exp_out[i][d2], e);
+        _mm512_storeu_ps(&dout[i][d2], e);
         vsum[i] += e;
       }
     }
@@ -458,7 +462,7 @@ struct i32_scale_softmax_scale_i8<16, N> {
     for (d2 = 0; d2 < ld/16 * 16; d2 += 16) {
 #     pragma unroll N
       for (int i = 0; i < N; ++ i) {
-        auto l = _mm512_loadu_ps(&exp_out[i][d2]);
+        auto l = _mm512_loadu_ps(&dout[i][d2]);
         auto i_4 = _mm512_scale_minmax_i8_ps(l, vsum[i]);
         _mm512_mask_cvtepi32_storeu_epi8(&pout[i][d2], 0xffff, i_4);
       }
@@ -469,13 +473,116 @@ struct i32_scale_softmax_scale_i8<16, N> {
       __mmask16 mask = (1<<rem) -1;
 #     pragma unroll N
       for (int i = 0; i < N; ++ i) {
-        auto l = _mm512_loadu_ps(&exp_out[i][d2]);
+        auto l = _mm512_loadu_ps(&dout[i][d2]);
         auto i_4 = _mm512_scale_minmax_i8_ps(l, vsum[i]);
         _mm512_mask_cvtepi32_storeu_epi8(&pout[i][d2], mask, i_4);
       }
     }
   }
 };
+
+template <int N>
+struct i32_scale_attlen_softmax_scale_i8<16, N> {
+  inline static void run(
+      void *out, void *in, int32_t att_len, float M, float oscale, int64_t ld) {
+    auto pin = reinterpret_cast<int32_t (*)[ld]>(in);
+    // assert(att_len <= ld);
+    auto att_l16 = (att_len + 15) / 16 * 16;
+
+    // Scratch for max subtraction
+    alignas(64) float dout [N][att_l16];
+
+    auto neg_large = _mm512_set1_epi32(-500000);
+    auto vscale = _mm512_set1_ps(M);
+
+    __m512 vmax[N];
+
+#   pragma unroll N
+    for (int i = 0; i < N; ++i) {
+      vmax[i] = _mm512_setzero_ps();
+    }
+
+    int d2;
+    for (d2 = 0; d2 < att_len / 16 * 16; d2 += 16) {
+
+#     pragma unroll N
+      for (int i = 0; i < N; ++i) {
+        auto l = _mm512_loadu_si512(&pin[i][d2]);
+        auto f = _mm512_cvtepi32_ps(l) * vscale;
+        vmax[i] = _mm512_max_ps(f, vmax[i]);
+        _mm512_storeu_ps(&dout[i][d2], f);
+      }
+    }
+
+    if (d2 < att_len) {
+      int rem = att_len - d2;
+      __mmask16 mask = (1<<rem) -1;
+#     pragma unroll N
+      for (int i = 0; i < N; ++i) {
+        auto l = _mm512_mask_loadu_epi32(neg_large, mask, &pin[i][d2]);
+        auto f = _mm512_cvtepi32_ps(l) * vscale;
+        vmax[i] = _mm512_max_ps(f, vmax[i]);
+        _mm512_storeu_ps(&dout[i][d2], f);
+      }
+    }
+
+    __m512 vsum[N];
+
+#   pragma unroll N
+    for (int i = 0; i < N; ++ i) {
+      vmax[i] = _mm512_max_reduce_ps(vmax[i]);
+      vsum[i] = _mm512_setzero_ps();
+    }
+
+    for (d2 = 0; d2 < att_l16; d2 += 16) {
+#     pragma unroll N
+      for (int i = 0; i < N; ++ i) {
+        auto f = _mm512_loadu_ps(&dout[i][d2]);
+        auto d = f - vmax[i];
+        auto e = exp_ps_0_1(d);
+        _mm512_storeu_ps(&dout[i][d2], e);
+        vsum[i] += e;
+      }
+    }
+
+    auto voscale = _mm512_set1_ps(oscale);
+
+#   pragma unroll N
+    for (int i = 0; i < N; ++ i) {
+#ifdef usercp
+      vsum[i] = voscale * _mm512_rcp14_ps(_mm512_add_reduce_ps(vsum[i]));
+#else
+      vsum[i] = voscale / _mm512_add_reduce_ps(vsum[i]);
+#endif
+    }
+
+    auto pout = reinterpret_cast<int8_t (*)[ld]>(out);
+    auto zero = _mm512_setzero_ps();
+
+    for (d2 = 0; d2 < ld/16*16; d2 += 16) {
+#     pragma unroll N
+      for (int i = 0; i < N; ++ i) {
+        auto l = d2 < att_l16 ? _mm512_loadu_ps(&dout[i][d2])
+          : zero;
+        auto i_4 = _mm512_scale_minmax_i8_ps(l, vsum[i]);
+        _mm512_mask_cvtepi32_storeu_epi8(&pout[i][d2], 0xffff, i_4);
+      }
+    }
+
+    if (d2 < ld) {
+      int rem = ld -d2;
+      __mmask16 mask = (1<<rem) -1;
+#     pragma unroll N
+      for (int i = 0; i < N; ++ i) {
+        auto l = d2 < att_l16 ? _mm512_loadu_ps(&dout[i][d2])
+          : zero;
+        auto i_4 = _mm512_scale_minmax_i8_ps(l, vsum[i]);
+        _mm512_mask_cvtepi32_storeu_epi8(&pout[i][d2], mask, i_4);
+      }
+    }
+  }
+};
+
 
 static inline void f_i32_scale_softmax_scale_i8(
     int8_t *out, int32_t *in, float *att_mask,
@@ -541,10 +648,75 @@ static inline void f_i32_scale_softmax_scale_i8(
   f_i32_scale_softmax_scale_i8(pout[l1], pin[l1], att_mask, M, oscale, ld, l2);
 }
 
+static inline void f_i32_scale_softmax_scale_i8(
+    int8_t *out, int32_t *in, int32_t att_len,
+    float M, float oscale, int64_t ld, int l) {
+  switch(l) {
+  case 1:
+    return i32_scale_attlen_softmax_scale_i8<16, 1>::run(out, in, att_len,
+        M, oscale, ld);
+  case 2:
+    return i32_scale_attlen_softmax_scale_i8<16, 2>::run(out, in, att_len,
+        M, oscale, ld);
+  case 3:
+    return i32_scale_attlen_softmax_scale_i8<16, 3>::run(out, in, att_len,
+        M, oscale, ld);
+  case 4:
+    return i32_scale_attlen_softmax_scale_i8<16, 4>::run(out, in, att_len,
+        M, oscale, ld);
+  case 5:
+    return i32_scale_attlen_softmax_scale_i8<16, 5>::run(out, in, att_len,
+        M, oscale, ld);
+  case 6:
+    return i32_scale_attlen_softmax_scale_i8<16, 6>::run(out, in, att_len,
+        M, oscale, ld);
+  case 7:
+    return i32_scale_attlen_softmax_scale_i8<16, 7>::run(out, in, att_len,
+        M, oscale, ld);
+  case 8:
+    return i32_scale_attlen_softmax_scale_i8<16, 8>::run(out, in, att_len,
+        M, oscale, ld);
+  case 9:
+    return i32_scale_attlen_softmax_scale_i8<16, 9>::run(out, in, att_len,
+        M, oscale, ld);
+  case 10:
+    return i32_scale_attlen_softmax_scale_i8<16, 10>::run(out, in, att_len,
+        M, oscale, ld);
+  case 11:
+    return i32_scale_attlen_softmax_scale_i8<16, 11>::run(out, in, att_len,
+        M, oscale, ld);
+  case 12:
+    return i32_scale_attlen_softmax_scale_i8<16, 12>::run(out, in, att_len,
+        M, oscale, ld);
+  case 13:
+    return i32_scale_attlen_softmax_scale_i8<16, 13>::run(out, in, att_len,
+        M, oscale, ld);
+  case 14:
+    return i32_scale_attlen_softmax_scale_i8<16, 14>::run(out, in, att_len,
+        M, oscale, ld);
+  case 15:
+    return i32_scale_attlen_softmax_scale_i8<16, 15>::run(out, in, att_len,
+        M, oscale, ld);
+  case 16:
+    return i32_scale_attlen_softmax_scale_i8<16, 16>::run(out, in, att_len,
+        M, oscale, ld);
+  }
+
+  auto l1 = l/2;
+  auto l2 = l - l1;
+
+  auto pin = reinterpret_cast<int32_t (*)[ld]>(in);
+  auto pout = reinterpret_cast<int8_t (*)[ld]>(out);
+
+  f_i32_scale_softmax_scale_i8(pout[0], pin[0], att_len, M, oscale, ld, l1);
+  f_i32_scale_softmax_scale_i8(pout[l1], pin[l1], att_len, M, oscale, ld, l2);
+}
+
+
 template <int vec_length>
 void i_softmax_tpp<vec_length>::ref(
-    void *out, void *in, void *att_mask, float M, float oscale) {
-# pragma omp parallel for
+    void *out, void *in, float *att_mask, float M, float oscale) {
+# pragma omp parallel for collapse(2)
   for (auto d0 = 0; d0 < dim0; ++ d0) {
     for (auto d1 = 0; d1 < dim1; ++ d1) {
 
@@ -556,30 +728,28 @@ void i_softmax_tpp<vec_length>::ref(
           p_out[d0][d1], p_in[d0][d1], p_att_mask[d0], M, oscale, dim3, dim2);
     }
   }
-  /*
-# pragma omp parallel for collapse(2)
-  for (auto d0 = 0; d0 < dim0; ++ d0){
-    for (auto d1 = 0; d1 < dim1; ++ d1) {
-
-      auto* l_in = p_in[d0][d1];
-      auto* l_out = p_out[d0][d1];
-
-      // Stack scratch L1 dynamic allocation
-      alignas(64) float int_2_float[dim2];
-      alignas(64) float exponentials[dim2];
-
-      auto max = scale_add_and_max<vec_length>(
-          int_2_float, M, l_in, p_att_mask, dim2);
-      auto sum = subtract_and_exp_reduce<vec_length>(
-          exponentials, max, int_2_float, dim2);
-
-      scale_quant_out<vec_length>(l_out, sum, oscale, exponentials, dim2);
-    }
-  }
-  */
 }
 
-template void i_softmax_tpp<8>::ref(void *, void *, void *, float, float);
-template void i_softmax_tpp<16>::ref(void *, void *, void *, float, float);
+// Accept attention mask as attention length
+template <int vec_length>
+void i_softmax_tpp<vec_length>::ref(
+    void *out, void *in, int32_t* att_lens, float M, float oscale) {
+# pragma omp parallel for collapse(2)
+  for (auto d0 = 0; d0 < dim0; ++ d0) {
+    for (auto d1 = 0; d1 < dim1; ++ d1) {
+
+      auto* p_in = reinterpret_cast<int32_t (*)[dim1][dim2 * dim3]>(in);
+      auto* p_out = reinterpret_cast<int8_t (*)[dim1][dim2 * dim3]>(out);
+
+      f_i32_scale_softmax_scale_i8(
+          p_out[d0][d1], p_in[d0][d1], att_lens[d0], M, oscale, dim3, dim2);
+    }
+  }
+}
+
+template void i_softmax_tpp<8>::ref(void *, void *, float *, float, float);
+template void i_softmax_tpp<16>::ref(void *, void *, float *, float, float);
+template void i_softmax_tpp<8>::ref(void *, void *, int32_t *, float, float);
+template void i_softmax_tpp<16>::ref(void *, void *, int32_t *, float, float);
 
 }
