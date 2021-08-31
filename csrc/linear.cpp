@@ -72,13 +72,40 @@ enum class behavior {
   query, infer, plain, blocking
 };
 
+// jit_brgemm_inner_product_utils.cpp "get_desired_weights_tag"
+tag match_prepacked_weight_tag(c10::ArrayRef<int64_t> sizes) {
+  tag fit_tag = tag::undef;
+
+  if (sizes.size() == 5
+      && sizes[2] == 4
+      && sizes[4] == 4) {
+    switch (sizes[3]) {
+    case 64:
+      fit_tag = tag::AB4b64a4b;
+    case 32:
+      fit_tag = tag::AB4b32a4b;
+    case 16:
+      fit_tag = tag::AB4b16a4b;
+    }
+  } else if (sizes.size() == 5 && sizes[2] == 16
+      && sizes[4] == 4) {
+    switch (sizes[3]) {
+    case 64:
+      fit_tag = tag::OI16i64o4i;
+    case 32:
+      fit_tag = tag::OI16i32o4i;
+    case 16:
+      fit_tag = tag::OI16i16o4i;
+    }
+  }
+
+  return fit_tag;
+}
+
 memory::dims dims_from(c10::ArrayRef<int64_t> sizes,
     behavior b = behavior::plain) {
   if (b == behavior::infer) {
-    if (sizes.size() == 5
-        && sizes[2] == 4
-        && sizes[3] == 64
-        && sizes[4] == 4) {
+    if (match_prepacked_weight_tag(sizes) != tag::undef) {
       size_t A = 0, B = 1, a = 3, b[2] = {2,4};
       auto dim0 = sizes[A] * sizes[a];
       auto dim1 = sizes[B] * sizes[b[0]] * sizes[b[1]];
@@ -139,11 +166,7 @@ memory::desc md_from(const at::Tensor& tensor, behavior b = behavior::plain) {
     return memory::desc(m_sz, data_type, tag::any);
   } else {
     // Warning: Encoding conflict possible!
-    if (m_sz.size() == 5
-        && m_sz[2] == 4
-        && m_sz[3] == 64
-        && m_sz[4] == 4) {
-      // Blocking format encoding, AB 4b 64a 4b
+    if (match_prepacked_weight_tag(m_sz) != tag::undef) {
       size_t A = 0, B = 1, a = 3, b[2] = {2,4};
       auto dim0 = m_sz[A] * m_sz[a];
       auto dim1 = m_sz[B] * m_sz[b[0]] * m_sz[b[1]];
@@ -192,10 +215,7 @@ memory::dims block_to_plain(memory::desc& desc) {
 at::Tensor prepack_linear_weight (
     const at::Tensor& weight) {
   auto m_sz = weight.sizes();
-  if (m_sz.size() == 5
-      && m_sz[2] == 4
-      && m_sz[3] == 64
-      && m_sz[4] == 4)
+  if (match_prepacked_weight_tag(m_sz) != tag::undef)
     return weight;
 
   auto w_sz = dims_from(weight.sizes());
