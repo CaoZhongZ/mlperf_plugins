@@ -9,6 +9,7 @@
 #include <numeric>
 #include <immintrin.h>
 #include <unordered_map>
+#include <fstream>
 #include "cpu.hpp"
 #include "linear.hpp"
 #include "lru_cache.hpp"
@@ -302,122 +303,129 @@ at::Tensor linear(
     const c10::optional<at::Scalar>& scale,
     const c10::optional<at::Scalar>& zero) {
 
-  static thread_local primitive_cache cached(cache_capacity);
+  std::ostream ss(nullptr);
+  ss.rdbuf(std::cout.rdbuf());
+  {
+    torch::autograd::profiler::RecordProfile guard(ss);
+    static thread_local primitive_cache cached(cache_capacity);
 
-  _mm_setcsr(0x9fc0);
-  auto src_sz = dims_from(input.sizes());
-  at::Tensor _input;
+    _mm_setcsr(0x9fc0);
+    auto src_sz = dims_from(input.sizes());
+    at::Tensor _input;
 
-  // Squeeze front
-  if (src_sz.size() > 2) {
-    auto _1d = std::accumulate(src_sz.begin(), src_sz.end() - 1, 1,
-        std::multiplies<int64_t>());
-    memory::dims src_2d_sz {_1d, *(src_sz.end() -1)};
-    _input = input.view(src_2d_sz);
-  } else {
-    _input = input;
-  }
-  auto _src_sz = dims_from(_input.sizes());
-  auto weight_sz = dims_from(weight.sizes(), behavior::infer);
-  auto bias_sz = bias ? dims_from(bias.value().sizes()) : memory::dims();
-  memory::dims _dst_sz {_src_sz[0], weight_sz[0]};
-
-  primitive compute;
-
-  auto key = concat(
-      _src_sz, weight_sz,
-      (bool)bias,
-      bias ? bias->scalar_type() : at::ScalarType::Undefined,
-      (bool)scale, (bool)zero
-  );
-
-  auto i_compute = cached.find(key);
-
-  if (i_compute == cached.end()) {
-    auto src_md = md_from(_input);
-
-    /* TODO: adjust weight md according to input */
-    auto weight_md = md_from(weight);
-    auto bias_md = bias ? md_from(bias.value()) : memory::desc();
-    memory::desc dst_md(_dst_sz, scale ? dt::s8 : dt::s32, tag::ab);
-
-    // Singnaling skip compensation in BRGEMM
-    prop_kind prop = zero ? prop_kind::forward_training
-      : prop_kind::forward_inference;
-
-    auto desc = bias ?
-      inner_product_forward::desc(
-        prop, src_md, weight_md, bias_md, dst_md) :
-      inner_product_forward::desc(
-        prop, src_md, weight_md, dst_md);
-
-    primitive_attr attr;
-    if (scale) {
-      attr.set_output_scales(0, {DNNL_RUNTIME_F32_VAL});
+    // Squeeze front
+    if (src_sz.size() > 2) {
+      auto _1d = std::accumulate(src_sz.begin(), src_sz.end() - 1, 1,
+          std::multiplies<int64_t>());
+      memory::dims src_2d_sz {_1d, *(src_sz.end() -1)};
+      _input = input.view(src_2d_sz);
+    } else {
+      _input = input;
     }
-    // slow
-    auto pd = inner_product_forward::primitive_desc(desc, attr, g_cpu());
-    compute = inner_product_forward(pd);
-    // end of slow
+    auto _src_sz = dims_from(_input.sizes());
+    auto weight_sz = dims_from(weight.sizes(), behavior::infer);
+    auto bias_sz = bias ? dims_from(bias.value().sizes()) : memory::dims();
+    memory::dims _dst_sz {_src_sz[0], weight_sz[0]};
 
-    // save what we have done
-    cached.insert(std::make_pair(key, compute));
-  } else {
-    compute = i_compute->second;
+    primitive compute;
+
+    auto key = concat(
+        _src_sz, weight_sz,
+        (bool)bias,
+        bias ? bias->scalar_type() : at::ScalarType::Undefined,
+        (bool)scale, (bool)zero
+    );
+
+    auto i_compute = cached.find(key);
+
+    if (i_compute == cached.end()) {
+      auto src_md = md_from(_input);
+
+      /* TODO: adjust weight md according to input */
+      auto weight_md = md_from(weight);
+      auto bias_md = bias ? md_from(bias.value()) : memory::desc();
+      memory::desc dst_md(_dst_sz, scale ? dt::s8 : dt::s32, tag::ab);
+
+      // Singnaling skip compensation in BRGEMM
+      prop_kind prop = zero ? prop_kind::forward_training
+        : prop_kind::forward_inference;
+
+      auto desc = bias ?
+        inner_product_forward::desc(
+          prop, src_md, weight_md, bias_md, dst_md) :
+        inner_product_forward::desc(
+          prop, src_md, weight_md, dst_md);
+
+      primitive_attr attr;
+      if (scale) {
+        attr.set_output_scales(0, {DNNL_RUNTIME_F32_VAL});
+      }
+      // slow
+      auto pd = inner_product_forward::primitive_desc(desc, attr, g_cpu());
+      compute = inner_product_forward(pd);
+      // end of slow
+
+      // save what we have done
+      cached.insert(std::make_pair(key, compute));
+    } else {
+      compute = i_compute->second;
+    }
+
+    primitive_ext compute_ext(compute);
+    auto m_input = memory(*compute_ext.src_desc(), g_cpu(), input.data_ptr());
+    auto m_weight = memory(*compute_ext.weights_desc(), g_cpu(), weight.data_ptr());
+
+    // Use runtime output scale
+    float _scale = scale.value_or(at::Scalar(1.f)).toFloat();
+    memory m_oscale({{1}, dt::f32, {1}}, g_cpu(), &_scale);
+
+    memory::dims dst_sz;
+    dst_sz.reserve(input.dim());
+    dst_sz.insert(dst_sz.end(), src_sz.begin(), src_sz.end() -1);
+    dst_sz.push_back(weight_sz[0]);
+
+    auto output = at::empty(
+        dst_sz,
+        at::TensorOptions()
+          .dtype(cast(scale ? dt::s8 : dt::s32))
+          .memory_format(c10::MemoryFormat::Contiguous)
+    );
+
+    auto m_dst = memory(*compute_ext.dst_desc(), g_cpu(), output.data_ptr());
+
+    // What happens when zero
+    auto scratch_md = get_scratch_md(compute);
+    auto scratch_tensor =  scratch_tensor_from(compute_ext.scratchpad_desc());
+    memory m_scratch(*scratch_md, g_cpu(), scratch_tensor.data_ptr());
+
+    stream s(g_cpu());
+
+    if (bias) {
+      auto m_bias = memory(
+          *compute_ext.weights_desc(1), g_cpu(), bias.value().data_ptr());
+
+      compute.execute(s, {
+        {DNNL_ARG_SRC, m_input},
+        {DNNL_ARG_WEIGHTS, m_weight},
+        {DNNL_ARG_BIAS, m_bias},
+        {DNNL_ARG_DST, m_dst},
+        {DNNL_ARG_ATTR_OUTPUT_SCALES, m_oscale},
+        {DNNL_ARG_SCRATCHPAD, m_scratch}
+      });
+    } else {
+      compute.execute(s, {
+        {DNNL_ARG_SRC, m_input},
+        {DNNL_ARG_WEIGHTS, m_weight},
+        {DNNL_ARG_DST, m_dst},
+        {DNNL_ARG_ATTR_OUTPUT_SCALES, m_oscale},
+        {DNNL_ARG_SCRATCHPAD, m_scratch}
+      });
+    }
+    return output;
   }
+  
 
-  primitive_ext compute_ext(compute);
-  auto m_input = memory(*compute_ext.src_desc(), g_cpu(), input.data_ptr());
-  auto m_weight = memory(*compute_ext.weights_desc(), g_cpu(), weight.data_ptr());
-
-  // Use runtime output scale
-  float _scale = scale.value_or(at::Scalar(1.f)).toFloat();
-  memory m_oscale({{1}, dt::f32, {1}}, g_cpu(), &_scale);
-
-  memory::dims dst_sz;
-  dst_sz.reserve(input.dim());
-  dst_sz.insert(dst_sz.end(), src_sz.begin(), src_sz.end() -1);
-  dst_sz.push_back(weight_sz[0]);
-
-  auto output = at::empty(
-      dst_sz,
-      at::TensorOptions()
-        .dtype(cast(scale ? dt::s8 : dt::s32))
-        .memory_format(c10::MemoryFormat::Contiguous)
-  );
-
-  auto m_dst = memory(*compute_ext.dst_desc(), g_cpu(), output.data_ptr());
-
-  // What happens when zero
-  auto scratch_md = get_scratch_md(compute);
-  auto scratch_tensor =  scratch_tensor_from(compute_ext.scratchpad_desc());
-  memory m_scratch(*scratch_md, g_cpu(), scratch_tensor.data_ptr());
-
-  stream s(g_cpu());
-
-  if (bias) {
-    auto m_bias = memory(
-        *compute_ext.weights_desc(1), g_cpu(), bias.value().data_ptr());
-
-    compute.execute(s, {
-      {DNNL_ARG_SRC, m_input},
-      {DNNL_ARG_WEIGHTS, m_weight},
-      {DNNL_ARG_BIAS, m_bias},
-      {DNNL_ARG_DST, m_dst},
-      {DNNL_ARG_ATTR_OUTPUT_SCALES, m_oscale},
-      {DNNL_ARG_SCRATCHPAD, m_scratch}
-    });
-  } else {
-    compute.execute(s, {
-      {DNNL_ARG_SRC, m_input},
-      {DNNL_ARG_WEIGHTS, m_weight},
-      {DNNL_ARG_DST, m_dst},
-      {DNNL_ARG_ATTR_OUTPUT_SCALES, m_oscale},
-      {DNNL_ARG_SCRATCHPAD, m_scratch}
-    });
-  }
-
-  return output;
+  
 }
 
 //
