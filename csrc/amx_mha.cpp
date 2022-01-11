@@ -71,6 +71,14 @@ status_t reorder_k_to_buffer(const int8_t* k_ptr, int row, int col, int stride) 
     return status_t::success;
 }
 
+status_t amx_qk_gemm(const int8_t* q_ptr, const int8_t* k_ptr, const int* a_ptr, MHA_desc& mhad) {
+    /*
+    do single qk gemm
+    */
+   return status_t::success;
+
+}
+
 at::Tensor amx_mha(
     const at::Tensor& qkv,
     const at::Tensor& attpro,
@@ -83,14 +91,35 @@ at::Tensor amx_mha(
     auto bs = qkv_sizes[0];
     auto sl = qkv_sizes[1];
     auto stride = qkv_sizes[2];
+    std::vector<int64_t> strides {sl * stride, stride, 1};
     auto qkv_block = stride / 3;
     int head_size = 64;
+    int head_num = qkv_block / head_size;
+
+    MHA_desc mhad(bs, sl, stride, head_num, head_size);
 
     int8_t* origin_ptr = (int8_t*)qkv.data_ptr();
     auto k_ptr = origin_ptr + qkv_block;
-
+    
+    /* test reorder k to buffer function */
     reorder_k_to_buffer(k_ptr, sl, head_size, stride);
+    
+    auto amx_status = amx_init();
+    if (!amx_status) {
+        printf("amx init failed!\n");
+        return qkv;
+    }
+    mha_init_tile(&tilecfg, mhad);
 
+    // do amx gemm
+    for (int i = 0; i < bs; i++) // batch size
+    {
+        for (int j = 0; j < head_num; j++) // head num
+        {
+            auto cur_q_ptr = i * strides[0] + j * head_size;
+            auto cur_k_ptr = cur_q_ptr + qkv_block;
+        }
+    }
 
     auto options = torch::TensorOptions().dtype(torch::kInt8);
     auto k_buffer_tensor = torch::from_blob((void*)k_buffer, {16, sl*4}, {MAX_SL*4, 1}, options);

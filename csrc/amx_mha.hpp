@@ -21,6 +21,8 @@
 #define TMM7	7
 
 #define MAX_SL 384
+#define MAX_TILE_ROW 16
+#define MAX_TILE_COLSB 64
 
 namespace intel_mlperf {
 
@@ -46,20 +48,28 @@ struct tilebuffer {
 
 class MHA_desc {
 public:
-    MHA_desc(int sl) : sl_(sl) {
-        nq_block = 2;
-        nk_block = 2;
-        q_block = 16;
-        k_block = 16;
-        q_colsb = 64;
-        k_colsb = 64;
+    MHA_desc(int bs, int sl, int stride, int head_num, int head_size) 
+    : batch_size_(bs),
+      sl_(sl),
+      head_num_(head_num),
+      head_size_(head_size) {
+        nq_block = (sl / MAX_TILE_ROW >= 2) ? 2 : 1;
+        nk_block = nq_block;
+        q_block = MAX_TILE_ROW;
+        k_block = MAX_TILE_ROW;
+        q_colsb = MAX_TILE_COLSB;
+        k_colsb = MAX_TILE_COLSB;
         q_tail = sl_ % q_block;
         is_q_tail = (q_tail == 0) ? false : true;
+
+        nb_row = is_q_tail ? (sl / MAX_TILE_ROW + 1) : (sl / MAX_TILE_ROW);
 
         // note: typesize is for s8s8s32 only
         typesize_Q = 1;
         typesize_K = 1;
         typesize_Q = 4;
+
+        strides_ = {sl_ * stride, stride, 1};
     };
     
     int get_q_ntile(int nb) {
@@ -90,6 +100,14 @@ public:
     int typesize_Q;
     int typesize_K;
     int typesize_A;
+
+    int nb_row;
+    int nb_col;
+
+    int head_num_;
+    int head_size_;
+    int batch_size_;
+    std::vector<int64_t> strides_;
     // TODO: add k tail ?
 };
 
@@ -124,6 +142,8 @@ inline status_t configure_tile(struct tilecfg *cfg, int ntile, int row, int cols
 status_t reorder_k_to_buffer(const int8_t* k_ptr, int row, int col, int stride);
 
 status_t mha_init_tile(struct tilecfg *cfg, MHA_desc& mhad);
+
+status_t amx_qk_gemm(const int8_t* q_ptr, const int8_t* k_ptr, const int* a_ptr, MHA_desc& mhad);
 
 at::Tensor amx_mha(
     const at::Tensor& qkv,
