@@ -25,7 +25,7 @@ IF(USERCP)
 ENDIF(USERCP)
 
 # Force options here in case cmake emit /usr/local/include
-add_compile_options(-Wall -Wno-unused-function -mavx512cd -mavx512dq -mavx512bw -mavx512vl -mfma -isystem ${OpenMP_CXX_INCLUDE_DIRS})
+add_compile_options(-Wall -Wno-unused-function -march=native -mfma -isystem ${OpenMP_CXX_INCLUDE_DIRS})
 
 set(DNNL_CPU_RUNTIME "OMP")
 add_subdirectory(onednn)
@@ -35,7 +35,7 @@ add_subdirectory(onednn)
 
 # Bert Torch inference SUT
 add_library(mlperf_plugins SHARED
-  csrc/init.cpp csrc/linear.cpp csrc/cpu.cpp csrc/softmax.cpp csrc/i_softmax_tpp.cpp
+  csrc/init.cpp csrc/linear.cpp csrc/cpu.cpp csrc/softmax.cpp csrc/i_softmax_tpp.cpp csrc/amx_mha.cpp
   csrc/i_gelu_tpp.cpp csrc/activation.cpp csrc/i_layernorm_tpp.cpp csrc/normalization.cpp)
 set_property(TARGET mlperf_plugins PROPERTY CXX_STANDARD 14)
 
