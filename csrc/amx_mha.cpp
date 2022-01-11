@@ -43,6 +43,34 @@ status_t mha_init_tile(struct tilecfg *cfg, MHA_desc& mhad) {
     return status_t::success;
 }
 
+status_t reorder_k_to_buffer(const int8_t* k_ptr, int row, int col, int stride) {
+    /*
+    reorder k from sl*64 to 16*sl*4
+    */
+
+    if (row * col > 16 * MAX_SL * 4) {
+        return status_t::failed;
+    }
+
+    // auto ptr = k_ptr;
+    int ks = MAX_SL * 4;
+    int nc_block = col / 4;
+    for (int i = 0; i < row; i++)
+    {
+        int kc = i * 4;
+        for (int j = 0; j < col; j += 4)
+        {
+            int kr = j / 4;
+            
+            k_buffer[kr*ks+kc] = k_ptr[i*stride+j];
+            k_buffer[kr*ks+kc+1] = k_ptr[i*stride+j+1];
+            k_buffer[kr*ks+kc+2] = k_ptr[i*stride+j+2];
+            k_buffer[kr*ks+kc+3] = k_ptr[i*stride+j+3];
+        }
+    }
+    return status_t::success;
+}
+
 at::Tensor amx_mha(
     const at::Tensor& qkv,
     const at::Tensor& attpro,
@@ -55,22 +83,20 @@ at::Tensor amx_mha(
     auto bs = qkv_sizes[0];
     auto sl = qkv_sizes[1];
     auto stride = qkv_sizes[2];
-    auto ld = stride / 3;
+    auto qkv_block = stride / 3;
     int head_size = 64;
 
     int8_t* origin_ptr = (int8_t*)qkv.data_ptr();
-    for (int i = 0; i < 10; i++)
-    {
-        for (int j = 0; j < 10; j++)
-        {
-            std::cout << static_cast<int>(origin_ptr[j]) << "\t";
-        }
-        std::cout << std::endl;
-        origin_ptr += stride;
-        
-    }
+    auto k_ptr = origin_ptr + qkv_block;
+
+    reorder_k_to_buffer(k_ptr, sl, head_size, stride);
+
+
+    auto options = torch::TensorOptions().dtype(torch::kInt8);
+    auto k_buffer_tensor = torch::from_blob((void*)k_buffer, {16, sl*4}, {MAX_SL*4, 1}, options);
+
     std::cout << std::endl;
-    return qkv;
+    return k_buffer_tensor;
 }
 
 }

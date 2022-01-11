@@ -20,6 +20,8 @@
 #define TMM6	6
 #define TMM7	7
 
+#define MAX_SL 384
+
 namespace intel_mlperf {
 
 enum class status_t {success, failed};
@@ -33,6 +35,14 @@ static struct tilecfg {
 	uint8_t tile_rows[8];	/* bytes 48-55 */
 	char rsvd3[8];		    /* bytes 56-63 */
 } __attribute__((packed)) tilecfg;
+
+static int8_t k_buffer[16 * MAX_SL * 4];
+
+// Do we need tile buffer?
+struct tilebuffer {
+    int8_t a_buffer[1024];
+    int8_t b_buffer[1024];
+};
 
 class MHA_desc {
 public:
@@ -80,6 +90,7 @@ public:
     int typesize_Q;
     int typesize_K;
     int typesize_A;
+    // TODO: add k tail ?
 };
 
 inline bool amx_init() {
@@ -109,6 +120,8 @@ inline status_t configure_tile(struct tilecfg *cfg, int ntile, int row, int cols
     cfg->tile_colsb[ntile] = colsb;
     return status_t::success;
 }
+
+status_t reorder_k_to_buffer(const int8_t* k_ptr, int row, int col, int stride);
 
 status_t mha_init_tile(struct tilecfg *cfg, MHA_desc& mhad);
 
