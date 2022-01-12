@@ -52,24 +52,34 @@ public:
     : batch_size_(bs),
       sl_(sl),
       head_num_(head_num),
-      head_size_(head_size) {
+      head_size_(head_size),
+      qkv_stride_(stride) {
+
+        // note: typesize is for s8s8s32 only
+        typesize_Q = 1;
+        typesize_K = 1;
+        typesize_A = 4;
+        
         nq_block = (sl / MAX_TILE_ROW >= 2) ? 2 : 1;
         nk_block = nq_block;
         q_block = MAX_TILE_ROW;
         k_block = MAX_TILE_ROW;
         q_colsb = MAX_TILE_COLSB;
         k_colsb = MAX_TILE_COLSB;
+
+        a_r_block = q_block;
+        a_c_block = k_colsb / typesize_A;
+
         q_tail = sl_ % q_block;
         is_q_tail = (q_tail == 0) ? false : true;
 
-        nb_row = is_q_tail ? (sl / MAX_TILE_ROW + 1) : (sl / MAX_TILE_ROW);
+        // only q has tail, k's tail must be 16*64
+        nbq_row = is_q_tail ? (sl / MAX_TILE_ROW + 1) : (sl / MAX_TILE_ROW);
+        nbk_col = nbq_row;
 
-        // note: typesize is for s8s8s32 only
-        typesize_Q = 1;
-        typesize_K = 1;
-        typesize_Q = 4;
+        att_stride_ = sl_;
 
-        strides_ = {sl_ * stride, stride, 1};
+        strides_ = {sl_ * qkv_stride_, qkv_stride_, 1};
     };
     
     int get_q_ntile(int nb) {
@@ -95,18 +105,22 @@ public:
     int q_colsb;
     int k_block;
     int k_colsb;
+    int a_r_block;
+    int a_c_block;
     bool is_q_tail;
     int q_tail;
     int typesize_Q;
     int typesize_K;
     int typesize_A;
 
-    int nb_row;
-    int nb_col;
+    int nbq_row;
+    int nbk_col;
 
     int head_num_;
     int head_size_;
     int batch_size_;
+    int qkv_stride_;
+    int att_stride_;
     std::vector<int64_t> strides_;
     // TODO: add k tail ?
 };

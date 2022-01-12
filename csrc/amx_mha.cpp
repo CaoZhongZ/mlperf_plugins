@@ -75,7 +75,26 @@ status_t amx_qk_gemm(const int8_t* q_ptr, const int8_t* k_ptr, const int* a_ptr,
     /*
     do single qk gemm
     */
-   return status_t::success;
+
+    for (int i = 0; i < mhad.nbq_row; i++)
+    {
+        int q_block = (mhad.is_q_tail && i == mhad.nbq_row - 1) ? mhad.q_block : mhad.q_tail;
+        auto cur_q_ptr = q_ptr + i * q_block * mhad.qkv_stride_;
+        for (int j = 0; j < mhad.nbk_col; j++) 
+        {
+            // single tile first
+            int k_block = mhad.k_block;
+            auto cur_k_ptr = k_ptr + j * k_block;
+            auto cur_a_ptr = a_ptr + i * mhad.a_r_block * mhad.att_stride_ + j * mhad.a_c_block;
+            _tile_loadd(TMM4, cur_q_ptr, mhad.qkv_stride_);
+            _tile_loadd(TMM6, cur_k_ptr, MAX_SL*4);
+
+            __tile_dpbssd<TMM0, TMM4, TMM6>();
+            _tile_stored(TMM0, cur_a_ptr, mhad.att_stride_ * mhad.typesize_A);
+        }
+    }
+    return status_t::success;
+
 
 }
 
@@ -111,21 +130,32 @@ at::Tensor amx_mha(
     }
     mha_init_tile(&tilecfg, mhad);
 
+    // create attention tensor
+    auto attention = at::empty({bs, head_num, sl, sl}, at::TensorOptions().
+                        dtype<int>().memory_format(c10::MemoryFormat::Contiguous));
+
+    auto att_ptr = (int*)attention.data_ptr();
+    std::vector<int64_t> att_strides = {head_num*sl*sl, sl*sl, sl, 1};
+
     // do amx gemm
     for (int i = 0; i < bs; i++) // batch size
     {
         for (int j = 0; j < head_num; j++) // head num
         {
-            auto cur_q_ptr = i * strides[0] + j * head_size;
+            auto cur_q_ptr = origin_ptr + i * strides[0] + j * head_size;
             auto cur_k_ptr = cur_q_ptr + qkv_block;
+            auto cur_a_ptr = att_ptr + i * att_strides[0] + j * att_strides[1];
+            reorder_k_to_buffer(cur_k_ptr, sl, head_size, mhad.qkv_stride_);
+
+            amx_qk_gemm(cur_q_ptr, k_buffer, cur_a_ptr, mhad);
         }
     }
 
-    auto options = torch::TensorOptions().dtype(torch::kInt8);
-    auto k_buffer_tensor = torch::from_blob((void*)k_buffer, {16, sl*4}, {MAX_SL*4, 1}, options);
+    // auto options = torch::TensorOptions().dtype(torch::kInt8);
+    // auto k_buffer_tensor = torch::from_blob((void*)k_buffer, {16, sl*4}, {MAX_SL*4, 1}, options);
 
-    std::cout << std::endl;
-    return k_buffer_tensor;
+    // std::cout << std::endl;
+    return attention;
 }
 
 }
