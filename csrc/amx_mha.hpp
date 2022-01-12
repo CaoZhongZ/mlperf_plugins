@@ -20,12 +20,15 @@
 #define TMM6	6
 #define TMM7	7
 
-#define MAX_SL 384
-#define MAX_TILE_ROW 16
-#define MAX_TILE_COLSB 64
+// #define MAX_SL 384
+// #define MAX_TILE_ROW 16
+// #define MAX_TILE_COLSB 64
 
 namespace intel_mlperf {
 
+static constexpr int max_sl = 384;
+static constexpr int max_tile_row = 16;
+static constexpr int max_tile_colsb = 64;
 enum class status_t {success, failed};
 
 static struct tilecfg {
@@ -38,7 +41,7 @@ static struct tilecfg {
 	char rsvd3[8];		    /* bytes 56-63 */
 } __attribute__((packed)) tilecfg;
 
-static int8_t k_buffer[16 * MAX_SL * 4];
+static int8_t k_buffer[16 * max_sl * 4];
 
 // Do we need tile buffer?
 struct tilebuffer {
@@ -60,12 +63,12 @@ public:
         typesize_K = 1;
         typesize_A = 4;
         
-        nq_block = (sl / MAX_TILE_ROW >= 2) ? 2 : 1;
+        nq_block = (sl_ / max_tile_row >= 1) ? 2 : 1;
         nk_block = nq_block;
-        q_block = MAX_TILE_ROW;
-        k_block = MAX_TILE_ROW;
-        q_colsb = MAX_TILE_COLSB;
-        k_colsb = MAX_TILE_COLSB;
+        q_block = max_tile_row;
+        k_block = max_tile_row;
+        q_colsb = max_tile_colsb;
+        k_colsb = max_tile_colsb;
 
         a_r_block = q_block;
         a_c_block = k_colsb / typesize_A;
@@ -74,16 +77,16 @@ public:
         is_q_tail = (q_tail == 0) ? false : true;
 
         // only q has tail, k's tail must be 16*64
-        nbq_row = is_q_tail ? (sl / MAX_TILE_ROW + 1) : (sl / MAX_TILE_ROW);
+        nbq_row = is_q_tail ? (sl_ / max_tile_row + 1) : (sl_ / max_tile_row);
         nbk_col = nbq_row;
 
-        att_stride_ = sl_;
+        att_stride_ = max_tile_row * nbq_row;
 
         strides_ = {sl_ * qkv_stride_, qkv_stride_, 1};
     };
     
     int get_q_ntile(int nb) {
-        return nb + 4;
+        return nq_block == 2 ? nb + 4 : nb + 5;
     }
 
     int get_k_ntile(int nb) {
@@ -91,10 +94,14 @@ public:
     }
 
     int get_a_ntile(int nb_q, int nb_k) {
-        return nb_q * this->nq_block + nb_k;
+        return nq_block == 2 ? nb_q * this->nq_block + nb_k : 2;
     }
 
-    status_t init() {return status_t::success;}; // TODO: which to init
+    status_t init() {
+        // set 0 to k_buffer
+        memset(k_buffer, 0, sizeof(k_buffer));
+        return status_t::success;
+        }; // TODO: which to init
     
     virtual ~MHA_desc() = default;
 
