@@ -5,6 +5,7 @@
 
 #include "amx_mha.hpp"
 #include "amx_tdpbssd.hpp"
+#include "helper.hpp"
 
 namespace intel_mlperf {
 
@@ -71,24 +72,24 @@ status_t reorder_k_to_buffer(const int8_t* k_ptr, int row, int col, int stride) 
     return status_t::success;
 }
 
-status_t amx_qk_gemm(const int8_t* q_ptr, const int8_t* k_ptr, const int* a_ptr, MHA_desc& mhad) {
+status_t amx_qk_gemm(const int8_t* q_ptr, const int8_t* k_ptr, int* a_ptr, MHA_desc& mhad) {
     /*
     do single qk gemm
     */
 
     for (int i = 0; i < mhad.nbq_row; i++)
     {
-        int q_block = (mhad.is_q_tail && i == mhad.nbq_row - 1) ? mhad.q_block : mhad.q_tail;
+        int q_block = (mhad.is_q_tail && i == mhad.nbq_row - 1) ? mhad.q_tail : mhad.q_block;
         auto cur_q_ptr = q_ptr + i * q_block * mhad.qkv_stride_;
+        _tile_loadd(TMM4, cur_q_ptr, mhad.qkv_stride_);
         for (int j = 0; j < mhad.nbk_col; j++) 
         {
             // single tile first
-            int k_block = mhad.k_block;
-            auto cur_k_ptr = k_ptr + j * k_block;
+            auto cur_k_ptr = k_ptr + j * mhad.k_colsb;
             auto cur_a_ptr = a_ptr + i * mhad.a_r_block * mhad.att_stride_ + j * mhad.a_c_block;
-            _tile_loadd(TMM4, cur_q_ptr, mhad.qkv_stride_);
+            
             _tile_loadd(TMM6, cur_k_ptr, MAX_SL*4);
-
+            _tile_zero(TMM0);
             __tile_dpbssd<TMM0, TMM4, TMM6>();
             _tile_stored(TMM0, cur_a_ptr, mhad.att_stride_ * mhad.typesize_A);
         }
@@ -121,7 +122,7 @@ at::Tensor amx_mha(
     auto k_ptr = origin_ptr + qkv_block;
     
     /* test reorder k to buffer function */
-    reorder_k_to_buffer(k_ptr, sl, head_size, stride);
+    // reorder_k_to_buffer(k_ptr, sl, head_size, stride);
     
     auto amx_status = amx_init();
     if (!amx_status) {

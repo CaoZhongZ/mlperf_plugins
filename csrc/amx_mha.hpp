@@ -157,7 +157,7 @@ status_t reorder_k_to_buffer(const int8_t* k_ptr, int row, int col, int stride);
 
 status_t mha_init_tile(struct tilecfg *cfg, MHA_desc& mhad);
 
-status_t amx_qk_gemm(const int8_t* q_ptr, const int8_t* k_ptr, const int* a_ptr, MHA_desc& mhad);
+status_t amx_qk_gemm(const int8_t* q_ptr, const int8_t* k_ptr, int* a_ptr, MHA_desc& mhad);
 
 at::Tensor amx_mha(
     const at::Tensor& qkv,
