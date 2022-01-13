@@ -169,7 +169,7 @@ status_t amx_qk_gemm(const int8_t* q_ptr, const int8_t* k_ptr, int* a_ptr, MHA_d
 
 at::Tensor amx_mha(
     const at::Tensor& qkv,
-    const at::Tensor& attpro,
+    const at::Tensor& att_mask,
     const at::Scalar& M1,
     const at::Scalar& oscale 
 );

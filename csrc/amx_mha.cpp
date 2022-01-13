@@ -6,6 +6,7 @@
 
 #include "amx_mha.hpp"
 #include "amx_tdpbssd.hpp"
+#include "i_softmax_tpp.hpp"
 #include "helper.hpp"
 
 namespace intel_mlperf {
@@ -219,7 +220,7 @@ status_t amx_qk_gemm(const int8_t* q_ptr, const int8_t* k_ptr, int* a_ptr, MHA_d
 
 at::Tensor amx_mha(
     const at::Tensor& qkv,
-    const at::Tensor& attpro,
+    const at::Tensor& att_mask,
     const at::Scalar& m1,
     const at::Scalar& oscale 
 ) {
@@ -257,40 +258,35 @@ at::Tensor amx_mha(
     // Dynamic allocate k_buffer
     int8_t k_buffer[sl_pad*64];
     
-    /* test reorder k to buffer function */
-    // auto k_ptr = origin_ptr + qkv_block;
-    // reorder_k_to_buffer(k_ptr, k_buffer, sl, sl_pad, head_size, stride);
-    // reorder_k_to_buffer_v2(k_ptr, k_buffer_test, sl, sl_pad, head_size, stride);
-    // getchar();
-
-
     // do amx gemm
     for (int i = 0; i < bs; i++) // batch size
     {
         for (int j = 0; j < head_num; j++) // head num
         {
-            // auto cur_q_ptr = (int8_t*)origin_ptr + i * strides[0] + j * head_size;
             auto cur_q_ptr = &origin_ptr[i][0][j*head_size];
-            // auto cur_k_ptr = cur_q_ptr + qkv_block;
             auto cur_k_ptr = &origin_ptr[i][0][j*head_size+qkv_block];
-            // auto cur_a_ptr = (int*)att_ptr + i * att_strides[0] + j * att_strides[1];
             auto cur_a_ptr = &att_ptr[i][j][0][0];
-
-            // auto cur_q_ptr = &origin_ptr[i][0][j*head_size];
-            // auto cur_k_ptr = &origin_ptr[i][0][j*head_size+mhad.qkv_stride_];
-            // auto cur_a_ptr = &att_ptr[i][j][0][0];
             reorder_k_to_buffer_v2(cur_k_ptr, k_buffer, sl, sl_pad, head_size, mhad.qkv_stride_);
-            
 
             amx_qk_gemm(cur_q_ptr, k_buffer, cur_a_ptr, mhad);
         }
     }
 
-    // auto options = torch::TensorOptions().dtype(torch::kInt8);
-    // auto k_buffer_tensor = torch::from_blob((void*)k_buffer, {16, sl*4}, {mhad.sl_pad*4, 1}, options);
+    // add softmax
+    auto atten_size = attention.sizes();
+    i_softmax_tpp<16> softmax_compute(atten_size[0], atten_size[1], atten_size[2], atten_size[3]);
+    auto atten_probs = at::empty(atten_size, 
+        at::TensorOptions().dtype<int8_t>()
+        .memory_format(c10::MemoryFormat::Contiguous));
 
-    // std::cout << std::endl;
-    return attention;
+    auto att_sz = att_mask.sizes();
+    auto* patt = reinterpret_cast<int32_t *>(att_mask.data_ptr());
+
+    softmax_compute.ref(
+        atten_probs.data_ptr(), attention.data_ptr(),
+        patt, m1.toFloat(), oscale.toFloat());
+
+    return atten_probs;
 }
 
 }
