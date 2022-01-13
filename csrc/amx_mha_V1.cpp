@@ -46,17 +46,17 @@ status_t mha_init_tile(struct tilecfg *cfg, MHA_desc& mhad) {
     return status_t::success;
 }
 
-status_t reorder_k_to_buffer(const int8_t* k_ptr, int8_t* k_buffer, int row, int row_pad, int col, int stride) {
+status_t reorder_k_to_buffer(const int8_t* k_ptr, int row, int col, int stride) {
     /*
     reorder k from sl*64 to 16*sl*4
     */
 
-    if (row * col > 16 * row_pad * 4) {
+    if (row * col > 16 * max_sl * 4) {
         return status_t::failed;
     }
 
     // auto ptr = k_ptr;
-    int ks = row_pad * 4;
+    int ks = max_sl * 4;
     int nc_block = col / 4;
     for (int i = 0; i < row; i++)
     {
@@ -71,24 +71,6 @@ status_t reorder_k_to_buffer(const int8_t* k_ptr, int8_t* k_buffer, int row, int
             k_buffer[kr*ks+kc+3] = k_ptr[i*stride+j+3];
         }
     }
-    // only for test
-    // print_int8_2Dmatrix(k_buffer, 16, 16, row*4);
-    return status_t::success;
-}
-
-status_t reorder_k_to_buffer_v2(const int8_t* k_ptr, int8_t* k_buffer, int row, int row_pad, int col, int stride)
-{
-    /// reorder k to k_buffer
-    auto k_ptr_ = reinterpret_cast<const int (*)[stride/4]>(k_ptr);
-    auto k_buffer_ = reinterpret_cast<int (*)[row_pad]>(k_buffer);
-
-    for (int i = 0; i < 16; i++) {
-        for (int j = 0; j < row_pad; ++j) {
-            k_buffer_[i][j] = j >= row ? 0 : k_ptr_[j][i];
-        }
-    }
-    // only for test
-    // print_int8_2Dmatrix(k_buffer, 16, 16, row*4);
     return status_t::success;
 }
 
@@ -96,17 +78,12 @@ status_t amx_qk_gemm(const int8_t* q_ptr, const int8_t* k_ptr, int* a_ptr, MHA_d
     /*
     do single qk gemm
     */
-    
-    int q_stride = mhad.qkv_stride_ / 4;
-    
-    auto q = reinterpret_cast<const int (*)[q_stride]>(q_ptr);
-    auto k = reinterpret_cast<const int (*)[mhad.sl_pad]>(k_ptr);
-    auto a = reinterpret_cast<int (*)[mhad.sl_pad]>(a_ptr);
 
+    
     if (mhad.is_q_tail) {
         for (int i = 0; i < mhad.nbq_row; i++) {
             bool cur_q_tail = i == mhad.nbq_row - 1;
-            auto cur_q_ptr = &q[i*mhad.q_block][0];
+            auto cur_q_ptr = q_ptr + i * mhad.q_block * mhad.qkv_stride_;
             if (cur_q_tail) {
                 _tile_loadd(TMM5, cur_q_ptr, mhad.qkv_stride_);
             } else {
@@ -115,10 +92,10 @@ status_t amx_qk_gemm(const int8_t* q_ptr, const int8_t* k_ptr, int* a_ptr, MHA_d
             
             for (int j = 0; j < mhad.nbk_col; j += mhad.nk_block) {
                 // double tiles go
-                auto cur_k_ptr = &k[0][j*mhad.k_block];
-                auto cur_a_ptr = &a[i*mhad.a_r_block][j*mhad.a_c_block];
+                auto cur_k_ptr = k_ptr + j * mhad.k_colsb;
+                auto cur_a_ptr = a_ptr + i * mhad.a_r_block * mhad.att_stride_ + j * mhad.a_c_block;
                 if (j == mhad.nbk_col - 1) {
-                    _tile_loadd(TMM6, cur_k_ptr, mhad.sl_pad*4);
+                    _tile_loadd(TMM6, cur_k_ptr, max_sl*4);
                     if (cur_q_tail) {
                         _tile_zero(TMM2);
                         __tile_dpbssd<TMM2, TMM5, TMM6>();
@@ -130,72 +107,67 @@ status_t amx_qk_gemm(const int8_t* q_ptr, const int8_t* k_ptr, int* a_ptr, MHA_d
                         _tile_stored(TMM0, cur_a_ptr, mhad.att_stride_ * mhad.typesize_A);
                     }
                 } else {
-                    auto cur_k_ptr_r = &k[0][(j+1)*mhad.k_block];
-                    auto cur_a_ptr_r = &a[i*mhad.a_r_block][(j+1)*mhad.a_c_block];
-                    _tile_loadd(TMM6, cur_k_ptr, mhad.sl_pad*4);
-                    _tile_loadd(TMM7, cur_k_ptr_r, mhad.sl_pad*4);
+                    _tile_loadd(TMM6, cur_k_ptr, max_sl*4);
+                    _tile_loadd(TMM7, cur_k_ptr+mhad.k_colsb, max_sl*4);
                     if (cur_q_tail) {
                         _tile_zero(TMM2);
                         _tile_zero(TMM3);
                         __tile_dpbssd<TMM2, TMM5, TMM6>();
                         __tile_dpbssd<TMM3, TMM5, TMM7>();
                         _tile_stored(TMM2, cur_a_ptr, mhad.att_stride_ * mhad.typesize_A);
-                        _tile_stored(TMM3, cur_a_ptr_r, mhad.att_stride_ * mhad.typesize_A);
+                        auto tmp_a_ptr_r = cur_a_ptr+mhad.a_c_block;
+                        _tile_stored(TMM3, tmp_a_ptr_r, mhad.att_stride_ * mhad.typesize_A);
                     } else {
                         _tile_zero(TMM0);
                         _tile_zero(TMM1);
                         __tile_dpbssd<TMM0, TMM4, TMM6>();
                         __tile_dpbssd<TMM1, TMM4, TMM7>();
                         _tile_stored(TMM0, cur_a_ptr, mhad.att_stride_ * mhad.typesize_A);
-                        _tile_stored(TMM1, cur_a_ptr_r, mhad.att_stride_ * mhad.typesize_A);
+                        auto tmp_a_ptr_r = cur_a_ptr+mhad.a_c_block;
+                        _tile_stored(TMM1, tmp_a_ptr_r, mhad.att_stride_ * mhad.typesize_A);
                     }
                 }
             }
         }
     } else {
         for (int i = 0; i < mhad.nbq_row; i += mhad.nq_block) {
-            auto cur_q_ptr = &q[i*mhad.q_block][0];
+            auto cur_q_ptr = q_ptr + i * mhad.q_block * mhad.qkv_stride_;
             if (i == mhad.nbq_row - 1) {
                 _tile_loadd(TMM4, cur_q_ptr, mhad.qkv_stride_);
             } else {
-                auto cur_q_ptr_b = &q[(i+1)*mhad.q_block][0];
                 _tile_loadd(TMM4, cur_q_ptr, mhad.qkv_stride_);
-                _tile_loadd(TMM5, cur_q_ptr_b, mhad.qkv_stride_);
+                _tile_loadd(TMM5, cur_q_ptr+mhad.q_block*mhad.qkv_stride_, mhad.qkv_stride_);
             }
             for (int j = 0; j < mhad.nbk_col; j += mhad.nk_block) {
-                auto cur_k_ptr = &k[0][j*mhad.k_block];
-                auto cur_a_ptr = &a[i*mhad.a_r_block][j*mhad.a_c_block];
+                auto cur_k_ptr = k_ptr + j * mhad.k_colsb;
+                auto cur_a_ptr = a_ptr + i * mhad.a_r_block * mhad.att_stride_ + j * mhad.a_c_block;
                 if (j == mhad.nbk_col - 1) {
-                    _tile_loadd(TMM6, cur_k_ptr, mhad.sl_pad*4);
+                    _tile_loadd(TMM6, cur_k_ptr, max_sl*4);
                     if (i == mhad.nbq_row - 1) {
                         _tile_zero(TMM0);
                         __tile_dpbssd<TMM0, TMM4, TMM6>();
                         _tile_stored(TMM0, cur_a_ptr, mhad.att_stride_ * mhad.typesize_A);
                     } else {
-                        auto cur_a_ptr_b = &a[(i+1)*mhad.a_r_block][j*mhad.a_c_block];
                         _tile_zero(TMM0);
                         _tile_zero(TMM1);
                         __tile_dpbssd<TMM0, TMM4, TMM6>();
                         __tile_dpbssd<TMM1, TMM5, TMM6>();
                         _tile_stored(TMM0, cur_a_ptr, mhad.att_stride_ * mhad.typesize_A);
-                        _tile_stored(TMM1, cur_a_ptr_b, mhad.att_stride_ * mhad.typesize_A);
+                        auto tmp_a_ptr_b = cur_a_ptr+mhad.a_r_block*mhad.att_stride_;
+                        _tile_stored(TMM1, tmp_a_ptr_b, mhad.att_stride_ * mhad.typesize_A);
                     }
                 } else {
-                    auto cur_k_ptr_r = &k[0][(j+1)*mhad.k_block];
-                    _tile_loadd(TMM6, cur_k_ptr, mhad.sl_pad*4);
-                    _tile_loadd(TMM7, cur_k_ptr_r, mhad.sl_pad*4);
+                    _tile_loadd(TMM6, cur_k_ptr, max_sl*4);
+                    _tile_loadd(TMM7, cur_k_ptr+mhad.k_colsb, max_sl*4);
                     if (i == mhad.nbq_row - 1) {
-                        auto cur_a_ptr_r = &a[i*mhad.a_r_block][(j+1)*mhad.a_c_block];
                         _tile_zero(TMM0);
                         _tile_zero(TMM1);
                         __tile_dpbssd<TMM0, TMM4, TMM6>();
                         __tile_dpbssd<TMM1, TMM4, TMM7>();
                         _tile_stored(TMM0, cur_a_ptr, mhad.att_stride_ * mhad.typesize_A);
-                        _tile_stored(TMM1, cur_a_ptr_r, mhad.att_stride_ * mhad.typesize_A);
+                        auto tmp_a_ptr_r = cur_a_ptr+mhad.a_c_block;
+                        _tile_stored(TMM1, tmp_a_ptr_r, mhad.att_stride_ * mhad.typesize_A);
                     } else {
-                        auto cur_a_ptr_r = &a[i*mhad.a_r_block][(j+1)*mhad.a_c_block];
-                        auto cur_a_ptr_b = &a[(i+1)*mhad.a_r_block][j*mhad.a_c_block];
-                        auto cur_a_ptr_rb = &a[(i+1)*mhad.a_r_block][(j+1)*mhad.a_c_block];
                         _tile_zero(TMM0);
                         _tile_zero(TMM1);
                         _tile_zero(TMM2);
@@ -204,10 +176,13 @@ status_t amx_qk_gemm(const int8_t* q_ptr, const int8_t* k_ptr, int* a_ptr, MHA_d
                         __tile_dpbssd<TMM1, TMM4, TMM7>();
                         __tile_dpbssd<TMM2, TMM5, TMM6>();
                         __tile_dpbssd<TMM3, TMM5, TMM7>();
+                        auto tmp_a_ptr_r = cur_a_ptr+mhad.a_c_block;
+                        auto tmp_a_ptr_b = cur_a_ptr+mhad.a_r_block*mhad.att_stride_;
+                        auto tmp_a_ptr_rb = cur_a_ptr+mhad.a_r_block*mhad.att_stride_+mhad.a_c_block;
                         _tile_stored(TMM0, cur_a_ptr, mhad.att_stride_ * mhad.typesize_A);
-                        _tile_stored(TMM1, cur_a_ptr_r, mhad.att_stride_ * mhad.typesize_A);
-                        _tile_stored(TMM2, cur_a_ptr_b, mhad.att_stride_ * mhad.typesize_A);
-                        _tile_stored(TMM3, cur_a_ptr_rb, mhad.att_stride_ * mhad.typesize_A);
+                        _tile_stored(TMM1, tmp_a_ptr_r, mhad.att_stride_ * mhad.typesize_A);
+                        _tile_stored(TMM2, tmp_a_ptr_b, mhad.att_stride_ * mhad.typesize_A);
+                        _tile_stored(TMM3, tmp_a_ptr_rb, mhad.att_stride_ * mhad.typesize_A);
                     }
                 }
             }
@@ -240,6 +215,11 @@ at::Tensor amx_mha(
     mhad.init();
 
     int8_t* origin_ptr = (int8_t*)qkv.data_ptr();
+    // auto k_ptr = origin_ptr + qkv_block;
+    
+    /* test reorder k to buffer function */
+    // reorder_k_to_buffer(k_ptr, sl, head_size, stride);
+
     
     auto amx_status = amx_init();
     if (!amx_status) {
@@ -256,18 +236,6 @@ at::Tensor amx_mha(
     auto att_ptr = (int*)attention.data_ptr();
     std::vector<int64_t> att_strides = {head_num*sl*sl_pad, sl*sl_pad, sl_pad, 1};
 
-    // Dynamic allocate k_buffer
-    int8_t k_buffer[sl_pad*64];
-    int8_t k_buffer_test[sl_pad*64];
-
-    auto k_ptr = origin_ptr + qkv_block;
-    
-    /* test reorder k to buffer function */
-    // reorder_k_to_buffer(k_ptr, k_buffer, sl, sl_pad, head_size, stride);
-    // reorder_k_to_buffer_v2(k_ptr, k_buffer_test, sl, sl_pad, head_size, stride);
-    // getchar();
-
-
     // do amx gemm
     for (int i = 0; i < bs; i++) // batch size
     {
@@ -276,14 +244,14 @@ at::Tensor amx_mha(
             auto cur_q_ptr = origin_ptr + i * strides[0] + j * head_size;
             auto cur_k_ptr = cur_q_ptr + qkv_block;
             auto cur_a_ptr = att_ptr + i * att_strides[0] + j * att_strides[1];
-            reorder_k_to_buffer_v2(cur_k_ptr, k_buffer, sl, sl_pad, head_size, mhad.qkv_stride_);
+            reorder_k_to_buffer(cur_k_ptr, sl, head_size, mhad.qkv_stride_);
 
             amx_qk_gemm(cur_q_ptr, k_buffer, cur_a_ptr, mhad);
         }
     }
 
     // auto options = torch::TensorOptions().dtype(torch::kInt8);
-    // auto k_buffer_tensor = torch::from_blob((void*)k_buffer, {16, sl*4}, {mhad.sl_pad*4, 1}, options);
+    // auto k_buffer_tensor = torch::from_blob((void*)k_buffer, {16, sl*4}, {max_sl*4, 1}, options);
 
     // std::cout << std::endl;
     return attention;

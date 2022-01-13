@@ -41,6 +41,7 @@ static struct tilecfg {
 	char rsvd3[8];		    /* bytes 56-63 */
 } __attribute__((packed)) tilecfg;
 
+static int8_t k_buffer[16 * max_sl * 4];
 
 // Do we need tile buffer?
 struct tilebuffer {
@@ -79,8 +80,6 @@ public:
         nbq_row = is_q_tail ? (sl_ / max_tile_row + 1) : (sl_ / max_tile_row);
         nbk_col = nbq_row;
 
-        sl_pad = max_tile_row * nbq_row;
-
         att_stride_ = max_tile_row * nbq_row;
 
         strides_ = {sl_ * qkv_stride_, qkv_stride_, 1};
@@ -99,13 +98,14 @@ public:
     }
 
     status_t init() {
+        // set 0 to k_buffer
+        memset(k_buffer, 0, sizeof(k_buffer));
         return status_t::success;
         }; // TODO: which to init
     
     virtual ~MHA_desc() = default;
 
     int sl_;
-    int sl_pad;
     int nq_block;
     int nk_block;
     int q_block;
@@ -160,8 +160,7 @@ inline status_t configure_tile(struct tilecfg *cfg, int ntile, int row, int cols
     return status_t::success;
 }
 
-status_t reorder_k_to_buffer(const int8_t* k_ptr, int8_t* k_buffer, int row, int row_pad, int col, int stride);
-status_t reorder_k_to_buffer_v2(const int8_t* k_ptr, int8_t* k_buffer, int row, int row_pad, int col, int stride);
+status_t reorder_k_to_buffer(const int8_t* k_ptr, int row, int col, int stride);
 
 status_t mha_init_tile(struct tilecfg *cfg, MHA_desc& mhad);
 
