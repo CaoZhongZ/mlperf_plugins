@@ -87,8 +87,6 @@ status_t reorder_k_to_buffer_v2(const int8_t* k_ptr, int8_t* k_buffer, int row, 
             k_buffer_[i][j] = j >= row ? 0 : k_ptr_[j][i];
         }
     }
-    // only for test
-    // print_int8_2Dmatrix(k_buffer, 16, 16, row*4);
     return status_t::success;
 }
 
@@ -239,7 +237,7 @@ at::Tensor amx_mha(
     MHA_desc mhad(bs, sl, stride, head_num, head_size);
     mhad.init();
 
-    int8_t* origin_ptr = (int8_t*)qkv.data_ptr();
+    auto origin_ptr = reinterpret_cast<int8_t (*)[sl][stride]>(qkv.data_ptr());
     
     auto amx_status = amx_init();
     if (!amx_status) {
@@ -253,16 +251,14 @@ at::Tensor amx_mha(
     auto attention = at::empty({bs, head_num, sl, sl_pad}, at::TensorOptions().
                         dtype<int>().memory_format(c10::MemoryFormat::Contiguous));
 
-    auto att_ptr = (int*)attention.data_ptr();
+    auto att_ptr = reinterpret_cast<int (*)[head_num][sl][sl_pad]>(attention.data_ptr());
     std::vector<int64_t> att_strides = {head_num*sl*sl_pad, sl*sl_pad, sl_pad, 1};
 
     // Dynamic allocate k_buffer
     int8_t k_buffer[sl_pad*64];
-    int8_t k_buffer_test[sl_pad*64];
-
-    auto k_ptr = origin_ptr + qkv_block;
     
     /* test reorder k to buffer function */
+    // auto k_ptr = origin_ptr + qkv_block;
     // reorder_k_to_buffer(k_ptr, k_buffer, sl, sl_pad, head_size, stride);
     // reorder_k_to_buffer_v2(k_ptr, k_buffer_test, sl, sl_pad, head_size, stride);
     // getchar();
@@ -273,10 +269,18 @@ at::Tensor amx_mha(
     {
         for (int j = 0; j < head_num; j++) // head num
         {
-            auto cur_q_ptr = origin_ptr + i * strides[0] + j * head_size;
-            auto cur_k_ptr = cur_q_ptr + qkv_block;
-            auto cur_a_ptr = att_ptr + i * att_strides[0] + j * att_strides[1];
+            // auto cur_q_ptr = (int8_t*)origin_ptr + i * strides[0] + j * head_size;
+            auto cur_q_ptr = &origin_ptr[i][0][j*head_size];
+            // auto cur_k_ptr = cur_q_ptr + qkv_block;
+            auto cur_k_ptr = &origin_ptr[i][0][j*head_size+qkv_block];
+            // auto cur_a_ptr = (int*)att_ptr + i * att_strides[0] + j * att_strides[1];
+            auto cur_a_ptr = &att_ptr[i][j][0][0];
+
+            // auto cur_q_ptr = &origin_ptr[i][0][j*head_size];
+            // auto cur_k_ptr = &origin_ptr[i][0][j*head_size+mhad.qkv_stride_];
+            // auto cur_a_ptr = &att_ptr[i][j][0][0];
             reorder_k_to_buffer_v2(cur_k_ptr, k_buffer, sl, sl_pad, head_size, mhad.qkv_stride_);
+            
 
             amx_qk_gemm(cur_q_ptr, k_buffer, cur_a_ptr, mhad);
         }
