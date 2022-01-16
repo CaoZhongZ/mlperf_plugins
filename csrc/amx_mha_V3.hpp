@@ -76,10 +76,8 @@ public:
         is_q_tail = (q_tail == 0) ? false : true;
 
         // only q has tail, k's tail must be 16*64
-        nbq_row = (sl_ + 15) / max_tile_row;
+        nbq_row = is_q_tail ? (sl_ / max_tile_row + 1) : (sl_ / max_tile_row);
         nbk_col = nbq_row;
-
-        nBlock = nbq_row / 2;
 
         sl_pad = max_tile_row * nbq_row;
 
@@ -124,7 +122,6 @@ public:
 
     int nbq_row;
     int nbk_col;
-    int nBlock;
 
     int head_num_;
     int head_size_;
