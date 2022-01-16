@@ -148,10 +148,10 @@ struct amx_qk_gemm_impl<1, NBlock> {
                 int cur_k_pos = j * k_block * 2;
                 int cur_k_pos_r = cur_k_pos + k_block;
                 // coordinate of A
-                int cur_a_pos[2] = {cur_q_pos, cur_k_pos};
-                int cur_a_pos_r[2] = {cur_q_pos, cur_k_pos_r};
-                int cur_a_pos_b[2] = {cur_q_pos_b, cur_k_pos};
-                int cur_a_pos_rb[2] = {cur_q_pos_b, cur_k_pos_r};
+                int cur_a_pos[2] = {i * a_r_block * 2, j * a_c_block * 2};
+                int cur_a_pos_r[2] = {i * a_r_block * 2, j * a_c_block * 2 + a_c_block};
+                int cur_a_pos_b[2] = {i * a_r_block * 2 + a_r_block, j * a_c_block * 2};
+                int cur_a_pos_rb[2] = {i * a_r_block * 2 + a_r_block, j * a_c_block * 2 + a_c_block};
 
                 _tile_loadd(TMM6, &k[0][cur_k_pos], k_s);
                 _tile_loadd(TMM7, &k[0][cur_k_pos_r], k_s);
@@ -172,7 +172,6 @@ struct amx_qk_gemm_impl<1, NBlock> {
                 _tile_stored(TMM3, &a[cur_a_pos_rb[0]][cur_a_pos_rb[1]], a_s);
             }
         }
-        // print_int32_2Dmatrix(a, 16, 16, sl_pad);
     }
 };
 
@@ -216,14 +215,14 @@ struct amx_qk_gemm_impl<0, NBlock> {
                 cur_k_pos = j * k_block * 2;
                 cur_k_pos_r = cur_k_pos + k_block;
                 // coordinate of A
-                cur_a_pos[0] = cur_q_pos;
-                cur_a_pos[1] = cur_k_pos;
-                cur_a_pos_r[0] = cur_q_pos;
-                cur_a_pos_r[1] = cur_k_pos_r;
-                cur_a_pos_b[0] = cur_q_pos_b;
-                cur_a_pos_b[1] = cur_k_pos;
-                cur_a_pos_rb[0] = cur_q_pos_b;
-                cur_a_pos_rb[1] = cur_k_pos_r;
+                cur_a_pos[0] = i * a_r_block * 2;
+                cur_a_pos[1] = j * a_c_block * 2;
+                cur_a_pos_r[0] = i * a_r_block * 2;
+                cur_a_pos_r[1] = j * a_c_block * 2 + a_c_block;
+                cur_a_pos_b[0] = i * a_r_block * 2 + a_r_block;
+                cur_a_pos_b[1] = j * a_c_block * 2;
+                cur_a_pos_rb[0] = i * a_r_block * 2 + a_r_block;
+                cur_a_pos_rb[1] = j * a_c_block * 2 + a_c_block;
 
                 _tile_loadd(TMM6, &k[0][cur_k_pos], k_s);
                 _tile_loadd(TMM7, &k[0][cur_k_pos_r], k_s);
@@ -245,8 +244,8 @@ struct amx_qk_gemm_impl<0, NBlock> {
             }
 
             cur_k_pos += k_block * 2;
-            cur_a_pos[1] = cur_k_pos;
-            cur_a_pos_b[1] = cur_k_pos;
+            cur_a_pos[1] += a_c_block * 2;
+            cur_a_pos_b[1] += a_c_block * 2;
 
             _tile_loadd(TMM6, &k[0][cur_k_pos], k_s);
 
@@ -260,9 +259,9 @@ struct amx_qk_gemm_impl<0, NBlock> {
             _tile_stored(TMM1, &a[cur_a_pos_b[0]][cur_a_pos_b[1]], a_s);
         }
         // the last 16 tile
-        cur_q_pos += q_block * 2 - rollback;
-        cur_a_pos[0] = cur_q_pos;
-        cur_a_pos_r[0] = cur_q_pos;
+        cur_q_pos += q_block - rollback;
+        cur_a_pos[0] += a_r_block - rollback;
+        cur_a_pos_r[0] += a_r_block - rollback;
         _tile_loadd(TMM4, &q[cur_q_pos][0], q_s);
 
 #       pragma unroll NBlock
@@ -270,8 +269,8 @@ struct amx_qk_gemm_impl<0, NBlock> {
             cur_k_pos = j * k_block * 2;
             cur_k_pos_r = cur_k_pos + k_block;
 
-            cur_a_pos[1] = cur_k_pos;
-            cur_a_pos_r[1] = cur_k_pos_r;
+            cur_a_pos[1] = j * a_c_block * 2;
+            cur_a_pos_r[1] = j * a_c_block * 2 + a_c_block;
 
             _tile_loadd(TMM6, &k[0][cur_k_pos], k_s);
             _tile_loadd(TMM7, &k[0][cur_k_pos_r], k_s);
@@ -287,7 +286,7 @@ struct amx_qk_gemm_impl<0, NBlock> {
         }
 
         cur_k_pos += k_block * 2;
-        cur_a_pos[1] = cur_k_pos;
+        cur_a_pos[1] += a_c_block * 2;
 
         _tile_loadd(TMM6, &k[0][cur_k_pos], k_s);
 
@@ -306,77 +305,77 @@ status_t amx_qk_gemm(const int8_t* q_ptr, const int8_t* k_ptr, int* a_ptr, MHA_d
     
     int q_block = mhad.q_block;
     int k_block = mhad.k_block;
-    int rollback = mhad.is_q_tail ? mhad.q_block - mhad.q_tail : 0;
+    int rollback = mhad.q_block - mhad.q_tail;
 
     switch (mhad.nbq_row) {
     case (1) :
-        amx_qk_gemm_impl<0, 0>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<0, 1>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
         return status_t::success;
     case (2) :
         amx_qk_gemm_impl<1, 1>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
         return status_t::success;
     case (3) :
-        amx_qk_gemm_impl<0, 1>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<0, 2>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
         return status_t::success;
     case (4) :
         amx_qk_gemm_impl<1, 2>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
         return status_t::success;
     case (5) :
-        amx_qk_gemm_impl<0, 2>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<0, 3>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
         return status_t::success;
     case (6) :
         amx_qk_gemm_impl<1, 3>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
         return status_t::success;
     case (7) :
-        amx_qk_gemm_impl<0, 3>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<0, 4>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
         return status_t::success;
     case (8) :
         amx_qk_gemm_impl<1, 4>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
         return status_t::success;
     case (9) :
-        amx_qk_gemm_impl<0, 4>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<0, 5>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
         return status_t::success;
     case (10) :
         amx_qk_gemm_impl<1, 5>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
         return status_t::success;
     case (11) :
-        amx_qk_gemm_impl<0, 5>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<0, 6>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
         return status_t::success;
     case (12) :
         amx_qk_gemm_impl<1, 6>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
         return status_t::success;
     case (13) :
-        amx_qk_gemm_impl<0, 6>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<0, 7>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
         return status_t::success;
     case (14) :
         amx_qk_gemm_impl<1, 7>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
         return status_t::success;
     case (15) :
-        amx_qk_gemm_impl<0, 7>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<0, 8>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
         return status_t::success;
     case (16) :
         amx_qk_gemm_impl<1, 8>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
         return status_t::success;
     case (17) :
-        amx_qk_gemm_impl<0, 8>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<0, 9>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
         return status_t::success;
     case (18) :
         amx_qk_gemm_impl<1, 9>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
         return status_t::success;
     case (19) :
-        amx_qk_gemm_impl<0, 9>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<0, 10>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
         return status_t::success;
     case (20) :
         amx_qk_gemm_impl<1, 10>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
         return status_t::success;
     case (21) :
-        amx_qk_gemm_impl<0, 10>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<0, 11>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
         return status_t::success;
     case (22) :
         amx_qk_gemm_impl<1, 11>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
         return status_t::success;
     case (23) :
-        amx_qk_gemm_impl<0, 11>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<0, 12>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
         return status_t::success;
     case (24) :
         amx_qk_gemm_impl<1, 12>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
