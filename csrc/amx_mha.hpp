@@ -153,17 +153,6 @@ inline bool amx_init() {
     return true;
 }
 
-inline status_t configure_tile(struct tilecfg *cfg, int ntile, int row, int colsb)
-{
-    if (row <= 0 && colsb <= 0 && row > 16 && colsb > 64 && ntile > 7){
-        return status_t::failed;
-    }
-    cfg->tile_rows[ntile] = row;
-    cfg->tile_colsb[ntile] = colsb;
-    return status_t::success;
-}
-
-status_t amx_qk_gemm(const int8_t* q_ptr, const int8_t* k_ptr, int* a_ptr, MHA_desc& mhad);
 
 at::Tensor amx_mha(
     const at::Tensor& qkv,

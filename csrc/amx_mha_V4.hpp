@@ -163,19 +163,14 @@ inline status_t configure_tile(struct tilecfg *cfg, int ntile, int row, int cols
     return status_t::success;
 }
 
-status_t reorder_k_to_buffer(const int8_t* k_ptr, int8_t* k_buffer, int row, int row_pad, int col, int stride);
-status_t reorder_k_to_buffer_v2(const int8_t* k_ptr, int8_t* k_buffer, int row, int row_pad, int col, int stride);
-
-status_t mha_init_tile(struct tilecfg *cfg, MHA_desc& mhad);
-status_t mha_init_qk_tile(struct tilecfg *cfg);
-
 status_t amx_qk_gemm(const int8_t* q_ptr, const int8_t* k_ptr, int* a_ptr, MHA_desc& mhad);
 
 at::Tensor amx_mha(
     const at::Tensor& qkv,
     const at::Tensor& att_mask,
-    const at::Scalar& M1,
-    const at::Scalar& oscale 
+    const at::Scalar& m1,
+    const at::Scalar& oscale,
+    const at::Scalar& m2
 );
 
 }

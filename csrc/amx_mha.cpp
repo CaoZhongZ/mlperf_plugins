@@ -11,6 +11,16 @@
 
 namespace intel_mlperf {
 
+inline status_t configure_tile(struct tilecfg *cfg, int ntile, int row, int colsb)
+{
+    if (row <= 0 && colsb <= 0 && row > 16 && colsb > 64 && ntile > 7){
+        return status_t::failed;
+    }
+    cfg->tile_rows[ntile] = row;
+    cfg->tile_colsb[ntile] = colsb;
+    return status_t::success;
+}
+
 status_t mha_init_av_tile(struct tilecfg *cfg, int row, int row_pad) {
     const int tile_config_size_in_bytes = 64;
     const int tile_num = 8;
@@ -128,27 +138,27 @@ status_t reorder_k_to_buffer_v2(const int8_t* k_ptr, const int8_t* v_ptr,
         }
     }
 
-    // int v_buffer_row = row_pad / 4;
-    // for (int i = 0; i < v_buffer_row; i++) {
-    //     for (int j = 0; j < 256; j++) {
-    //         int ori_row = i * 4 + j % 4;
-    //         int ori_col = j / 4;
-    //         v_buffer_[i][j] = i * 4 * row_pad + j < row * 64 ? v_ptr_[ori_row][ori_col] : 0;
-    //     }
-    // }
+    int v_buffer_row = row_pad / 4;
+    for (int i = 0; i < v_buffer_row; i++) {
+        for (int j = 0; j < 256; j++) {
+            int ori_row = i * 4 + j % 4;
+            int ori_col = j / 4;
+            v_buffer_[i][j] = i * 4 * row_pad + j < row * 64 ? v_ptr_[ori_row][ori_col] : 0;
+        }
+    }
 
     return status_t::success;
 }
 
 template <int even, int NBlock>
-struct amx_qk_gemm_impl {
+struct amx_qk_gemm_softmax_impl {
     inline static void run (const void* q_ptr, const void* k_ptr, void* a_buffer, void* a_ptr, int ldq, 
                             int q_block, int k_block, int rollback, 
                             float M, float oscale, int32_t att_mask);
 };
 
 template <int NBlock>
-struct amx_qk_gemm_impl<1, NBlock> {
+struct amx_qk_gemm_softmax_impl<1, NBlock> {
     inline static void run (const void* q_ptr, const void* k_ptr, void* a_buffer, void* a_ptr, int ldq, 
                             int q_block, int k_block, int rollback, 
                             float M, float oscale, int32_t att_mask) {
@@ -207,7 +217,7 @@ struct amx_qk_gemm_impl<1, NBlock> {
 };
 
 template<int NBlock>
-struct amx_qk_gemm_impl<0, NBlock> {
+struct amx_qk_gemm_softmax_impl<0, NBlock> {
     inline static void run (const void* q_ptr, const void* k_ptr, void* a_buffer, void* a_ptr, int ldq, 
                             int q_block, int k_block, int rollback, 
                             float M, float oscale, int32_t att_mask) {
@@ -318,7 +328,7 @@ struct amx_qk_gemm_impl<0, NBlock> {
     }
 };
 
-status_t amx_qk_gemm(const int8_t* q_ptr, const int8_t* k_ptr, int* a_buffer, int8_t* a_ptr, MHA_desc& mhad, 
+status_t amx_qk_gemm_softmax(const int8_t* q_ptr, const int8_t* k_ptr, int* a_buffer, int8_t* a_ptr, MHA_desc& mhad, 
                      float M, float oscale, int32_t att_mask) {
     /*
     do single qk gemm
@@ -331,76 +341,76 @@ status_t amx_qk_gemm(const int8_t* q_ptr, const int8_t* k_ptr, int* a_buffer, in
 
     switch (mhad.nbq_row) {
     case (1) :
-        amx_qk_gemm_impl<0, 0>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
+        amx_qk_gemm_softmax_impl<0, 0>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (2) :
-        amx_qk_gemm_impl<1, 1>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
+        amx_qk_gemm_softmax_impl<1, 1>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (3) :
-        amx_qk_gemm_impl<0, 1>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
+        amx_qk_gemm_softmax_impl<0, 1>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (4) :
-        amx_qk_gemm_impl<1, 2>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
+        amx_qk_gemm_softmax_impl<1, 2>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (5) :
-        amx_qk_gemm_impl<0, 2>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
+        amx_qk_gemm_softmax_impl<0, 2>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (6) :
-        amx_qk_gemm_impl<1, 3>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
+        amx_qk_gemm_softmax_impl<1, 3>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (7) :
-        amx_qk_gemm_impl<0, 3>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
+        amx_qk_gemm_softmax_impl<0, 3>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (8) :
-        amx_qk_gemm_impl<1, 4>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
+        amx_qk_gemm_softmax_impl<1, 4>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (9) :
-        amx_qk_gemm_impl<0, 4>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
+        amx_qk_gemm_softmax_impl<0, 4>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (10) :
-        amx_qk_gemm_impl<1, 5>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
+        amx_qk_gemm_softmax_impl<1, 5>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (11) :
-        amx_qk_gemm_impl<0, 5>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
+        amx_qk_gemm_softmax_impl<0, 5>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (12) :
-        amx_qk_gemm_impl<1, 6>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
+        amx_qk_gemm_softmax_impl<1, 6>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (13) :
-        amx_qk_gemm_impl<0, 6>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
+        amx_qk_gemm_softmax_impl<0, 6>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (14) :
-        amx_qk_gemm_impl<1, 7>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
+        amx_qk_gemm_softmax_impl<1, 7>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (15) :
-        amx_qk_gemm_impl<0, 7>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
+        amx_qk_gemm_softmax_impl<0, 7>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (16) :
-        amx_qk_gemm_impl<1, 8>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
+        amx_qk_gemm_softmax_impl<1, 8>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (17) :
-        amx_qk_gemm_impl<0, 8>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
+        amx_qk_gemm_softmax_impl<0, 8>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (18) :
-        amx_qk_gemm_impl<1, 9>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
+        amx_qk_gemm_softmax_impl<1, 9>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (19) :
-        amx_qk_gemm_impl<0, 9>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
+        amx_qk_gemm_softmax_impl<0, 9>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (20) :
-        amx_qk_gemm_impl<1, 10>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
+        amx_qk_gemm_softmax_impl<1, 10>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (21) :
-        amx_qk_gemm_impl<0, 10>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
+        amx_qk_gemm_softmax_impl<0, 10>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (22) :
-        amx_qk_gemm_impl<1, 11>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
+        amx_qk_gemm_softmax_impl<1, 11>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (23) :
-        amx_qk_gemm_impl<0, 11>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
+        amx_qk_gemm_softmax_impl<0, 11>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (24) :
-        amx_qk_gemm_impl<1, 12>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
+        amx_qk_gemm_softmax_impl<1, 12>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     }
     return status_t::failed;
@@ -455,7 +465,7 @@ at::Tensor amx_mha(
 
     
     // do amx gemm
-// #   pragma omp parallel for collapse(2)
+// #   pragma omp parallel for
     for (int i = 0; i < bs; i++) // batch size
     {
         for (int j = 0; j < head_num; j++) // head num
@@ -469,7 +479,7 @@ at::Tensor amx_mha(
                                    k_buffer, v_buffer, 
                                    sl, sl_pad, head_size, mhad.qkv_stride_);
 
-            amx_qk_gemm(cur_q_ptr, k_buffer, att_buffer, cur_a_ptr, mhad, 
+            amx_qk_gemm_softmax(cur_q_ptr, k_buffer, att_buffer, att_pro_buffer, mhad, 
                         m1.toFloat(), oscale.toFloat(), att_mask_p[i]);
         }
     }

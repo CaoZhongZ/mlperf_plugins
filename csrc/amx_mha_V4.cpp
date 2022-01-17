@@ -11,34 +11,47 @@
 
 namespace intel_mlperf {
 
-status_t mha_init_tile(struct tilecfg *cfg, MHA_desc& mhad) {
+status_t mha_init_av_tile(struct tilecfg *cfg, int row, int row_pad) {
     const int tile_config_size_in_bytes = 64;
+    const int tile_num = 8;
 
     char* _tc = (char*)(cfg);
     for (int i = 0; i < tile_config_size_in_bytes; i++)
         _tc[i] = 0;
 
-    int Qc = mhad.q_colsb;
+    int tr1 = max_tile_row;
+    int tr3 = tr1;
 
-    int Kc = mhad.k_colsb;
+    int Vr = row_pad / 4;
 
-    for (int i = 0; i < mhad.nq_block; i++) {
-        int Qr = (mhad.is_q_tail && i == mhad.nq_block - 1) ? mhad.q_tail : mhad.q_block;
-        configure_tile(cfg, mhad.get_q_ntile(i), Qr, Qc);
-    }
-
-    for (int j = 0; j < mhad.nk_block; j++) {
-        int Kr = mhad.k_block;
-        configure_tile(cfg, mhad.get_k_ntile(j), Kr, Kc);
-    }
-
-    for (int i = 0; i < mhad.nq_block; i++) {
-        int Ar = (mhad.is_q_tail && i == mhad.nq_block - 1) ? mhad.q_tail : mhad.q_block;
-        for (int j = 0; j < mhad.nk_block; j++) {
-            int Ac = mhad.k_block * mhad.typesize_A;
-            configure_tile(cfg, mhad.get_a_ntile(i, j), Ar, Ac);
+    int tr2 = max_tile_row;
+    for (tr2; tr2 > 0; tr2--) {
+        if (Vr % tr2 == 0) {
+            break;
         }
     }
+
+    int tc1 = tr2 * 4;
+    int tc2 = tr2 * 4;
+    int tc3 = tr2 * 4;
+    // TODO: add function to config av
+    cfg->tile_rows[0] = tr3;
+    cfg->tile_rows[1] = tr3;
+    cfg->tile_rows[2] = tr1;
+    cfg->tile_rows[3] = tr1;
+    cfg->tile_rows[4] = tr1;
+    cfg->tile_rows[5] = tr2;
+    cfg->tile_rows[6] = tr2;
+    cfg->tile_rows[7] = tr2;
+
+    cfg->tile_colsb[0] = tc3;
+    cfg->tile_colsb[1] = tc3;
+    cfg->tile_colsb[2] = tc1;
+    cfg->tile_colsb[3] = tc1;
+    cfg->tile_colsb[4] = tc1;
+    cfg->tile_colsb[5] = tc2;
+    cfg->tile_colsb[6] = tc2;
+    cfg->tile_colsb[7] = tc2;
 
     cfg->palette = 1;
     _tile_release();
@@ -99,41 +112,61 @@ status_t reorder_k_to_buffer(const int8_t* k_ptr, int8_t* k_buffer, int row, int
     return status_t::success;
 }
 
-status_t reorder_k_to_buffer_v2(const int8_t* k_ptr, int8_t* k_buffer, int row, int row_pad, int col, int stride)
+status_t reorder_k_to_buffer_v2(const int8_t* k_ptr, const int8_t* v_ptr,
+                                int8_t* k_buffer, int8_t* v_buffer,
+                                int row, int row_pad, int col, int stride)
 {
-    /// reorder k to k_buffer
+    /// reorder k to k_buffer and v to v_buffer
     auto k_ptr_ = reinterpret_cast<const int (*)[stride/4]>(k_ptr);
+    auto v_ptr_ = reinterpret_cast<const int8_t (*)[stride]>(v_ptr);
     auto k_buffer_ = reinterpret_cast<int (*)[row_pad]>(k_buffer);
+    auto v_buffer_ = reinterpret_cast<int8_t (*)[row_pad*4]>(v_buffer);
 
     for (int i = 0; i < 16; i++) {
         for (int j = 0; j < row_pad; ++j) {
             k_buffer_[i][j] = j >= row ? 0 : k_ptr_[j][i];
         }
     }
+
+    // int v_buffer_row = row_pad / 4;
+    // for (int i = 0; i < v_buffer_row; i++) {
+    //     for (int j = 0; j < 256; j++) {
+    //         int ori_row = i * 4 + j % 4;
+    //         int ori_col = j / 4;
+    //         v_buffer_[i][j] = i * 4 * row_pad + j < row * 64 ? v_ptr_[ori_row][ori_col] : 0;
+    //     }
+    // }
+
     return status_t::success;
 }
 
 template <int even, int NBlock>
 struct amx_qk_gemm_impl {
-    inline static void run (const void* q_ptr, const void* k_ptr, void* a_ptr, int ldq, int q_block, int k_block, int rollback);
+    inline static void run (const void* q_ptr, const void* k_ptr, void* a_buffer, void* a_ptr, int ldq, 
+                            int q_block, int k_block, int rollback, 
+                            float M, float oscale, int32_t att_mask);
 };
 
 template <int NBlock>
 struct amx_qk_gemm_impl<1, NBlock> {
-    inline static void run (const void* q_ptr, const void* k_ptr, void* a_ptr, int ldq, int q_block, int k_block, int rollback) {
+    inline static void run (const void* q_ptr, const void* k_ptr, void* a_buffer, void* a_ptr, int ldq, 
+                            int q_block, int k_block, int rollback, 
+                            float M, float oscale, int32_t att_mask) {
         // sl / 16 is even
 
         int sl_pad = NBlock * 32;
         auto q = reinterpret_cast<const int (*)[ldq/4]>(q_ptr);
         auto k = reinterpret_cast<const int (*)[sl_pad]>(k_ptr);
-        auto a = reinterpret_cast<int (*)[sl_pad]>(a_ptr);
+        auto a = reinterpret_cast<int (*)[sl_pad]>(a_buffer);
+        auto att_pro = reinterpret_cast<int8_t (*)[sl_pad]>(a_ptr);
 
         int q_s = ldq;
         int k_s = sl_pad * 4;
         int a_s = k_s;
 
-        int a_r_block = q_block;
-        int a_c_block = k_block;
+        i_softmax_tpp<16> softmax_full(1, 1, 32, sl_pad);
+        i_softmax_tpp<16> softmax_tail(1, 1, 32-rollback, sl_pad);
+
 
 #       pragma unroll NBlock
         for (int i = 0; i < NBlock; i++) {
@@ -147,11 +180,6 @@ struct amx_qk_gemm_impl<1, NBlock> {
             for (int j = 0; j < NBlock; j++) {
                 int cur_k_pos = j * k_block * 2;
                 int cur_k_pos_r = cur_k_pos + k_block;
-                // coordinate of A
-                int cur_a_pos[2] = {cur_q_pos, cur_k_pos};
-                int cur_a_pos_r[2] = {cur_q_pos, cur_k_pos_r};
-                int cur_a_pos_b[2] = {cur_q_pos_b, cur_k_pos};
-                int cur_a_pos_rb[2] = {cur_q_pos_b, cur_k_pos_r};
 
                 _tile_loadd(TMM6, &k[0][cur_k_pos], k_s);
                 _tile_loadd(TMM7, &k[0][cur_k_pos_r], k_s);
@@ -166,42 +194,43 @@ struct amx_qk_gemm_impl<1, NBlock> {
                 __tile_dpbssd<TMM2, TMM5, TMM6>();
                 __tile_dpbssd<TMM3, TMM5, TMM7>();
 
-                _tile_stored(TMM0, &a[cur_a_pos[0]][cur_a_pos[1]], a_s);
-                _tile_stored(TMM1, &a[cur_a_pos_r[0]][cur_a_pos_r[1]], a_s);
-                _tile_stored(TMM2, &a[cur_a_pos_b[0]][cur_a_pos_b[1]], a_s);
-                _tile_stored(TMM3, &a[cur_a_pos_rb[0]][cur_a_pos_rb[1]], a_s);
+                _tile_stored(TMM0, &a[0][cur_k_pos], a_s);
+                _tile_stored(TMM1, &a[0][cur_k_pos_r], a_s);
+                _tile_stored(TMM2, &a[q_block-rollback_][cur_k_pos], a_s);
+                _tile_stored(TMM3, &a[q_block-rollback_][cur_k_pos_r], a_s);
             }
+            // add softmax
+            auto& softmax_computer = (i == NBlock - 1) ? softmax_tail : softmax_full;
+            softmax_computer.ref(&att_pro[cur_q_pos][0], a_buffer, &att_mask, M, oscale);
         }
-        // print_int32_2Dmatrix(a, 16, 16, sl_pad);
     }
 };
 
 template<int NBlock>
 struct amx_qk_gemm_impl<0, NBlock> {
-    inline static void run (const void* q_ptr, const void* k_ptr, void* a_ptr, int ldq, int q_block, int k_block, int rollback) {
+    inline static void run (const void* q_ptr, const void* k_ptr, void* a_buffer, void* a_ptr, int ldq, 
+                            int q_block, int k_block, int rollback, 
+                            float M, float oscale, int32_t att_mask) {
         // sl / 16 is odd
         
         int sl_pad = NBlock * 32 + 16;
     
         auto q = reinterpret_cast<const int (*)[ldq/4]>(q_ptr);
         auto k = reinterpret_cast<const int (*)[sl_pad]>(k_ptr);
-        auto a = reinterpret_cast<int (*)[sl_pad]>(a_ptr);
+        auto a = reinterpret_cast<int (*)[sl_pad]>(a_buffer);
+        auto att_pro = reinterpret_cast<int8_t (*)[sl_pad]>(a_ptr);
 
         int q_s = ldq;
         int k_s = sl_pad * 4;
         int a_s = k_s;
 
-        int a_r_block = q_block;
-        int a_c_block = k_block;
-
         int cur_q_pos = 0;
         int cur_q_pos_b = 0;
         int cur_k_pos = 0;
         int cur_k_pos_r = 0;
-        int cur_a_pos[2] = {0, 0};
-        int cur_a_pos_r[2] = {0, 0};
-        int cur_a_pos_b[2] = {0, 0};
-        int cur_a_pos_rb[2] = {0, 0};
+
+        i_softmax_tpp<16> softmax_full(1, 1, 32, sl_pad); 
+        i_softmax_tpp<16> softmax_tail(1, 1, 16, sl_pad);
 
 #       pragma unroll NBlock
         for (int i = 0; i < NBlock; i++) {
@@ -216,14 +245,6 @@ struct amx_qk_gemm_impl<0, NBlock> {
                 cur_k_pos = j * k_block * 2;
                 cur_k_pos_r = cur_k_pos + k_block;
                 // coordinate of A
-                cur_a_pos[0] = cur_q_pos;
-                cur_a_pos[1] = cur_k_pos;
-                cur_a_pos_r[0] = cur_q_pos;
-                cur_a_pos_r[1] = cur_k_pos_r;
-                cur_a_pos_b[0] = cur_q_pos_b;
-                cur_a_pos_b[1] = cur_k_pos;
-                cur_a_pos_rb[0] = cur_q_pos_b;
-                cur_a_pos_rb[1] = cur_k_pos_r;
 
                 _tile_loadd(TMM6, &k[0][cur_k_pos], k_s);
                 _tile_loadd(TMM7, &k[0][cur_k_pos_r], k_s);
@@ -238,15 +259,13 @@ struct amx_qk_gemm_impl<0, NBlock> {
                 __tile_dpbssd<TMM2, TMM5, TMM6>();
                 __tile_dpbssd<TMM3, TMM5, TMM7>();
 
-                _tile_stored(TMM0, &a[cur_a_pos[0]][cur_a_pos[1]], a_s);
-                _tile_stored(TMM1, &a[cur_a_pos_r[0]][cur_a_pos_r[1]], a_s);
-                _tile_stored(TMM2, &a[cur_a_pos_b[0]][cur_a_pos_b[1]], a_s);
-                _tile_stored(TMM3, &a[cur_a_pos_rb[0]][cur_a_pos_rb[1]], a_s);
+                _tile_stored(TMM0, &a[0][cur_k_pos], a_s);
+                _tile_stored(TMM1, &a[0][cur_k_pos_r], a_s);
+                _tile_stored(TMM2, &a[q_block][cur_k_pos], a_s);
+                _tile_stored(TMM3, &a[q_block][cur_k_pos_r], a_s);
             }
 
             cur_k_pos += k_block * 2;
-            cur_a_pos[1] = cur_k_pos;
-            cur_a_pos_b[1] = cur_k_pos;
 
             _tile_loadd(TMM6, &k[0][cur_k_pos], k_s);
 
@@ -256,22 +275,21 @@ struct amx_qk_gemm_impl<0, NBlock> {
             __tile_dpbssd<TMM0, TMM4, TMM6>();
             __tile_dpbssd<TMM1, TMM5, TMM6>();
 
-            _tile_stored(TMM0, &a[cur_a_pos[0]][cur_a_pos[1]], a_s);
-            _tile_stored(TMM1, &a[cur_a_pos_b[0]][cur_a_pos_b[1]], a_s);
+            _tile_stored(TMM0, &a[0][cur_k_pos], a_s);
+            _tile_stored(TMM1, &a[q_block][cur_k_pos], a_s);
+
+            // add softmax
+            softmax_full.ref(&att_pro[cur_q_pos][0], a_buffer, &att_mask, M, oscale);
         }
-        // the last 16 tile
+
+        // the last 16 row
         cur_q_pos += q_block * 2 - rollback;
-        cur_a_pos[0] = cur_q_pos;
-        cur_a_pos_r[0] = cur_q_pos;
         _tile_loadd(TMM4, &q[cur_q_pos][0], q_s);
 
 #       pragma unroll NBlock
         for (int j = 0; j < NBlock; j++) {
             cur_k_pos = j * k_block * 2;
             cur_k_pos_r = cur_k_pos + k_block;
-
-            cur_a_pos[1] = cur_k_pos;
-            cur_a_pos_r[1] = cur_k_pos_r;
 
             _tile_loadd(TMM6, &k[0][cur_k_pos], k_s);
             _tile_loadd(TMM7, &k[0][cur_k_pos_r], k_s);
@@ -282,12 +300,11 @@ struct amx_qk_gemm_impl<0, NBlock> {
             __tile_dpbssd<TMM0, TMM4, TMM6>();
             __tile_dpbssd<TMM1, TMM4, TMM7>();
 
-            _tile_stored(TMM0, &a[cur_a_pos[0]][cur_a_pos[1]], a_s);
-            _tile_stored(TMM1, &a[cur_a_pos_r[0]][cur_a_pos_r[1]], a_s);
+            _tile_stored(TMM0, &a[0][cur_k_pos], a_s);
+            _tile_stored(TMM1, &a[0][cur_k_pos_r], a_s);
         }
 
         cur_k_pos += k_block * 2;
-        cur_a_pos[1] = cur_k_pos;
 
         _tile_loadd(TMM6, &k[0][cur_k_pos], k_s);
 
@@ -295,91 +312,95 @@ struct amx_qk_gemm_impl<0, NBlock> {
 
         __tile_dpbssd<TMM0, TMM4, TMM6>();
 
-        _tile_stored(TMM0, &a[cur_a_pos[0]][cur_a_pos[1]], a_s);
+        _tile_stored(TMM0, &a[0][cur_k_pos], a_s);
+        // add softmax
+        softmax_tail.ref(&att_pro[cur_q_pos][0], a_buffer, &att_mask, M, oscale);
     }
 };
 
-status_t amx_qk_gemm(const int8_t* q_ptr, const int8_t* k_ptr, int* a_ptr, MHA_desc& mhad) {
+status_t amx_qk_gemm(const int8_t* q_ptr, const int8_t* k_ptr, int* a_buffer, int8_t* a_ptr, MHA_desc& mhad, 
+                     float M, float oscale, int32_t att_mask) {
     /*
     do single qk gemm
     */
-    
+    // amx_init();
+    // mha_init_qk_tile(&tilecfg);
     int q_block = mhad.q_block;
     int k_block = mhad.k_block;
     int rollback = mhad.is_q_tail ? mhad.q_block - mhad.q_tail : 0;
 
     switch (mhad.nbq_row) {
     case (1) :
-        amx_qk_gemm_impl<0, 0>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<0, 0>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (2) :
-        amx_qk_gemm_impl<1, 1>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<1, 1>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (3) :
-        amx_qk_gemm_impl<0, 1>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<0, 1>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (4) :
-        amx_qk_gemm_impl<1, 2>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<1, 2>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (5) :
-        amx_qk_gemm_impl<0, 2>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<0, 2>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (6) :
-        amx_qk_gemm_impl<1, 3>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<1, 3>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (7) :
-        amx_qk_gemm_impl<0, 3>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<0, 3>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (8) :
-        amx_qk_gemm_impl<1, 4>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<1, 4>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (9) :
-        amx_qk_gemm_impl<0, 4>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<0, 4>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (10) :
-        amx_qk_gemm_impl<1, 5>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<1, 5>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (11) :
-        amx_qk_gemm_impl<0, 5>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<0, 5>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (12) :
-        amx_qk_gemm_impl<1, 6>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<1, 6>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (13) :
-        amx_qk_gemm_impl<0, 6>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<0, 6>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (14) :
-        amx_qk_gemm_impl<1, 7>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<1, 7>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (15) :
-        amx_qk_gemm_impl<0, 7>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<0, 7>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (16) :
-        amx_qk_gemm_impl<1, 8>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<1, 8>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (17) :
-        amx_qk_gemm_impl<0, 8>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<0, 8>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (18) :
-        amx_qk_gemm_impl<1, 9>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<1, 9>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (19) :
-        amx_qk_gemm_impl<0, 9>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<0, 9>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (20) :
-        amx_qk_gemm_impl<1, 10>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<1, 10>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (21) :
-        amx_qk_gemm_impl<0, 10>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<0, 10>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (22) :
-        amx_qk_gemm_impl<1, 11>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<1, 11>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (23) :
-        amx_qk_gemm_impl<0, 11>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<0, 11>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     case (24) :
-        amx_qk_gemm_impl<1, 12>::run(q_ptr, k_ptr, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback);
+        amx_qk_gemm_impl<1, 12>::run(q_ptr, k_ptr, a_buffer, a_ptr, mhad.qkv_stride_, q_block, k_block, rollback, M, oscale, att_mask);
         return status_t::success;
     }
     return status_t::failed;
@@ -389,9 +410,10 @@ at::Tensor amx_mha(
     const at::Tensor& qkv,
     const at::Tensor& att_mask,
     const at::Scalar& m1,
-    const at::Scalar& oscale 
+    const at::Scalar& oscale,
+    const at::Scalar& m2
 ) {
-    std::cout << "call amx_mha" << std::endl;
+    // std::cout << "call amx_mha" << std::endl;
     auto qkv_sizes = qkv.sizes();
     assert(qkv_sizes.size() == 3);
     auto bs = qkv_sizes[0];
@@ -406,6 +428,7 @@ at::Tensor amx_mha(
     mhad.init();
 
     auto origin_ptr = reinterpret_cast<int8_t (*)[sl][stride]>(qkv.data_ptr());
+    auto att_mask_p = reinterpret_cast<int32_t *>(att_mask.data_ptr());
     
     auto amx_status = amx_init();
     if (!amx_status) {
@@ -418,42 +441,54 @@ at::Tensor amx_mha(
     // create attention tensor
     int sl_pad = max_tile_row * mhad.nbq_row;
     auto attention = at::empty({bs, head_num, sl, sl_pad}, at::TensorOptions().
-                        dtype<int>().memory_format(c10::MemoryFormat::Contiguous));
+                        dtype<int8_t>().memory_format(c10::MemoryFormat::Contiguous));
 
-    auto att_ptr = reinterpret_cast<int (*)[head_num][sl][sl_pad]>(attention.data_ptr());
+    auto att_ptr = reinterpret_cast<int8_t (*)[head_num][sl][sl_pad]>(attention.data_ptr());
     std::vector<int64_t> att_strides = {head_num*sl*sl_pad, sl*sl_pad, sl_pad, 1};
 
     // Dynamic allocate k_buffer
     int8_t k_buffer[sl_pad*64];
     int att_buffer[sl_pad*2*max_tile_row];
+    int8_t att_pro_buffer[sl_pad*2*max_tile_row];
+    int8_t v_buffer[sl_pad*64];
+    int r_buffer[sl_pad*64];
+
     
     // do amx gemm
+// #   pragma omp parallel for collapse(2)
     for (int i = 0; i < bs; i++) // batch size
     {
         for (int j = 0; j < head_num; j++) // head num
         {
+            // amx_status = amx_init();
             auto cur_q_ptr = &origin_ptr[i][0][j*head_size];
             auto cur_k_ptr = &origin_ptr[i][0][j*head_size+qkv_block];
+            auto cur_v_ptr = &origin_ptr[i][0][j*head_size+qkv_block+qkv_block];
             auto cur_a_ptr = &att_ptr[i][j][0][0];
-            reorder_k_to_buffer_v2(cur_k_ptr, k_buffer, sl, sl_pad, head_size, mhad.qkv_stride_);
+            reorder_k_to_buffer_v2(cur_k_ptr, cur_v_ptr, 
+                                   k_buffer, v_buffer, 
+                                   sl, sl_pad, head_size, mhad.qkv_stride_);
 
-            amx_qk_gemm(cur_q_ptr, k_buffer, cur_a_ptr, mhad);
+            amx_qk_gemm(cur_q_ptr, k_buffer, att_buffer, cur_a_ptr, mhad, 
+                        m1.toFloat(), oscale.toFloat(), att_mask_p[i]);
         }
     }
 
-    // add softmax
-    // auto atten_size = attention.sizes();
-    // i_softmax_tpp<16> softmax_compute(atten_size[0], atten_size[1], atten_size[2], atten_size[3]);
-    // auto atten_probs = at::empty(atten_size, 
-    //     at::TensorOptions().dtype<int8_t>()
-    //     .memory_format(c10::MemoryFormat::Contiguous));
+    /* add softmax
+    // after qk gemm do the softmax, we can get att_probs with qk gemm
+    auto atten_size = attention.sizes();
+    i_softmax_tpp<16> softmax_compute(atten_size[0], atten_size[1], atten_size[2], atten_size[3]);
+    auto atten_probs = at::empty(atten_size, 
+        at::TensorOptions().dtype<int8_t>()
+        .memory_format(c10::MemoryFormat::Contiguous));
 
-    // auto att_sz = att_mask.sizes();
-    // auto* patt = reinterpret_cast<int32_t *>(att_mask.data_ptr());
+    auto att_sz = att_mask.sizes();
+    auto* patt = reinterpret_cast<int32_t *>(att_mask.data_ptr());
 
-    // softmax_compute.ref(
-    //     atten_probs.data_ptr(), attention.data_ptr(),
-    //     patt, m1.toFloat(), oscale.toFloat());
+    softmax_compute.ref(
+        atten_probs.data_ptr(), attention.data_ptr(),
+        patt, m1.toFloat(), oscale.toFloat());
+    */
 
     return attention;
 }
