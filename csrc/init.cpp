@@ -9,7 +9,7 @@
 
 TORCH_LIBRARY(intel_mlperf, m) {
   m.def(
-    "amx_mha(Tensor qkv, Tensor attpro, Scalar m1, Scalar oscale) -> Tensor",
+    "amx_mha(Tensor qkv, Tensor attpro, Scalar m1, Scalar oscale, Scalar m2) -> Tensor",
     intel_mlperf::amx_mha);
   m.def(
     "linear(Tensor input, Tensor weight, Tensor ? bias, Scalar ? scale, Scalar ? zero) -> Tensor",

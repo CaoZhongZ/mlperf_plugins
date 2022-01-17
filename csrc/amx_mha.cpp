@@ -11,34 +11,47 @@
 
 namespace intel_mlperf {
 
-status_t mha_init_tile(struct tilecfg *cfg, MHA_desc& mhad) {
+status_t mha_init_av_tile(struct tilecfg *cfg, int row, int row_pad) {
     const int tile_config_size_in_bytes = 64;
+    const int tile_num = 8;
 
     char* _tc = (char*)(cfg);
     for (int i = 0; i < tile_config_size_in_bytes; i++)
         _tc[i] = 0;
 
-    int Qc = mhad.q_colsb;
+    int tr1 = max_tile_row;
+    int tr3 = tr1;
 
-    int Kc = mhad.k_colsb;
+    int Vr = row_pad / 4;
 
-    for (int i = 0; i < mhad.nq_block; i++) {
-        int Qr = (mhad.is_q_tail && i == mhad.nq_block - 1) ? mhad.q_tail : mhad.q_block;
-        configure_tile(cfg, mhad.get_q_ntile(i), Qr, Qc);
-    }
-
-    for (int j = 0; j < mhad.nk_block; j++) {
-        int Kr = mhad.k_block;
-        configure_tile(cfg, mhad.get_k_ntile(j), Kr, Kc);
-    }
-
-    for (int i = 0; i < mhad.nq_block; i++) {
-        int Ar = (mhad.is_q_tail && i == mhad.nq_block - 1) ? mhad.q_tail : mhad.q_block;
-        for (int j = 0; j < mhad.nk_block; j++) {
-            int Ac = mhad.k_block * mhad.typesize_A;
-            configure_tile(cfg, mhad.get_a_ntile(i, j), Ar, Ac);
+    int tr2 = max_tile_row;
+    for (tr2; tr2 > 0; tr2--) {
+        if (Vr % tr2 == 0) {
+            break;
         }
     }
+
+    int tc1 = tr2 * 4;
+    int tc2 = tr2 * 4;
+    int tc3 = tr2 * 4;
+    // TODO: add function to config av
+    cfg->tile_rows[0] = tr3;
+    cfg->tile_rows[1] = tr3;
+    cfg->tile_rows[2] = tr1;
+    cfg->tile_rows[3] = tr1;
+    cfg->tile_rows[4] = tr1;
+    cfg->tile_rows[5] = tr2;
+    cfg->tile_rows[6] = tr2;
+    cfg->tile_rows[7] = tr2;
+
+    cfg->tile_colsb[0] = tc3;
+    cfg->tile_colsb[1] = tc3;
+    cfg->tile_colsb[2] = tc1;
+    cfg->tile_colsb[3] = tc1;
+    cfg->tile_colsb[4] = tc1;
+    cfg->tile_colsb[5] = tc2;
+    cfg->tile_colsb[6] = tc2;
+    cfg->tile_colsb[7] = tc2;
 
     cfg->palette = 1;
     _tile_release();
@@ -99,17 +112,31 @@ status_t reorder_k_to_buffer(const int8_t* k_ptr, int8_t* k_buffer, int row, int
     return status_t::success;
 }
 
-status_t reorder_k_to_buffer_v2(const int8_t* k_ptr, int8_t* k_buffer, int row, int row_pad, int col, int stride)
+status_t reorder_k_to_buffer_v2(const int8_t* k_ptr, const int8_t* v_ptr,
+                                int8_t* k_buffer, int8_t* v_buffer,
+                                int row, int row_pad, int col, int stride)
 {
-    /// reorder k to k_buffer
+    /// reorder k to k_buffer and v to v_buffer
     auto k_ptr_ = reinterpret_cast<const int (*)[stride/4]>(k_ptr);
+    auto v_ptr_ = reinterpret_cast<const int8_t (*)[stride]>(v_ptr);
     auto k_buffer_ = reinterpret_cast<int (*)[row_pad]>(k_buffer);
+    auto v_buffer_ = reinterpret_cast<int8_t (*)[row_pad*4]>(v_buffer);
 
     for (int i = 0; i < 16; i++) {
         for (int j = 0; j < row_pad; ++j) {
             k_buffer_[i][j] = j >= row ? 0 : k_ptr_[j][i];
         }
     }
+
+    // int v_buffer_row = row_pad / 4;
+    // for (int i = 0; i < v_buffer_row; i++) {
+    //     for (int j = 0; j < 256; j++) {
+    //         int ori_row = i * 4 + j % 4;
+    //         int ori_col = j / 4;
+    //         v_buffer_[i][j] = i * 4 * row_pad + j < row * 64 ? v_ptr_[ori_row][ori_col] : 0;
+    //     }
+    // }
+
     return status_t::success;
 }
 
@@ -203,7 +230,7 @@ struct amx_qk_gemm_impl<0, NBlock> {
         int cur_k_pos_r = 0;
 
         i_softmax_tpp<16> softmax_full(1, 1, 32, sl_pad); 
-        i_softmax_tpp<16> softmax_tail(1, 1, 16-rollback, sl_pad);
+        i_softmax_tpp<16> softmax_tail(1, 1, 16, sl_pad);
 
 #       pragma unroll NBlock
         for (int i = 0; i < NBlock; i++) {
@@ -255,7 +282,7 @@ struct amx_qk_gemm_impl<0, NBlock> {
             softmax_full.ref(&att_pro[cur_q_pos][0], a_buffer, &att_mask, M, oscale);
         }
 
-        // the last 16 tile
+        // the last 16 row
         cur_q_pos += q_block * 2 - rollback;
         _tile_loadd(TMM4, &q[cur_q_pos][0], q_s);
 
@@ -296,7 +323,8 @@ status_t amx_qk_gemm(const int8_t* q_ptr, const int8_t* k_ptr, int* a_buffer, in
     /*
     do single qk gemm
     */
-    
+    // amx_init();
+    // mha_init_qk_tile(&tilecfg);
     int q_block = mhad.q_block;
     int k_block = mhad.k_block;
     int rollback = mhad.is_q_tail ? mhad.q_block - mhad.q_tail : 0;
@@ -382,7 +410,8 @@ at::Tensor amx_mha(
     const at::Tensor& qkv,
     const at::Tensor& att_mask,
     const at::Scalar& m1,
-    const at::Scalar& oscale 
+    const at::Scalar& oscale,
+    const at::Scalar& m2
 ) {
     // std::cout << "call amx_mha" << std::endl;
     auto qkv_sizes = qkv.sizes();
@@ -399,6 +428,7 @@ at::Tensor amx_mha(
     mhad.init();
 
     auto origin_ptr = reinterpret_cast<int8_t (*)[sl][stride]>(qkv.data_ptr());
+    auto att_mask_p = reinterpret_cast<int32_t *>(att_mask.data_ptr());
     
     auto amx_status = amx_init();
     if (!amx_status) {
@@ -409,7 +439,7 @@ at::Tensor amx_mha(
     mha_init_qk_tile(&tilecfg);
 
     // create attention tensor
-    int sl_pad = sl >= 64 ? max_tile_row * mhad.nbq_row : 64;
+    int sl_pad = max_tile_row * mhad.nbq_row;
     auto attention = at::empty({bs, head_num, sl, sl_pad}, at::TensorOptions().
                         dtype<int8_t>().memory_format(c10::MemoryFormat::Contiguous));
 
@@ -419,19 +449,28 @@ at::Tensor amx_mha(
     // Dynamic allocate k_buffer
     int8_t k_buffer[sl_pad*64];
     int att_buffer[sl_pad*2*max_tile_row];
+    int8_t att_pro_buffer[sl_pad*2*max_tile_row];
+    int8_t v_buffer[sl_pad*64];
+    int r_buffer[sl_pad*64];
 
-    auto att_mask_p = reinterpret_cast<int32_t *>(att_mask.data_ptr());
     
     // do amx gemm
+// #   pragma omp parallel for collapse(2)
     for (int i = 0; i < bs; i++) // batch size
     {
         for (int j = 0; j < head_num; j++) // head num
         {
+            // amx_status = amx_init();
             auto cur_q_ptr = &origin_ptr[i][0][j*head_size];
             auto cur_k_ptr = &origin_ptr[i][0][j*head_size+qkv_block];
+            auto cur_v_ptr = &origin_ptr[i][0][j*head_size+qkv_block+qkv_block];
             auto cur_a_ptr = &att_ptr[i][j][0][0];
-            reorder_k_to_buffer_v2(cur_k_ptr, k_buffer, sl, sl_pad, head_size, mhad.qkv_stride_);
-            amx_qk_gemm(cur_q_ptr, k_buffer, att_buffer, cur_a_ptr, mhad, m1.toFloat(), oscale.toFloat(), att_mask_p[i]);
+            reorder_k_to_buffer_v2(cur_k_ptr, cur_v_ptr, 
+                                   k_buffer, v_buffer, 
+                                   sl, sl_pad, head_size, mhad.qkv_stride_);
+
+            amx_qk_gemm(cur_q_ptr, k_buffer, att_buffer, cur_a_ptr, mhad, 
+                        m1.toFloat(), oscale.toFloat(), att_mask_p[i]);
         }
     }
 
