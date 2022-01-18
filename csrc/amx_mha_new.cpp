@@ -8,6 +8,7 @@
 #include "amx_tdpbssd.hpp"
 #include "i_softmax_tpp.hpp"
 #include "helper.hpp"
+#include "el_common_intrin.hpp"
 
 namespace intel_mlperf {
 
@@ -90,7 +91,6 @@ status_t reorder_k_to_buffer(const int8_t* k_ptr, int8_t* k_buffer, int row, int
         }
     }
     // only for test
-    // print_int8_2Dmatrix(k_buffer, 16, 16, row*4);
     return status_t::success;
 }
 
@@ -115,7 +115,7 @@ status_t reorder_k_to_buffer_v2(const int8_t* k_ptr, const int8_t* v_ptr,
         for (int j = 0; j < 256; j++) {
             int ori_row = i * 4 + j % 4;
             int ori_col = j / 4;
-            v_buffer_[i][j] = i * 4 * row_pad + j < row * 64 ? v_ptr_[ori_row][ori_col] : 0;
+            v_buffer_[i][j] = i * 4 * 64 + j < row * 64 ? v_ptr_[ori_row][ori_col] : 0;
         }
     }
 
@@ -123,16 +123,16 @@ status_t reorder_k_to_buffer_v2(const int8_t* k_ptr, const int8_t* v_ptr,
 }
 
 template<int rows>
-inline void av_gemm_kernel(const void* apro, const void* v_buffer, void* r_buffer, 
-                           int32_t sl_pad, int32_t rollback, int32_t step);
+inline void av_gemm_kernel(const void* apro, const void* v_buffer, void* r_buffer, void* c_ptr,
+                           int32_t sl_pad, int32_t rollback, int32_t step, float m2);
 
 template<>
-inline void av_gemm_kernel<32>(const void* apro, const void* v_buffer, void* r_buffer, 
-                           int32_t sl_pad, int32_t rollback, int32_t step) {
+inline void av_gemm_kernel<32>(const void* apro, const void* v_buffer, void* r_buffer, void* c_ptr,
+                           int32_t sl_pad, int32_t rollback, int32_t step, float m2) {
     // do 32 row gemm
     // a shape [32, sl_pad]
     // v shape [sl_pad/4, 256]
-    // r shape [sl, 64]
+    // r shape [32-rollback, 64]
     // steps : {1, 2, 3, 4, 5, 6, 8, 17, 19, 23}
     // TODO: unroll steps
     auto a = reinterpret_cast<const int8_t (*)[sl_pad]>(apro);
@@ -163,8 +163,9 @@ inline void av_gemm_kernel<32>(const void* apro, const void* v_buffer, void* r_b
 
     _tile_stored(TMM0, &r[0][0], 256);
     _tile_stored(TMM1, &r[0][16], 256);
-    _tile_stored(TMM2, &r[vr_block-rollback][0], 256);
-    _tile_stored(TMM3, &r[vr_block-rollback][16], 256);
+    _tile_stored(TMM2, &r[16-rollback][0], 256);
+    _tile_stored(TMM3, &r[16-rollback][16], 256);
+
     _tile_zero(TMM0);
     _tile_zero(TMM1);
     _tile_zero(TMM2);
@@ -186,13 +187,27 @@ inline void av_gemm_kernel<32>(const void* apro, const void* v_buffer, void* r_b
 
     _tile_stored(TMM0, &r[0][32], 256);
     _tile_stored(TMM1, &r[0][48], 256);
-    _tile_stored(TMM2, &r[vr_block-rollback][32], 256);
-    _tile_stored(TMM3, &r[vr_block-rollback][48], 256);
+    _tile_stored(TMM2, &r[16-rollback][32], 256);
+    _tile_stored(TMM3, &r[16-rollback][48], 256);
+
+    // mul m2
+    auto vscale = _mm512_set1_ps(m2);
+
+    auto c_out = reinterpret_cast<int8_t (*)[64]>(c_ptr);
+
+    for (int i = 0; i < 32-rollback; i ++) {
+        for (int j = 0; j < 64; j += 16) {
+            auto pr = _mm512_loadu_si512(&r[i][j]);
+            auto prf = _mm512_cvtepi32_ps(pr);
+            auto iout = _mm512_scale_minmax_i8_ps(vscale, prf);
+            _mm512_mask_cvtepi32_storeu_epi8(&c_out[i][j], 0xffff, iout);
+        }
+    }
 }
 
 template<>
-inline void av_gemm_kernel<16>(const void* apro, const void* v_buffer, void* r_buffer, 
-                           int32_t sl_pad, int32_t rollback, int32_t step) {
+inline void av_gemm_kernel<16>(const void* apro, const void* v_buffer, void* r_buffer, void* c_ptr,
+                           int32_t sl_pad, int32_t rollback, int32_t step, float m2) {
     // do 16 row gemm
     // a shape [32, sl_pad]
     // v shape [sl_pad/4, 256]
@@ -227,20 +242,34 @@ inline void av_gemm_kernel<16>(const void* apro, const void* v_buffer, void* r_b
         int a_c = i * ac_block;
         int v_r = i * vr_block;
         _tile_loadd(TMM4, &a[0][a_c], sl_pad);
-        _tile_loadd(TMM6, &v[v_r][0], 256);
-        _tile_loadd(TMM7, &v[v_r][64], 256);
+        _tile_loadd(TMM6, &v[v_r][128], 256);
+        _tile_loadd(TMM7, &v[v_r][192], 256);
 
         __tile_dpbssd<TMM0, TMM4, TMM6>();
         __tile_dpbssd<TMM1, TMM4, TMM7>();
     }
     _tile_stored(TMM0, &r[0][32], 256);
     _tile_stored(TMM1, &r[0][48], 256);
+
+    // mul m2
+    auto vscale = _mm512_set1_ps(m2);
+
+    auto c_out = reinterpret_cast<int8_t (*)[64]>(c_ptr);
+
+    for (int i = 0; i < 16; i ++) {
+        for (int j = 0; j < 64; j += 16) {
+            auto pr = _mm512_loadu_si512(&r[i][j]);
+            auto prf = _mm512_cvtepi32_ps(pr);
+            auto iout = _mm512_scale_minmax_i8_ps(vscale, prf);
+            _mm512_mask_cvtepi32_storeu_epi8(&c_out[i][j], 0xffff, iout);
+        }
+    }
 }
 
 
 template <int even, int NBlock>
 struct amx_qk_gemm_softmax_impl {
-    inline static void run (const void* q_ptr, const void* k_ptr, 
+    inline static void run (const void* q_ptr, const void* k_ptr,
                             void* a_buffer, void* v_buffer, void* apro_buffer, void* r_buffer, void* a_ptr, 
                             int ldq, int q_block, int k_block, int rollback, 
                             float M, float oscale, int32_t att_mask, float M2);
@@ -248,7 +277,7 @@ struct amx_qk_gemm_softmax_impl {
 
 template <int NBlock>
 struct amx_qk_gemm_softmax_impl<1, NBlock> {
-    inline static void run (const void* q_ptr, const void* k_ptr, 
+    inline static void run (const void* q_ptr, const void* k_ptr,
                             void* a_buffer, void* v_buffer, void* apro_buffer, void* r_buffer, void* a_ptr, 
                             int ldq, int q_block, int k_block, int rollback, 
                             float M, float oscale, int32_t att_mask, float M2) {
@@ -267,6 +296,7 @@ struct amx_qk_gemm_softmax_impl<1, NBlock> {
         auto k = reinterpret_cast<const int (*)[sl_pad]>(k_ptr);
         auto a = reinterpret_cast<int (*)[sl_pad]>(a_buffer);
         auto r = reinterpret_cast<int (*)[64]>(r_buffer);
+        auto c = reinterpret_cast<int8_t (*)[64]>(a_ptr);
 
         int q_s = ldq;
         int k_s = sl_pad * 4;
@@ -311,13 +341,9 @@ struct amx_qk_gemm_softmax_impl<1, NBlock> {
             auto& softmax_computer = (i == NBlock - 1) ? softmax_tail : softmax_full;
             softmax_computer.ref(apro_buffer, a_buffer, &att_mask, M, oscale);
             
-            if (i == 0) {
-                print_int8_2Dmatrix((int8_t*)apro_buffer, 16, 16, sl_pad);
-            }
-
             // add av gemm
             mha_init_av_tile(&tilecfg, rt_v);
-            av_gemm_kernel<32>(apro_buffer, v_buffer, &r[cur_q_pos][0], sl_pad, rollback_, step);
+            av_gemm_kernel<32>(apro_buffer, v_buffer, &r[cur_q_pos][0], &c[cur_q_pos][0], sl_pad, rollback_, step, M2);
             mha_init_qk_tile(&tilecfg);
         }
     }
@@ -325,7 +351,7 @@ struct amx_qk_gemm_softmax_impl<1, NBlock> {
 
 template<int NBlock>
 struct amx_qk_gemm_softmax_impl<0, NBlock> {
-    inline static void run (const void* q_ptr, const void* k_ptr, 
+    inline static void run (const void* q_ptr, const void* k_ptr,
                             void* a_buffer, void* v_buffer, void* apro_buffer, void* r_buffer, void* a_ptr, 
                             int ldq, int q_block, int k_block, int rollback, 
                             float M, float oscale, int32_t att_mask, float M2) {
@@ -344,6 +370,7 @@ struct amx_qk_gemm_softmax_impl<0, NBlock> {
         auto k = reinterpret_cast<const int (*)[sl_pad]>(k_ptr);
         auto a = reinterpret_cast<int (*)[sl_pad]>(a_buffer);
         auto r = reinterpret_cast<int (*)[64]>(r_buffer);
+        auto c = reinterpret_cast<int8_t (*)[64]>(a_ptr);
 
         int q_s = ldq;
         int k_s = sl_pad * 4;
@@ -405,12 +432,10 @@ struct amx_qk_gemm_softmax_impl<0, NBlock> {
 
             // add softmax
             softmax_full.ref(apro_buffer, a_buffer, &att_mask, M, oscale);
-            if (i == 0) {
-                print_int8_2Dmatrix((int8_t*)apro_buffer, 16, 16, sl_pad);
-            }
+
             // av gemm
             mha_init_av_tile(&tilecfg, rt_v);
-            av_gemm_kernel<32>(apro_buffer, v_buffer, &r[cur_q_pos][0], sl_pad, 0, step);
+            av_gemm_kernel<32>(apro_buffer, v_buffer, &r[cur_q_pos][0], &c[cur_q_pos][0], sl_pad, 0, step, M2);
             mha_init_qk_tile(&tilecfg);
         }
 
@@ -447,10 +472,8 @@ struct amx_qk_gemm_softmax_impl<0, NBlock> {
         _tile_stored(TMM0, &a[0][cur_k_pos], a_s);
         // add softmax
         softmax_tail.ref(apro_buffer, a_buffer, &att_mask, M, oscale);
-        // print_int8_2Dmatrix((int8_t*)apro_buffer, 16, 16, sl_pad);
-        // TODO: add 16 row mode
         mha_init_av_tile(&tilecfg, rt_v);
-        av_gemm_kernel<16>(apro_buffer, v_buffer, &r[cur_q_pos][0], sl_pad, 0, step);
+        av_gemm_kernel<16>(apro_buffer, v_buffer, &r[cur_q_pos][0], &c[cur_q_pos][0], sl_pad, 0, step, M2);
         mha_init_qk_tile(&tilecfg);
     }
 };
@@ -462,8 +485,6 @@ status_t amx_qk_gemm_softmax(const void* q_ptr, const void* k_ptr,
     /*
     do single qk gemm
     */
-    // amx_init();
-    // mha_init_qk_tile(&tilecfg);
 
     switch (nbq_row) {
     case (1) :
@@ -611,53 +632,42 @@ at::Tensor amx_mha(
     // Dynamic allocate k_buffer
     int8_t k_buffer[sl_pad*64];
     int att_buffer[sl_pad*2*max_tile_row];
-    int8_t att_pro_buffer[sl_pad*2*max_tile_row];
+    uint8_t att_pro_buffer[sl_pad*2*max_tile_row];
     int8_t v_buffer[sl_pad*64];
     int r_buffer[sl*64];
 
     // only for test
-    auto r_array = reinterpret_cast<int (*)[64]>(r_buffer);
-    
-    // do amx gemm
-// #   pragma omp parallel for
+    auto attention_int32 = at::empty({bs, head_num, sl, head_size}, at::TensorOptions().
+                        dtype<int32_t>().memory_format(c10::MemoryFormat::Contiguous));
+
+    auto att_ptr_int32 = reinterpret_cast<int32_t (*)[head_num][sl][head_size]>(attention_int32.data_ptr());
+
+        
     for (int i = 0; i < bs; i++) // batch size
     {
-        for (int j = 0; j < 1; j++) // head num
+        for (int j = 0; j < head_num; j++) // head num
         {
             // amx_status = amx_init();
             auto cur_q_ptr = &origin_ptr[i][0][j*head_size];
             auto cur_k_ptr = &origin_ptr[i][0][j*head_size+qkv_block];
             auto cur_v_ptr = &origin_ptr[i][0][j*head_size+qkv_block+qkv_block];
             auto cur_a_ptr = &att_ptr[i][j][0][0];
+            auto cur_a_ptr_int32 = &att_ptr_int32[i][j][0][0];
             reorder_k_to_buffer_v2(cur_k_ptr, cur_v_ptr, 
                                    k_buffer, v_buffer, 
                                    sl, sl_pad, head_size, mhad.qkv_stride_);
 
-            amx_qk_gemm_softmax(cur_q_ptr, k_buffer, att_buffer, v_buffer, att_pro_buffer, r_buffer, cur_a_ptr, mhad.nbq_row, stride,
+            // amx_qk_gemm_softmax(cur_q_ptr, k_buffer, att_buffer, v_buffer, att_pro_buffer, r_buffer, cur_a_ptr, mhad.nbq_row, stride,
+            //                     mhad.q_block, mhad.k_block, mhad.rollback, 
+            //                     m1.toFloat(), oscale.toFloat(), att_mask_p[i], m2.toFloat());
+
+            amx_qk_gemm_softmax(cur_q_ptr, k_buffer, att_buffer, v_buffer, att_pro_buffer, cur_a_ptr_int32, cur_a_ptr, mhad.nbq_row, stride,
                                 mhad.q_block, mhad.k_block, mhad.rollback, 
-                        m1.toFloat(), oscale.toFloat(), att_mask_p[i], m2.toFloat());
-            print_int32_2Dmatrix(&r_array[0][0], 32, 16, 64);
-            // print_zero_pos_int32(&r_array[0][0], sl, 64, 64);
+                                m1.toFloat(), oscale.toFloat(), att_mask_p[i], m2.toFloat());
         }
     }
 
-    /* add softmax
-    // after qk gemm do the softmax, we can get att_probs with qk gemm
-    auto atten_size = attention.sizes();
-    i_softmax_tpp<16> softmax_compute(atten_size[0], atten_size[1], atten_size[2], atten_size[3]);
-    auto atten_probs = at::empty(atten_size, 
-        at::TensorOptions().dtype<int8_t>()
-        .memory_format(c10::MemoryFormat::Contiguous));
-
-    auto att_sz = att_mask.sizes();
-    auto* patt = reinterpret_cast<int32_t *>(att_mask.data_ptr());
-
-    softmax_compute.ref(
-        atten_probs.data_ptr(), attention.data_ptr(),
-        patt, m1.toFloat(), oscale.toFloat());
-    */
-
-    return attention;
+    return attention_int32;
 }
 
 }
