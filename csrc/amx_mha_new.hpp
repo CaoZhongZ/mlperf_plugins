@@ -11,6 +11,14 @@
 #define XFEATURE_MASK_XTILEDATA (1 << XFEATURE_XTILEDATA)
 #define XFEATURE_MASK_XTILE (XFEATURE_MASK_XTILECFG | XFEATURE_MASK_XTILEDATA)
 
+#define ARCH_GET_XCOMP_SUPP	0x1021
+#define ARCH_GET_XCOMP_PERM	0x1022
+#define ARCH_REQ_XCOMP_PERM	0x1023
+
+#define ARCH_MAP_VDSO_X32	0x2001
+#define ARCH_MAP_VDSO_32	0x2002
+#define ARCH_MAP_VDSO_64	0x2003
+
 #define TMM0	0
 #define TMM1	1
 #define TMM2	2
@@ -78,14 +86,12 @@ public:
         // only q has tail, k's tail must be 16*64
         nbq_row = (sl_ + 15) / max_tile_row;
         nbk_col = nbq_row;
-
         nBlock = nbq_row / 2;
-
         sl_pad = max_tile_row * nbq_row;
-
         att_stride_ = max_tile_row * nbq_row;
-
         strides_ = {sl_ * qkv_stride_, qkv_stride_, 1};
+
+        rollback = is_q_tail ? q_block - q_tail : 0;
     };
     
     int get_q_ntile(int nb) {
@@ -125,6 +131,7 @@ public:
     int nbq_row;
     int nbk_col;
     int nBlock;
+    int rollback;
 
     int head_num_;
     int head_size_;
@@ -153,29 +160,13 @@ inline bool amx_init() {
     return true;
 }
 
-inline status_t configure_tile(struct tilecfg *cfg, int ntile, int row, int colsb)
-{
-    if (row <= 0 && colsb <= 0 && row > 16 && colsb > 64 && ntile > 7){
-        return status_t::failed;
-    }
-    cfg->tile_rows[ntile] = row;
-    cfg->tile_colsb[ntile] = colsb;
-    return status_t::success;
-}
-
-status_t reorder_k_to_buffer(const int8_t* k_ptr, int8_t* k_buffer, int row, int row_pad, int col, int stride);
-status_t reorder_k_to_buffer_v2(const int8_t* k_ptr, int8_t* k_buffer, int row, int row_pad, int col, int stride);
-
-status_t mha_init_tile(struct tilecfg *cfg, MHA_desc& mhad);
-status_t mha_init_qk_tile(struct tilecfg *cfg);
-
-status_t amx_qk_gemm(const int8_t* q_ptr, const int8_t* k_ptr, int* a_ptr, MHA_desc& mhad);
 
 at::Tensor amx_mha(
     const at::Tensor& qkv,
     const at::Tensor& att_mask,
-    const at::Scalar& M1,
-    const at::Scalar& oscale 
+    const at::Scalar& m1,
+    const at::Scalar& oscale,
+    const at::Scalar& m2
 );
 
 }

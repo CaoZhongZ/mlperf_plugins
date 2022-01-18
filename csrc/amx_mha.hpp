@@ -11,6 +11,14 @@
 #define XFEATURE_MASK_XTILEDATA (1 << XFEATURE_XTILEDATA)
 #define XFEATURE_MASK_XTILE (XFEATURE_MASK_XTILECFG | XFEATURE_MASK_XTILEDATA)
 
+#define ARCH_GET_XCOMP_SUPP	0x1021
+#define ARCH_GET_XCOMP_PERM	0x1022
+#define ARCH_REQ_XCOMP_PERM	0x1023
+
+#define ARCH_MAP_VDSO_X32	0x2001
+#define ARCH_MAP_VDSO_32	0x2002
+#define ARCH_MAP_VDSO_64	0x2003
+
 #define TMM0	0
 #define TMM1	1
 #define TMM2	2
@@ -78,14 +86,12 @@ public:
         // only q has tail, k's tail must be 16*64
         nbq_row = (sl_ + 15) / max_tile_row;
         nbk_col = nbq_row;
-
         nBlock = nbq_row / 2;
-
         sl_pad = max_tile_row * nbq_row;
-
         att_stride_ = max_tile_row * nbq_row;
-
         strides_ = {sl_ * qkv_stride_, qkv_stride_, 1};
+
+        rollback = is_q_tail ? q_block - q_tail : 0;
     };
     
     int get_q_ntile(int nb) {
@@ -125,6 +131,7 @@ public:
     int nbq_row;
     int nbk_col;
     int nBlock;
+    int rollback;
 
     int head_num_;
     int head_size_;

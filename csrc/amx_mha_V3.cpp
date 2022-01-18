@@ -222,7 +222,8 @@ at::Tensor amx_mha(
     const at::Tensor& qkv,
     const at::Tensor& att_mask,
     const at::Scalar& m1,
-    const at::Scalar& oscale 
+    const at::Scalar& oscale,
+    const at::Scalar& m2
 ) {
     std::cout << "call amx_mha" << std::endl;
     auto qkv_sizes = qkv.sizes();
@@ -273,10 +274,11 @@ at::Tensor amx_mha(
     }
 
     // add softmax
+
     auto atten_size = attention.sizes();
     i_softmax_tpp<16> softmax_compute(atten_size[0], atten_size[1], atten_size[2], atten_size[3]);
     auto atten_probs = at::empty(atten_size, 
-        at::TensorOptions().dtype<int8_t>()
+        at::TensorOptions().dtype<uint8_t>()
         .memory_format(c10::MemoryFormat::Contiguous));
 
     auto att_sz = att_mask.sizes();

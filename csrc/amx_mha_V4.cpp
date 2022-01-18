@@ -158,7 +158,7 @@ struct amx_qk_gemm_impl<1, NBlock> {
         auto q = reinterpret_cast<const int (*)[ldq/4]>(q_ptr);
         auto k = reinterpret_cast<const int (*)[sl_pad]>(k_ptr);
         auto a = reinterpret_cast<int (*)[sl_pad]>(a_buffer);
-        auto att_pro = reinterpret_cast<int8_t (*)[sl_pad]>(a_ptr);
+        auto att_pro = reinterpret_cast<uint8_t (*)[sl_pad]>(a_ptr);
 
         int q_s = ldq;
         int k_s = sl_pad * 4;
@@ -218,7 +218,7 @@ struct amx_qk_gemm_impl<0, NBlock> {
         auto q = reinterpret_cast<const int (*)[ldq/4]>(q_ptr);
         auto k = reinterpret_cast<const int (*)[sl_pad]>(k_ptr);
         auto a = reinterpret_cast<int (*)[sl_pad]>(a_buffer);
-        auto att_pro = reinterpret_cast<int8_t (*)[sl_pad]>(a_ptr);
+        auto att_pro = reinterpret_cast<uint8_t (*)[sl_pad]>(a_ptr);
 
         int q_s = ldq;
         int k_s = sl_pad * 4;
@@ -318,7 +318,7 @@ struct amx_qk_gemm_impl<0, NBlock> {
     }
 };
 
-status_t amx_qk_gemm(const int8_t* q_ptr, const int8_t* k_ptr, int* a_buffer, int8_t* a_ptr, MHA_desc& mhad, 
+status_t amx_qk_gemm(const int8_t* q_ptr, const int8_t* k_ptr, int* a_buffer, uint8_t* a_ptr, MHA_desc& mhad, 
                      float M, float oscale, int32_t att_mask) {
     /*
     do single qk gemm
@@ -441,17 +441,15 @@ at::Tensor amx_mha(
     // create attention tensor
     int sl_pad = max_tile_row * mhad.nbq_row;
     auto attention = at::empty({bs, head_num, sl, sl_pad}, at::TensorOptions().
-                        dtype<int8_t>().memory_format(c10::MemoryFormat::Contiguous));
+                        dtype<uint8_t>().memory_format(c10::MemoryFormat::Contiguous));
 
-    auto att_ptr = reinterpret_cast<int8_t (*)[head_num][sl][sl_pad]>(attention.data_ptr());
+    auto att_ptr = reinterpret_cast<uint8_t (*)[head_num][sl][sl_pad]>(attention.data_ptr());
     std::vector<int64_t> att_strides = {head_num*sl*sl_pad, sl*sl_pad, sl_pad, 1};
 
     // Dynamic allocate k_buffer
     int8_t k_buffer[sl_pad*64];
     int att_buffer[sl_pad*2*max_tile_row];
-    int8_t att_pro_buffer[sl_pad*2*max_tile_row];
     int8_t v_buffer[sl_pad*64];
-    int r_buffer[sl_pad*64];
 
     
     // do amx gemm
