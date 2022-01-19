@@ -3,6 +3,7 @@
 #include <immintrin.h>
 #include <string.h>
 #include <iostream>
+#include <chrono>
 
 #include "amx_mha.hpp"
 #include "amx_tdpbssd.hpp"
@@ -25,6 +26,8 @@
 #define TMM5	5
 #define TMM6	6
 #define TMM7	7
+
+using Time = std::chrono::high_resolution_clock;
 
 namespace intel_mlperf {
 
@@ -73,8 +76,6 @@ inline status_t configure_tile(struct tilecfg *cfg, int ntile, int row, int cols
 }
 
 status_t mha_init_av_tile(struct tilecfg *cfg, int r_v) {
-    const int tile_config_size_in_bytes = 64;
-    const int tile_num = 8;
 
     // TODO: add function to config av
     // tiles A:2 B:2 C:4 as qk
@@ -99,7 +100,6 @@ status_t mha_init_av_tile(struct tilecfg *cfg, int r_v) {
 
 status_t mha_init_qk_tile(struct tilecfg *cfg) {
     // all tile config to 16x64
-    const int tile_config_size_in_bytes = 64;
     const int tile_num = 8;
 
 
@@ -126,7 +126,6 @@ status_t reorder_k_to_buffer(const int8_t* k_ptr, int8_t* k_buffer, int row, int
 
     // auto ptr = k_ptr;
     int ks = row_pad * 4;
-    int nc_block = col / 4;
     for (int i = 0; i < row; i++)
     {
         int kc = i * 4;
@@ -241,7 +240,6 @@ struct av_gemm_post_impl<32, Steps> {
 
         // mul m2
         auto vscale = _mm512_set1_ps(m2);
-
         auto c_out = reinterpret_cast<int8_t (*)[64]>(c_ptr);
 
         for (int i = 0; i < 32-rollback; i ++) {
@@ -373,7 +371,6 @@ inline void av_gemm_kernel<16>(const void* apro, const void* v_buffer, void* r_b
     // steps : {1, 2, 3, 4, 5, 6, 8, 17, 19, 23}
     // TODO: unroll steps
 
-    int ac_block = sl_pad / step;
     switch (step) {
     case (1):
         av_gemm_post_impl<16, 1>::run(apro, v_buffer, r_buffer, c_ptr, sl_pad, rollback, m2);
@@ -408,362 +405,237 @@ inline void av_gemm_kernel<16>(const void* apro, const void* v_buffer, void* r_b
     }
 }
 
-template <int even, int Rows, int NBlock>
+
+// We limit row_tile 1 or 2, col_tile: 3, ..., 24 (384, could be more)
+template <int row_tile, int col_tile>
 struct qk_gemm_impl {
-    inline static void run (const void* k_ptr, void* a_buffer, 
-                            int ldq, int lda, int rollback);
-};
+    constexpr auto ldb = col_tile * 16;
+    constexpr auto lda = 3072;
 
-template <int NBlock>
-struct qk_gemm_impl<1, 32, NBlock> {
-    inline static void run (const void* k_ptr, void* a_buffer, 
-                            int ldq, int lda, int rollback) {
-                                
-        auto a = reinterpret_cast<int (*)[lda]>(a_buffer);
-        auto k = reinterpret_cast<const int (*)[lda]>(k_ptr);
-        int aks = lda * 4;
-
-#       pragma unroll NBlock                       
-        for (int j = 0; j < NBlock; j++) {
-            int cur_k_pos = j * max_tile_row * 2;
-            int cur_k_pos_r = cur_k_pos + max_tile_row;
-
-            _tile_loadd(TMM6, &k[0][cur_k_pos], aks);
-            _tile_loadd(TMM7, &k[0][cur_k_pos_r], aks);
-
-            _tile_zero(TMM0);
-            _tile_zero(TMM1);
-            _tile_zero(TMM2);
-            _tile_zero(TMM3);
-            
-            __tile_dpbssd<TMM0, TMM4, TMM6>();
-            __tile_dpbssd<TMM1, TMM4, TMM7>();
-            __tile_dpbssd<TMM2, TMM5, TMM6>();
-            __tile_dpbssd<TMM3, TMM5, TMM7>();
-
-            _tile_stored(TMM0, &a[0][cur_k_pos], aks);
-            _tile_stored(TMM1, &a[0][cur_k_pos_r], aks);
-            _tile_stored(TMM2, &a[max_tile_row-rollback][cur_k_pos], aks);
-            _tile_stored(TMM3, &a[max_tile_row-rollback][cur_k_pos_r], aks);
-        }
+    inline static tile_loada(const void *a, int overlap) {
+        auto a_ = reinterpret_cast<const int(*)[lda]>(a);
+        _tile_loadd(TMM4, a_[0], lda);
+        if (row_tile == 2) _tile_loadd(TMM5, a_[16-overlap], lda);
     }
-};
 
-template <int NBlock>
-struct qk_gemm_impl<0, 32, NBlock> {
-    inline static void run (const void* k_ptr, void* a_buffer, 
-                            int ldq, int lda, int rollback) {
-        
-        auto a = reinterpret_cast<int (*)[lda]>(a_buffer);
-        auto k = reinterpret_cast<const int (*)[lda]>(k_ptr);
-        int aks = lda * 4;
+    template <bool tail>
+    inline static tile_loadb(const void *b, int col_idx) {
+        auto b_ = reinterpret_cast<const int(*)[16]>(b);
+        _tile_loadd(TMM6, b_[col_idx], ldb*4);
+        if (!tail) _tile_loadd(TMM7, b_[col_idx + 1], ldb*4);
+    }
 
-        int cur_k_pos, cur_k_pos_r;
-
-#       pragma unroll NBlock
-        for (int j = 0; j < NBlock; j++) {
-            cur_k_pos = j * max_tile_row * 2;
-            cur_k_pos_r = cur_k_pos + max_tile_row;
-
-            _tile_loadd(TMM6, &k[0][cur_k_pos], aks);
-            _tile_loadd(TMM7, &k[0][cur_k_pos_r], aks);
-
-            _tile_zero(TMM0);
-            _tile_zero(TMM1);
-            _tile_zero(TMM2);
-            _tile_zero(TMM3);
-            
-            __tile_dpbssd<TMM0, TMM4, TMM6>();
-            __tile_dpbssd<TMM1, TMM4, TMM7>();
-            __tile_dpbssd<TMM2, TMM5, TMM6>();
-            __tile_dpbssd<TMM3, TMM5, TMM7>();
-
-            _tile_stored(TMM0, &a[0][cur_k_pos], aks);
-            _tile_stored(TMM1, &a[0][cur_k_pos_r], aks);
-            _tile_stored(TMM2, &a[max_tile_row][cur_k_pos], aks);
-            _tile_stored(TMM3, &a[max_tile_row][cur_k_pos_r], aks);
-        }
-
-        cur_k_pos += max_tile_row * 2;
-
-        _tile_loadd(TMM6, &k[0][cur_k_pos], aks);
-
+    inline static zero_accum() {
         _tile_zero(TMM0);
         _tile_zero(TMM1);
-        
-        __tile_dpbssd<TMM0, TMM4, TMM6>();
-        __tile_dpbssd<TMM1, TMM5, TMM6>();
-
-        _tile_stored(TMM0, &a[0][cur_k_pos], aks);
-        _tile_stored(TMM1, &a[max_tile_row][cur_k_pos], aks);
+        _tile_zero(TMM2);
+        _tile_zero(TMM3);
     }
-};
 
-template <int NBlock>
-struct qk_gemm_impl<0, 16, NBlock> {
-    inline static void run (const void* k_ptr, void* a_buffer, 
-                            int ldq, int lda, int rollback) {
-        
-        auto a = reinterpret_cast<int (*)[lda]>(a_buffer);
-        auto k = reinterpret_cast<const int (*)[lda]>(k_ptr);
-        int aks = lda * 4;
+    template <bool tail> inline static dot_prod(void *c, int col_idx, int overlap) {
+        auto c_ = reinterpret_cast<int (*)[ldb/16][16]>(c);
+    
+        __tile_dpbssd<TMM0, TMM4, TMM6>();
+        _tile_stored(TMM0, c_[0][col_idx], ldb*4);
 
-        int cur_k_pos, cur_k_pos_r;
-
-#       pragma unroll NBlock
-        for (int j = 0; j < NBlock; j++) {
-            cur_k_pos = j * max_tile_row * 2;
-            cur_k_pos_r = cur_k_pos + max_tile_row;
-
-            _tile_loadd(TMM6, &k[0][cur_k_pos], aks);
-            _tile_loadd(TMM7, &k[0][cur_k_pos_r], aks);
-
-            _tile_zero(TMM0);
-            _tile_zero(TMM1);
-
-            __tile_dpbssd<TMM0, TMM4, TMM6>();
+        if (!tail) {
             __tile_dpbssd<TMM1, TMM4, TMM7>();
-
-            _tile_stored(TMM0, &a[0][cur_k_pos], aks);
-            _tile_stored(TMM1, &a[0][cur_k_pos_r], aks);
+            _tile_stored(TMM1, c_[0][col_idx+1], ldb*4);
         }
 
-        cur_k_pos += max_tile_row * 2;
+        if (row_tile == 2) {
+            __tile_dpbssd<TMM2, TMM5, TMM6>();
+            _tile_stored(TMM2, c_[16-overlap][col_idx], ldb*4);
 
-        _tile_loadd(TMM6, &k[0][cur_k_pos], aks);
+            if (!tail) {
+                __tile_dpbssd<TMM3, TMM5, TMM7>();
+                _tile_stored(TMM3, c_[16-overlap][col_idx+1], ldb*4);
+            }
+        }
+    }
 
+    // Preloaded A
+    inline static void compute (void* c, const void* b, const void* a, int overlap) {
+        constexpr auto col_tail = col_tile % 2;
+        constexpr auto col_loop = (col_tile - col_tail)/2;
+        tile_loada(a, overlap);
+
+        int i = 0;
+#       pragma unroll (col_loop)
+        for (; i < col_loop; ++i) {
+            tile_loadb<false>(b, i*2);
+            zero_accum();
+            dot_prod<false>(c, i*2, overlap);
+        }
+
+        if (col_tail) {
+            tile_loadb<true>(b, i*2);
+            zero_accum();
+            dot_prod<true>(c, i*2, overlap);
+        }
+    }
+
+    inline static void softmax(
+        void *c_int8, void *c, int len, float M, float oscale, int overlap) {
+        auto actual_row = row_tile * 16 - overlap;
+        assert(len <= col_tile * 16);
+        auto c_int8_ = reinterpret_cast<int8_t (*)[ldb]>(c_int8);
+        auto c_ = reinterpret_cast<int (*)[ldb]>(c);
+
+        i32_scale_attlen_softmax_scale_i8<16, 16>(c_int8_[0], c_[0], len, M, oscale, ldb);
+
+        if (row_tile == 2) {
+            i32_scale_attlen_softmax_scale_i8<16, 16>(
+                c_int8_[16 - overlap], c_[16 - overlap], len, M, oscale, ldb);
+        }
+    }
+
+    inline static void config(struct tilecfg *cfg) {
+        const int tile_num = 8;
+        for (int i = 0; i < tile_num; i++) {
+            cfg->tile_rows[i] = 16;
+            cfg->tile_colsb[i] = 64;
+        }
+        cfg->palette = 1;
+        _tile_release();
+        _tile_loadconfig(cfg);
+    }
+};
+// n_tile: 1 or 2
+// k_tile: {1, 2, 3, 4, 5, 6, 8, 17, 19, 23}
+
+template <int n_tile, int k_step>
+struct av_gemm_impl {
+    constexpr size_t ldb = 64;
+    constexpr size_t lscratch = 256;
+    constexpr size_t ldc = 64;
+
+    inline void config(struct tilecfg *cfg, int r_v) {
+        // tiles A:2 B:2 C:4 as qk
+        // input A tiles
+        configure_tile(cfg, 4, 16, r_v * 4);
+        configure_tile(cfg, 5, 16, r_v * 4);
+        // input B tiles
+        configure_tile(cfg, 6, r_v, 64);
+        configure_tile(cfg, 7, r_v, 64);
+        // output tiles
+        configure_tile(cfg, 0, 16, 64);
+        configure_tile(cfg, 1, 16, 64);
+        configure_tile(cfg, 2, 16, 64);
+        configure_tile(cfg, 3, 16, 64);
+
+        cfg->palette = 1;
+        _tile_release();
+        _tile_loadconfig(cfg);
+    }
+
+    inline void loada(void* a, size_t lda, size_t overlap) {
+        auto a_ = reinterpret_cast<int8_t (*)[lda]>(a);
+
+        _tile_loadd(TMM4, a_[0], lda);
+        if (n_tile == 2)
+            _tile_loadd(TMM5, a[16 - overlap], lda);
+    }
+
+    inline void loadb(void *b_scratch) {
+        auto b_ = reinterpret_cast<int (*)[16]>(b_scratch);
+        _tile_loadd(TMM6, b_[0], lscratch);
+        _tile_loadd(TMM7, b_[1], lscratch);
+    }
+
+    inline static void zero_accum() {
         _tile_zero(TMM0);
+        _tile_zero(TMM1);
+        _tile_zero(TMM2);
+        _tile_zero(TMM3);
+    }
 
+    inline transpose_b(void* b_scratch, void *b, size_t real_k) {
+
+    }
+
+    inline void dot_prod() {
         __tile_dpbssd<TMM0, TMM4, TMM6>();
-
-        _tile_stored(TMM0, &a[0][cur_k_pos], aks);
+        __tile_dpbssd<TMM1, TMM4, TMM7>();
+        if (n_tile == 2) {
+            __tile_dpbssd<TMM2, TMM5, TMM6>();
+            __tile_dpbssd<TMM3, TMM5, TMM7>();
+        }
     }
-};
 
-template <int even, int NBlock>
-struct amx_per_head_impl {
-    inline static void run (const void* q_ptr, const void* k_ptr,
-                            void* a_buffer, void* v_buffer, void* apro_buffer, void* r_buffer, void* a_ptr, 
-                            int ldq, int q_block, int k_block, int rollback, 
-                            float M, float oscale, int32_t att_mask, float M2);
-};
+    inline void store_quant(void *c, size_t overlap, float m2) {
+        alignas(64) int scratch [n_tile][32];
+        _tile_stored(TMM0, scratch[0], 32*4);
+        _tile_stored(TMM1, scratch[1], 32*4);
+        if (n_tile == 2) {
+            _tile_stored(TMM2, scratch[16-overlap][0], 32*4);
+            _tile_stored(TMM3, scratch[16-overlap][1], 32*4);
+        }
 
-template <int NBlock>
-struct amx_per_head_impl<1, NBlock> {
-    inline static void run (const void* q_ptr, const void* k_ptr,
-                            void* a_buffer, void* v_buffer, void* apro_buffer, void* r_buffer, void* a_ptr, 
-                            int ldq, int q_block, int k_block, int rollback, 
-                            float M, float oscale, int32_t att_mask, float M2) {
-        // sl / 16 is even
+        // quant out to c
+        auto vscale = _mm512_set1_ps(m2);
+        auto c_out = reinterpret_cast<int8_t (*)[64]>(c);
 
-        int sl_pad = NBlock * 32;
-        int vbuffer_r = NBlock * 8;
-        int rt_v = max_tile_row;
-        for (; rt_v > 0; rt_v--) { 
-            if (vbuffer_r % rt_v == 0) {
-                break;
+        auto q_rows = n_tile * 16 - overlap;
+        for (int i = 0; i < q_rows; i ++) {
+            for (int j = 0; j < 32; j += 16) {
+                auto pr = _mm512_loadu_si512(&scratch[i][j]);
+                auto prf = _mm512_cvtepi32_ps(pr);
+                auto iout = _mm512_scale_minmax_i8_ps(vscale, prf);
+                _mm512_mask_cvtepi32_storeu_epi8(&c_out[i][j], 0xffff, iout);
             }
         }
-        int step = vbuffer_r / rt_v;
-        auto q = reinterpret_cast<const int (*)[ldq/4]>(q_ptr);
-        auto c = reinterpret_cast<int8_t (*)[64]>(a_ptr);
-
-        int q_s = ldq;
-
-        i_softmax_tpp<16> softmax_full(1, 1, 32, sl_pad);
-        i_softmax_tpp<16> softmax_tail(1, 1, 32-rollback, sl_pad);
-
-
-#       pragma unroll NBlock
-        for (int i = 0; i < NBlock; i++) {
-            int cur_q_pos = i * max_tile_row * 2;
-            int rollback_ = (i == NBlock - 1) ? rollback : 0;
-            int cur_q_pos_b = cur_q_pos + q_block - rollback_;
-
-            _tile_loadd(TMM4, &q[cur_q_pos][0], q_s);
-            _tile_loadd(TMM5, &q[cur_q_pos_b][0], q_s);
-
-            qk_gemm_impl<1, 32, NBlock>::run(k_ptr, a_buffer, ldq, sl_pad, rollback_);
-            // add softmax
-            auto& softmax_computer = (i == NBlock - 1) ? softmax_tail : softmax_full;
-            softmax_computer.ref(apro_buffer, a_buffer, &att_mask, M, oscale);
-            
-            // add av gemm
-            mha_init_av_tile(&tilecfg, rt_v);
-            av_gemm_kernel<32>(apro_buffer, v_buffer, r_buffer, &c[cur_q_pos][0], sl_pad, rollback_, step, M2);
-            mha_init_qk_tile(&tilecfg);
-        }
     }
-};
 
-template<int NBlock>
-struct amx_per_head_impl<0, NBlock> {
-    inline static void run (const void* q_ptr, const void* k_ptr,
-                            void* a_buffer, void* v_buffer, void* apro_buffer, void* r_buffer, void* a_ptr, 
-                            int ldq, int q_block, int k_block, int rollback, 
-                            float M, float oscale, int32_t att_mask, float M2) {
-        // sl / 16 is odd
+    inline void compute(void* c, void *a, size_t lda, void* b_scratch, size_t overlap, float m2) {
+        zero_accum();
+
+        auto b_block = lda / k_step;
+        auto a_block = b_block * 4;
         
-        int sl_pad = NBlock * 32 + 16;
-        int vbuffer_r = NBlock * 8 + 4;
-        int rt_v = max_tile_row;
-        for (; rt_v > 0; rt_v--) { 
-            if (vbuffer_r % rt_v == 0) {
-                break;
-            }
+        auto a_ = reinterpret_cast<int8_t (*)[a_block>();
+        auto b_ = reinterpret_cast<int8_t (*)[b_block][64]>(b_scratch);
+        auto c_ = reinterpret_cast<int8_t (*)[16]>(c);
+
+#       pragma unroll (k_step)
+        for (int i = 0; i < k_step; ++i) {
+            this->loada(a_[i], lda, overlap);
+            this->loadb(b_[i]);
+            dot_prod();
         }
-        int step = vbuffer_r / rt_v;
-        auto q = reinterpret_cast<const int (*)[ldq/4]>(q_ptr);
-        auto c = reinterpret_cast<int8_t (*)[64]>(a_ptr);
+        store_quant(c_[0], m2);
 
-        int q_s = ldq;
-
-        int cur_q_pos = 0;
-        int cur_q_pos_b = 0;
-
-        i_softmax_tpp<16> softmax_full(1, 1, 32, sl_pad); 
-        i_softmax_tpp<16> softmax_tail(1, 1, 16, sl_pad);
-
-#       pragma unroll NBlock
-        for (int i = 0; i < NBlock; i++) {
-            cur_q_pos = i * q_block * 2;
-            cur_q_pos_b = cur_q_pos + q_block;
-
-            _tile_loadd(TMM4, &q[cur_q_pos][0], q_s);
-            _tile_loadd(TMM5, &q[cur_q_pos_b][0], q_s);
-
-            qk_gemm_impl<0, 32, NBlock>::run(k_ptr, a_buffer, ldq, sl_pad, 0);
-
-            // add softmax
-            softmax_full.ref(apro_buffer, a_buffer, &att_mask, M, oscale);
-
-            // av gemm
-            mha_init_av_tile(&tilecfg, rt_v);
-            av_gemm_kernel<32>(apro_buffer, v_buffer, r_buffer, &c[cur_q_pos][0], sl_pad, 0, step, M2);
-            mha_init_qk_tile(&tilecfg);
+#       pragma unroll (k_step)
+        for (int i = 0; i < k_step; ++i) {
+            this->loada(a_[i], lda, overlap);
+            this->loadb(b_[i]);
+            dot_prod();
         }
-
-        // the last 16 row
-        cur_q_pos += q_block * 2 - rollback;
-        _tile_loadd(TMM4, &q[cur_q_pos][0], q_s);
-
-        qk_gemm_impl<0, 16, NBlock>::run(k_ptr, a_buffer, ldq, sl_pad, 0);
-        // add softmax
-        softmax_tail.ref(apro_buffer, a_buffer, &att_mask, M, oscale);
-
-        mha_init_av_tile(&tilecfg, rt_v);
-        av_gemm_kernel<16>(apro_buffer, v_buffer, r_buffer, &c[cur_q_pos][0], sl_pad, 0, step, M2);
-        mha_init_qk_tile(&tilecfg);
+        store_quant(c_[2], m2);
     }
 };
 
-status_t amx_per_head(const void* q_ptr, const void* k_ptr, 
-                             void* a_buffer, void* v_buffer, void* apro_buffer, void* r_buffer, void* a_ptr, 
-                             int nbq_row, int ldq, int q_block, int k_block, int rollback, 
-                             float M, float oscale, int32_t att_mask, float M2) {
-    /*
-    do single qk gemm
-    */
 
-    switch (nbq_row) {
-    case (1) :
-        amx_per_head_impl<0, 0>::run(q_ptr, k_ptr, a_buffer, v_buffer, apro_buffer, r_buffer, 
-                                            a_ptr, ldq, q_block, k_block, rollback, M, oscale, att_mask, M2);
-        return status_t::success;
-    case (2) :
-        amx_per_head_impl<1, 1>::run(q_ptr, k_ptr, a_buffer, v_buffer, apro_buffer, r_buffer, 
-                                            a_ptr, ldq, q_block, k_block, rollback, M, oscale, att_mask, M2);
-        return status_t::success;
-    case (3) :
-        amx_per_head_impl<0, 1>::run(q_ptr, k_ptr, a_buffer, v_buffer, apro_buffer, r_buffer, 
-                                            a_ptr, ldq, q_block, k_block, rollback, M, oscale, att_mask, M2);
-        return status_t::success;
-    case (4) :
-        amx_per_head_impl<1, 2>::run(q_ptr, k_ptr, a_buffer, v_buffer, apro_buffer, r_buffer, 
-                                            a_ptr, ldq, q_block, k_block, rollback, M, oscale, att_mask, M2);
-        return status_t::success;
-    case (5) :
-        amx_per_head_impl<0, 2>::run(q_ptr, k_ptr, a_buffer, v_buffer, apro_buffer, r_buffer, 
-                                            a_ptr, ldq, q_block, k_block, rollback, M, oscale, att_mask, M2);
-        return status_t::success;
-    case (6) :
-        amx_per_head_impl<1, 3>::run(q_ptr, k_ptr, a_buffer, v_buffer, apro_buffer, r_buffer, 
-                                            a_ptr, ldq, q_block, k_block, rollback, M, oscale, att_mask, M2);
-        return status_t::success;
-    case (7) :
-        amx_per_head_impl<0, 3>::run(q_ptr, k_ptr, a_buffer, v_buffer, apro_buffer, r_buffer, 
-                                            a_ptr, ldq, q_block, k_block, rollback, M, oscale, att_mask, M2);
-        return status_t::success;
-    case (8) :
-        amx_per_head_impl<1, 4>::run(q_ptr, k_ptr, a_buffer, v_buffer, apro_buffer, r_buffer, 
-                                            a_ptr, ldq, q_block, k_block, rollback, M, oscale, att_mask, M2);
-        return status_t::success;
-    case (9) :
-        amx_per_head_impl<0, 4>::run(q_ptr, k_ptr, a_buffer, v_buffer, apro_buffer, r_buffer, 
-                                            a_ptr, ldq, q_block, k_block, rollback, M, oscale, att_mask, M2);
-        return status_t::success;
-    case (10) :
-        amx_per_head_impl<1, 5>::run(q_ptr, k_ptr, a_buffer, v_buffer, apro_buffer, r_buffer, 
-                                            a_ptr, ldq, q_block, k_block, rollback, M, oscale, att_mask, M2);
-        return status_t::success;
-    case (11) :
-        amx_per_head_impl<0, 5>::run(q_ptr, k_ptr, a_buffer, v_buffer, apro_buffer, r_buffer, 
-                                            a_ptr, ldq, q_block, k_block, rollback, M, oscale, att_mask, M2);
-        return status_t::success;
-    case (12) :
-        amx_per_head_impl<1, 6>::run(q_ptr, k_ptr, a_buffer, v_buffer, apro_buffer, r_buffer, 
-                                            a_ptr, ldq, q_block, k_block, rollback, M, oscale, att_mask, M2);
-        return status_t::success;
-    case (13) :
-        amx_per_head_impl<0, 6>::run(q_ptr, k_ptr, a_buffer, v_buffer, apro_buffer, r_buffer, 
-                                            a_ptr, ldq, q_block, k_block, rollback, M, oscale, att_mask, M2);
-        return status_t::success;
-    case (14) :
-        amx_per_head_impl<1, 7>::run(q_ptr, k_ptr, a_buffer, v_buffer, apro_buffer, r_buffer, 
-                                            a_ptr, ldq, q_block, k_block, rollback, M, oscale, att_mask, M2);
-        return status_t::success;
-    case (15) :
-        amx_per_head_impl<0, 7>::run(q_ptr, k_ptr, a_buffer, v_buffer, apro_buffer, r_buffer, 
-                                            a_ptr, ldq, q_block, k_block, rollback, M, oscale, att_mask, M2);
-        return status_t::success;
-    case (16) :
-        amx_per_head_impl<1, 8>::run(q_ptr, k_ptr, a_buffer, v_buffer, apro_buffer, r_buffer, 
-                                            a_ptr, ldq, q_block, k_block, rollback, M, oscale, att_mask, M2);
-        return status_t::success;
-    case (17) :
-        amx_per_head_impl<0, 8>::run(q_ptr, k_ptr, a_buffer, v_buffer, apro_buffer, r_buffer, 
-                                            a_ptr, ldq, q_block, k_block, rollback, M, oscale, att_mask, M2);
-        return status_t::success;
-    case (18) :
-        amx_per_head_impl<1, 9>::run(q_ptr, k_ptr, a_buffer, v_buffer, apro_buffer, r_buffer, 
-                                            a_ptr, ldq, q_block, k_block, rollback, M, oscale, att_mask, M2);
-        return status_t::success;
-    case (19) :
-        amx_per_head_impl<0, 9>::run(q_ptr, k_ptr, a_buffer, v_buffer, apro_buffer, r_buffer, 
-                                            a_ptr, ldq, q_block, k_block, rollback, M, oscale, att_mask, M2);
-        return status_t::success;
-    case (20) :
-        amx_per_head_impl<1, 10>::run(q_ptr, k_ptr, a_buffer, v_buffer, apro_buffer, r_buffer, 
-                                            a_ptr, ldq, q_block, k_block, rollback, M, oscale, att_mask, M2);
-        return status_t::success;
-    case (21) :
-        amx_per_head_impl<0, 10>::run(q_ptr, k_ptr, a_buffer, v_buffer, apro_buffer, r_buffer, 
-                                            a_ptr, ldq, q_block, k_block, rollback, M, oscale, att_mask, M2);
-        return status_t::success;
-    case (22) :
-        amx_per_head_impl<1, 11>::run(q_ptr, k_ptr, a_buffer, v_buffer, apro_buffer, r_buffer, 
-                                            a_ptr, ldq, q_block, k_block, rollback, M, oscale, att_mask, M2);
-        return status_t::success;
-    case (23) :
-        amx_per_head_impl<0, 11>::run(q_ptr, k_ptr, a_buffer, v_buffer, apro_buffer, r_buffer, 
-                                            a_ptr, ldq, q_block, k_block, rollback, M, oscale, att_mask, M2);
-        return status_t::success;
-    case (24) :
-        amx_per_head_impl<1, 12>::run(q_ptr, k_ptr, a_buffer, v_buffer, apro_buffer, r_buffer, 
-                                            a_ptr, ldq, q_block, k_block, rollback, M, oscale, att_mask, M2);
-        return status_t::success;
+status_t amx_per_head(const void* qkv_ptr, int ldqkv, void* a_ptr, int lda,
+                      int sl, float M, float oscale, int32_t att_mask, float M2) {
+
+    int sl_pad = (sl + 15) / 16 * 16;
+    int col_tile = sl_pad / 16;
+    int v_row = sl_pad / 4;
+    int rt_v = 16;
+    for (; rt_v > 0; rt_v--) { 
+        if (v_row % rt_v == 0) {
+            break;
+        }
     }
-    return status_t::failed;
+    int k_step = v_row / rt_v; 
+    int8_t k_scrach[16][sl_pad*4];
+    int8_t v_scrach[sl_pad/4][256];
+
+    auto q = reinterpret_cast<const int8_t (*)[lda]>(qkv_ptr);
+    auto a = reinterpret_cast<int8_t* (*)[64]>(a_ptr);
+
+
 }
 
 at::Tensor amx_mha(
@@ -771,8 +643,8 @@ at::Tensor amx_mha(
     const at::Tensor& att_mask,
     const at::Scalar& m1,
     const at::Scalar& oscale,
-    const at::Scalar& m2
-) {
+    const at::Scalar& m2) {
+    
     // std::cout << "call amx_mha" << std::endl;
     auto qkv_sizes = qkv.sizes();
     assert(qkv_sizes.size() == 3);
@@ -785,8 +657,10 @@ at::Tensor amx_mha(
     int head_num = qkv_block / head_size;
 
     
-    
+    auto start = Time::now();
     auto amx_status = amx_init();
+    auto init_during = std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start).count();
+    
     if (!amx_status) {
         printf("amx init failed!\n");
         return qkv;
@@ -815,6 +689,11 @@ at::Tensor amx_mha(
     auto origin_ptr = reinterpret_cast<int8_t (*)[sl][3][head_num][head_size]>(qkv.data_ptr());
     auto att_mask_p = reinterpret_cast<int32_t *>(att_mask.data_ptr());
     int rollback = (sl % max_tile_row != 0) ? max_tile_row - (sl % max_tile_row) : 0;
+
+    int64_t copy_time = 0;
+    int64_t amx_time = 0;
+    auto loop_start = Time::now();
+    auto other_during = std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start).count();
 // # pragma omp parallel for collapse(2)
     for (int i = 0; i < bs; i++) // batch size
     {
@@ -825,15 +704,29 @@ at::Tensor amx_mha(
             auto cur_k_ptr = &origin_ptr[i][0][1][j][0];
             auto cur_v_ptr = &origin_ptr[i][0][2][j][0];
             auto cur_a_ptr = &att_ptr[i][j][0][0];
+            
+            auto time_point_1 = Time::now();
             reorder_k_to_buffer_v2(cur_k_ptr, cur_v_ptr, 
                                    k_buffer, v_buffer, 
                                    sl, sl_pad, head_size, stride);
+            auto time_point_2 = Time::now();
+            copy_time += std::chrono::duration_cast<std::chrono::nanoseconds>(time_point_2 - time_point_1).count();
 
             amx_per_head(cur_q_ptr, k_buffer, att_buffer, v_buffer, att_pro_buffer, r_buffer, cur_a_ptr, nbq_row, stride,
                                 max_tile_row, max_tile_row, rollback, 
                                 m1.toFloat(), oscale.toFloat(), att_mask_p[i], m2.toFloat());
+            auto time_point_3 = Time::now();
+            
+            amx_time += std::chrono::duration_cast<std::chrono::nanoseconds>(time_point_3 - time_point_2).count();
         }
     }
+    auto loop_during = std::chrono::duration_cast<std::chrono::milliseconds>(Time::now() - loop_start).count();
+
+    std::cout << "init during : " << (float)init_during / 1000 / 1000 << " ms" << std::endl;
+    std::cout << "-----------copy time: " << (float)copy_time / 1000 / 1000 << " ms--------------" << std::endl;
+    std::cout << "-----------amx time: " << (float)amx_time / 1000 / 1000 << " ms--------------" << std::endl;
+    std::cout << "-----------loop time: " << loop_during << " ms--------------" << std::endl;
+    std::cout << "-----------other time: " << (float)other_during / 1000 / 1000 << " ms--------------" << std::endl;
 
     return attention;
 }
