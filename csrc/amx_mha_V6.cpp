@@ -16,6 +16,15 @@
 #define XFEATURE_MASK_XTILEDATA (1 << XFEATURE_XTILEDATA)
 #define XFEATURE_MASK_XTILE (XFEATURE_MASK_XTILECFG | XFEATURE_MASK_XTILEDATA)
 
+#define ARCH_GET_XCOMP_SUPP	0x1021
+#define ARCH_GET_XCOMP_PERM	0x1022
+#define ARCH_REQ_XCOMP_PERM	0x1023
+
+#define ARCH_MAP_VDSO_X32	0x2001
+#define ARCH_MAP_VDSO_32	0x2002
+#define ARCH_MAP_VDSO_64	0x2003
+
+
 
 #define TMM0	0
 #define TMM1	1
@@ -199,9 +208,21 @@ struct av_gemm_post_impl<32, Steps> {
             int a_c = i * ac_block;
             int v_r = i * vr_block;
             _tile_loadd(TMM4, &a[0][a_c], sl_pad);
+            // printf("aaaaaaaaaaaaa\n");
+            // print_2d_matrix<int8_t>(&a[0][a_c], 16, 64, sl_pad);
+            // getchar();
             _tile_loadd(TMM5, &a[16-rollback][a_c], sl_pad);
+            // printf("aaaaaaaaaaaaa\n");
+            // print_2d_matrix<int8_t>(&a[16-rollback][a_c], 16, 64, sl_pad);
+            // getchar();
             _tile_loadd(TMM6, &v[v_r][0], 256);
+            // printf("bbbbbbbbbbbbbbb\n");
+            // print_2d_matrix<int8_t>(&v[v_r][0], 16, 64, 256);
+            // getchar();
             _tile_loadd(TMM7, &v[v_r][64], 256);
+            // printf("bbbbbbbbbbbbbbb\n");
+            // print_2d_matrix<int8_t>(&v[v_r][64], 16, 64, 256);
+            // getchar();
 
             __tile_dpbssd<TMM0, TMM4, TMM6>();
             __tile_dpbssd<TMM1, TMM4, TMM7>();
@@ -239,6 +260,11 @@ struct av_gemm_post_impl<32, Steps> {
         _tile_stored(TMM2, &r[16-rollback][32], 256);
         _tile_stored(TMM3, &r[16-rollback][48], 256);
 
+        // print_2d_matrix<int>(&r[0][0], 32, 32, 64);
+        // getchar();
+        // print_2d_matrix<int>(&r[0][32], 32, 32, 64);
+        // getchar();
+
         // mul m2
         auto vscale = _mm512_set1_ps(m2);
 
@@ -252,6 +278,11 @@ struct av_gemm_post_impl<32, Steps> {
                 _mm512_mask_cvtepi32_storeu_epi8(&c_out[i][j], 0xffff, iout);
             }
         }
+        printf("real out\n");
+        print_2d_matrix<int8_t>(&c_out[0][0], 32, 32, 64);
+        getchar();
+        print_2d_matrix<int8_t>(&c_out[0][32], 32, 32, 64);
+        getchar();
     }
 };
 
@@ -459,9 +490,10 @@ struct qk_gemm_impl<0, 32, NBlock> {
         int aks = lda * 4;
 
         int cur_k_pos, cur_k_pos_r;
+        int j = 0;
 
 #       pragma unroll NBlock
-        for (int j = 0; j < NBlock; j++) {
+        for (j; j < NBlock; j++) {
             cur_k_pos = j * max_tile_row * 2;
             cur_k_pos_r = cur_k_pos + max_tile_row;
 
@@ -484,7 +516,7 @@ struct qk_gemm_impl<0, 32, NBlock> {
             _tile_stored(TMM3, &a[max_tile_row][cur_k_pos_r], aks);
         }
 
-        cur_k_pos += max_tile_row * 2;
+        cur_k_pos = j * max_tile_row * 2;
 
         _tile_loadd(TMM6, &k[0][cur_k_pos], aks);
 
@@ -580,17 +612,23 @@ struct amx_per_head_impl<1, NBlock> {
             int rollback_ = (i == NBlock - 1) ? rollback : 0;
             int cur_q_pos_b = cur_q_pos + q_block - rollback_;
 
-            _tile_loadd(TMM4, &q[cur_q_pos][0], q_s);
-            _tile_loadd(TMM5, &q[cur_q_pos_b][0], q_s);
+            _tile_loadd(TMM4, q[cur_q_pos], q_s);
+            _tile_loadd(TMM5, q[cur_q_pos_b], q_s);
 
             qk_gemm_impl<1, 32, NBlock>::run(k_ptr, a_buffer, ldq, sl_pad, rollback_);
+            
+            
             // add softmax
             auto& softmax_computer = (i == NBlock - 1) ? softmax_tail : softmax_full;
             softmax_computer.ref(apro_buffer, a_buffer, &att_mask, M, oscale);
+            // print_2d_matrix<int8_t>((int8_t*)apro_buffer, 32, sl_pad, sl_pad);
+            // getchar();
             
             // add av gemm
             mha_init_av_tile(&tilecfg, rt_v);
             av_gemm_kernel<32>(apro_buffer, v_buffer, r_buffer, &c[cur_q_pos][0], sl_pad, rollback_, step, M2);
+            print_2d_matrix<int8_t>(&c[cur_q_pos][0], 32, 64, 64);
+            getchar();
             mha_init_qk_tile(&tilecfg);
         }
     }
@@ -828,6 +866,10 @@ at::Tensor amx_mha(
             reorder_k_to_buffer_v2(cur_k_ptr, cur_v_ptr, 
                                    k_buffer, v_buffer, 
                                    sl, sl_pad, head_size, stride);
+            // print_2d_matrix<int8_t>(k_buffer, 16, 16, sl_pad*4);
+            // getchar();
+            // print_2d_matrix<int8_t>(v_buffer, 16, 16, 256);
+            // getchar();
 
             amx_per_head(cur_q_ptr, k_buffer, att_buffer, v_buffer, att_pro_buffer, r_buffer, cur_a_ptr, nbq_row, stride,
                                 max_tile_row, max_tile_row, rollback, 
