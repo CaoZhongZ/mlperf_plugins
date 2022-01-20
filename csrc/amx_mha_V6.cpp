@@ -184,7 +184,7 @@ struct av_gemm_post_impl<32, Steps> {
                            int32_t sl_pad, int32_t rollback, float m2) {
         auto a = reinterpret_cast<const int8_t (*)[sl_pad]>(apro);
         auto v = reinterpret_cast<const int8_t (*)[256]>(v_buffer);
-        auto r = reinterpret_cast<const int (*)[64]>(r_buffer);
+        auto r = reinterpret_cast<int (*)[64]>(r_buffer);
 
         int ac_block = sl_pad / Steps;
         int vr_block = ac_block / 4;
