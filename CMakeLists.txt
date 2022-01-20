@@ -25,7 +25,7 @@ IF(USERCP)
 ENDIF(USERCP)
 
 # Force options here in case cmake emit /usr/local/include
-add_compile_options(-Wall -Wno-unused-function -g -march=native -mfma -isystem ${OpenMP_CXX_INCLUDE_DIRS})
+add_compile_options(-Wall -Wno-unused-function -march=native -mfma -isystem ${OpenMP_CXX_INCLUDE_DIRS})
 
 set(DNNL_CPU_RUNTIME "OMP")
 add_subdirectory(onednn)
