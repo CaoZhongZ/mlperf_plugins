@@ -43,7 +43,7 @@ static constexpr int max_tile_colsb = 64;
 enum class status_t { success, failed };
 
 struct tilecfg {
-  constexpr int num_valid = 8;
+  static constexpr int num_valid = 8;
 
   uint8_t palette;        /* byte 0 */
   uint8_t start_row;      /* byte 1 */
@@ -54,7 +54,6 @@ struct tilecfg {
   char rsvd3[8];          /* bytes 56-63 */
 
   void set_config() const {
-    cfg.palette = 1;
     _tile_release();
     _tile_loadconfig(this);
   }
@@ -76,6 +75,7 @@ struct tilecfg {
     tile_colsb[4] = k * sizeof(int);
     tile_rows[5] = 16;
     tile_colsb[5] = k * sizeof(int);
+    palette = 1;
   }
 } __attribute__((packed));
 
