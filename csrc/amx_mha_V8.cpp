@@ -126,24 +126,15 @@ inline bool amx_init()
   return true;
 }
 
-status_t reorder_k_to_buffer_v2(const int8_t *q_ptr, const int8_t *k_ptr, const int8_t *v_ptr,
-                                int8_t *q_buffer, int8_t *k_buffer, int8_t *v_buffer,
+status_t reorder_k_to_buffer_v2(const int8_t *k_ptr, const int8_t *v_ptr,
+                                int8_t *k_buffer, int8_t *v_buffer,
                                 int row, int row_pad, int stride)
 {
-  /// reorder k to k_buffer and v to v_buffer, copy q to q_buffer
-  auto q_ptr_ = reinterpret_cast<const int (*)[stride / 4]>(q_ptr);
-  auto q_buffer_ = reinterpret_cast<int (*)[16]>(q_buffer);
-
-  for (int i = 0; i < row; i++) {
-    for (int j = 0; j < 16; j++) {
-      q_buffer_[i][j] = q_ptr_[i][j];
-    }
-  }
-
-  auto k_ptr_ = reinterpret_cast<const int (*)[stride / 4]>(k_ptr);
-  auto v_ptr_ = reinterpret_cast<const int8_t (*)[stride]>(v_ptr);
-  auto k_buffer_ = reinterpret_cast<int (*)[row_pad]>(k_buffer);
-  auto v_buffer_ = reinterpret_cast<int8_t (*)[256]>(v_buffer);
+  /// reorder k to k_buffer and v to v_buffer
+  auto k_ptr_ = reinterpret_cast<const int(*)[stride / 4]>(k_ptr);
+  auto v_ptr_ = reinterpret_cast<const int8_t(*)[stride]>(v_ptr);
+  auto k_buffer_ = reinterpret_cast<int(*)[row_pad]>(k_buffer);
+  auto v_buffer_ = reinterpret_cast<int8_t(*)[256]>(v_buffer);
 
   for (int i = 0; i < 16; i++)
   {
@@ -396,17 +387,13 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr,
     }
   }
 
-  int8_t q_scrach[sl * 64];
   int8_t k_scrach[16 * sl_pad * 4];
   int8_t v_scrach[sl_pad * 64];
 
   auto q = reinterpret_cast<const int8_t(*)[ldqkv]>(qkv_ptr);
   auto a = reinterpret_cast<int8_t(*)[64]>(a_ptr);
 
-  reorder_k_to_buffer_v2(
-    &q[0][0], &q[0][qkv_dis], &q[0][qkv_dis*2], q_scrach, k_scrach, v_scrach, sl, sl_pad, ldqkv);
-
-  auto q_scrach_ = reinterpret_cast<const int8_t (*)[64]>(q_scrach);
+  reorder_k_to_buffer_v2(&q[0][qkv_dis], &q[0][qkv_dis*2], k_scrach, v_scrach, sl, sl_pad, ldqkv);
 
   int rollback = (sl % max_tile_row != 0) ? max_tile_row - (sl % max_tile_row) : 0;
   bool is_even = (col_tile % 2 == 0);
@@ -727,9 +714,9 @@ at::Tensor amx_mha(
   }
   auto loop_during = std::chrono::duration_cast<std::chrono::milliseconds>(Time::now() - loop_start).count();
 
-  std::cout << "-----------init during : " << (float)init_during / 1000 / 1000 << " ms--------------" << std::endl;
-  std::cout << "-----------amx time: " << (float)amx_time / 1000 / 1000 << " ms--------------" << std::endl;
-  std::cout << "-----------other time: " << (float)other_during / 1000 / 1000 << " ms--------------" << std::endl;
+  // std::cout << "-----------init during : " << (float)init_during / 1000 / 1000 << " ms--------------" << std::endl;
+  // std::cout << "-----------amx time: " << (float)amx_time / 1000 / 1000 << " ms--------------" << std::endl;
+  // std::cout << "-----------other time: " << (float)other_during / 1000 / 1000 << " ms--------------" << std::endl;
 
   return attention;
 }

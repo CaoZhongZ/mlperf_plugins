@@ -10,6 +10,7 @@
 #include "i_softmax_tpp.hpp"
 #include "helper.hpp"
 #include "el_common_intrin.hpp"
+#include "simple_reorder_utils.hpp"
 
 #define XFEATURE_XTILECFG 17
 #define XFEATURE_XTILEDATA 18
@@ -39,7 +40,6 @@ using Time = std::chrono::high_resolution_clock;
 namespace intel_mlperf
 {
 
-static constexpr int max_sl = 384;
 static constexpr int max_tile_row = 16;
 static constexpr int max_tile_colsb = 64;
 enum class status_t
@@ -55,7 +55,6 @@ public:
       _tile_release();
       _tile_loadconfig(&cfg);
     }
-    
   }
 
   Tilecfg() {
@@ -136,13 +135,25 @@ status_t reorder_k_to_buffer_v2(const int8_t *k_ptr, const int8_t *v_ptr,
   auto k_buffer_ = reinterpret_cast<int(*)[row_pad]>(k_buffer);
   auto v_buffer_ = reinterpret_cast<int8_t(*)[256]>(v_buffer);
 
-  for (int i = 0; i < 16; i++)
-  {
-    for (int j = 0; j < row_pad; ++j)
-    {
-      k_buffer_[i][j] = j >= row ? 0 : k_ptr_[j][i];
-    }
-  }
+  // typedef transpose_ker<
+  //       policy::int_to_int,
+  //       policy::inst_policy<selector>,
+  //       policy::coalesced_io> tr8x8_ker;
+
+  //   for (int i = 0; i < row_pad / 16; i++)
+  // {
+  //   const auto input = k_ptr_[16 * i];
+  //   auto output = &k_buffer_[0][16 * i];
+  //   tr8x8_ker::doit<16, false>(output, input, row_pad, row_pad-row);
+  // }
+
+  // for (int i = 0; i < 16; i++)
+  // {
+  //   for (int j = 0; j < row_pad; ++j)
+  //   {
+  //     k_buffer_[i][j] = j >= row ? 0 : k_ptr_[j][i];
+  //   }
+  // }
 
   int v_buffer_row = row_pad / 4;
   for (int i = 0; i < v_buffer_row; i++)
@@ -249,12 +260,22 @@ struct qk_gemm_impl
     auto c_int8_ = reinterpret_cast<int8_t(*)[ldb]>(c_int8);
     auto c_ = reinterpret_cast<int(*)[ldb]>(c);
 
-    i32_scale_attlen_softmax_scale_i8<16, 16>::run(&c_int8_[0][0], &c_[0][0], len, M, oscale, ldb);
+    i32_scale_attlen_softmax_scale_i8<16, 4>::run(&c_int8_[0][0], &c_[0][0], len, M, oscale, ldb);
+    i32_scale_attlen_softmax_scale_i8<16, 4>::run(&c_int8_[4][0], &c_[4][0], len, M, oscale, ldb);
+    i32_scale_attlen_softmax_scale_i8<16, 4>::run(&c_int8_[8][0], &c_[8][0], len, M, oscale, ldb);
+    i32_scale_attlen_softmax_scale_i8<16, 4>::run(&c_int8_[12][0], &c_[12][0], len, M, oscale, ldb);
 
     if (row_tile == 2)
     {
-      i32_scale_attlen_softmax_scale_i8<16, 16>::run(
-          &c_int8_[16 - overlap][0], &c_[16 - overlap][0], len, M, oscale, ldb);
+      auto start = 16 - overlap;
+      i32_scale_attlen_softmax_scale_i8<16, 4>::run(
+          &c_int8_[start][0], &c_[start][0], len, M, oscale, ldb);
+      i32_scale_attlen_softmax_scale_i8<16, 4>::run(
+          &c_int8_[start+4][0], &c_[start+4][0], len, M, oscale, ldb);
+      i32_scale_attlen_softmax_scale_i8<16, 4>::run(
+          &c_int8_[start+8][0], &c_[start+8][0], len, M, oscale, ldb);
+      i32_scale_attlen_softmax_scale_i8<16, 4>::run(
+          &c_int8_[start+12][0], &c_[start+12][0], len, M, oscale, ldb);
     }
   }
 };
@@ -558,11 +579,11 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr,
       av_gemm_impl<2, 23>::compute(&a[cur_r_pos][0], apro_scrach, sl_pad, rt_v, v_scrach, overlap, M2);
       break;
     case (24):
-      qk_tilecfg.set_config();
-      qk_gemm_impl<2, 24>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
-      qk_gemm_impl<2, 24>::softmax(apro_scrach, a_scrach, att_mask, M, oscale, overlap);
-      av_tilecfg.set_config();
-      av_gemm_impl<2, 6>::compute(&a[cur_r_pos][0], apro_scrach, sl_pad, rt_v, v_scrach, overlap, M2);
+      // qk_tilecfg.set_config();
+      // qk_gemm_impl<2, 24>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
+      // qk_gemm_impl<2, 24>::softmax(apro_scrach, a_scrach, att_mask, M, oscale, overlap);
+      // av_tilecfg.set_config();
+      // av_gemm_impl<2, 6>::compute(&a[cur_r_pos][0], apro_scrach, sl_pad, rt_v, v_scrach, overlap, M2);
       break;
     }
   }
@@ -714,9 +735,9 @@ at::Tensor amx_mha(
   }
   auto loop_during = std::chrono::duration_cast<std::chrono::milliseconds>(Time::now() - loop_start).count();
 
-  // std::cout << "-----------init during : " << (float)init_during / 1000 / 1000 << " ms--------------" << std::endl;
-  // std::cout << "-----------amx time: " << (float)amx_time / 1000 / 1000 << " ms--------------" << std::endl;
-  // std::cout << "-----------other time: " << (float)other_during / 1000 / 1000 << " ms--------------" << std::endl;
+  std::cout << "-----------init during : " << (float)init_during / 1000 / 1000 << " ms--------------" << std::endl;
+  std::cout << "-----------amx time: " << (float)amx_time / 1000 / 1000 << " ms--------------" << std::endl;
+  std::cout << "-----------other time: " << (float)other_during / 1000 / 1000 << " ms--------------" << std::endl;
 
   return attention;
 }
