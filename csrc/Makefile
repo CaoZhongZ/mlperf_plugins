@@ -1,4 +1,4 @@
-CXXFLAGS=-g -xICELAKE-SERVER -O2 -std=c++11
-CXX=icc
+CXXFLAGS=-g -march=native -std=c++11
+CXX=g++
 
 main : main.cpp

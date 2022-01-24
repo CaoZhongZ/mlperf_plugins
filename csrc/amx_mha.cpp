@@ -135,9 +135,7 @@ status_t reorder_k_to_buffer_v2(const int8_t *k_ptr, const int8_t *v_ptr,
 {
   /// reorder k to k_buffer and v to v_buffer
   auto k_ptr_ = reinterpret_cast<const int (*)[stride / 4]>(k_ptr);
-  auto v_ptr_ = reinterpret_cast<const int8_t (*)[stride]>(v_ptr);
   auto k_buffer_ = reinterpret_cast<int (*)[row_pad]>(k_buffer);
-  auto v_buffer_ = reinterpret_cast<int8_t (*)[256]>(v_buffer);
 
   int8_t k_buffer_test[16*row_pad*4];
   // 1024 = 16 * 64 
@@ -155,11 +153,8 @@ status_t reorder_k_to_buffer_v2(const int8_t *k_ptr, const int8_t *v_ptr,
     }
   }
 
-  for (int i = 0; i < row_pad / 16; i++) {
-    compare_matrix<int8_t>(k_buffer_test_[i], (int8_t*)&k_buffer_[0][i*16], 16, 64, 64, row_pad * 4);
-    getchar();
-  }
-  getchar();
+  auto v_ptr_ = reinterpret_cast<const int8_t (*)[stride]>(v_ptr);
+  auto v_buffer_ = reinterpret_cast<int8_t (*)[256]>(v_buffer);
 
   int v_buffer_row = row_pad / 4;
   for (int i = 0; i < v_buffer_row; i++)
@@ -181,25 +176,73 @@ status_t reorder_k_to_buffer_v3(const int8_t *k_ptr, const int8_t *v_ptr,
 {
   /// reorder k to k_buffer and v to v_buffer
   auto k_ptr_ = reinterpret_cast<const int8_t (*)[stride]>(k_ptr);
-  auto v_ptr_ = reinterpret_cast<const int8_t (*)[stride]>(v_ptr);
   auto k_buffer_ = reinterpret_cast<int8_t (*)[1024]>(k_buffer);
-  auto v_buffer_ = reinterpret_cast<int8_t (*)[256]>(v_buffer);
 
-  // 1024 = 16 * 64 
-
+  int tail = row - (col_tile - 1) * 16;
   for (int i = 0; i < col_tile; i++) {
-    tr_vnni_x64<16>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
+    if (i == col_tile - 1) {
+      switch (tail) {
+      case (1):
+        tr_vnni_x64<1>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
+        break;
+      case (2):
+        tr_vnni_x64<2>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
+        break;
+      case (3):
+        tr_vnni_x64<3>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
+        break;
+      case (4):
+        tr_vnni_x64<4>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
+        break;
+      case (5):
+        tr_vnni_x64<5>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
+        break;
+      case (6):
+        tr_vnni_x64<6>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
+        break;
+      case (7):
+        tr_vnni_x64<7>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
+        break;
+      case (8):
+        tr_vnni_x64<8>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
+        break;
+      case (9):
+        tr_vnni_x64<9>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
+        break;
+      case (10):
+        tr_vnni_x64<10>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
+        break;
+      case (11):
+        tr_vnni_x64<11>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
+        break;
+      case (12):
+        tr_vnni_x64<12>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
+        break;
+      case (13):
+        tr_vnni_x64<13>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
+        break;
+      case (14):
+        tr_vnni_x64<14>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
+        break;
+      case (15):
+        tr_vnni_x64<15>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
+        break;
+      case (16):
+        tr_vnni_x64<16>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
+        break;
+      }
+    } else {
+      tr_vnni_x64<16>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
+    }
   }
 
   int v_buffer_row = col_tile * 4;
-  for (int i = 0; i < v_buffer_row; i++)
-  {
-    for (int j = 0; j < 256; j++)
-    {
-      int ori_row = i * 4 + j % 4;
-      int ori_col = j / 4;
-      v_buffer_[i][j] = ori_row < row ? v_ptr_[ori_row][ori_col] : 0;
-    }
+  size_t v_stride = col_tile * 16 * 16;
+  auto v_ptr_ = reinterpret_cast<const int8_t (*)[stride]>(v_ptr);
+  auto v_buffer_ = reinterpret_cast<int8_t (*)[v_buffer_row][64]>(v_buffer);
+  
+  for (int i = 0; i < v_buffer_row; i++) {
+    i8_tr_4x<4>(&v_buffer_[0][i][0], v_ptr_[i*4], stride, v_stride);
   }
 
   return status_t::success;
@@ -334,11 +377,11 @@ struct av_gemm_impl
       _tile_loadd(TMM5, &a_[16-overlap][0], lda);
   }
 
-  inline static void loadb(void *b_scratch)
+  inline static void loadb(void *b_scratch, size_t ldb)
   {
-    auto b_ = reinterpret_cast<int8_t (*)[256]>(b_scratch);
-    _tile_loadd(TMM6, &b_[0][0], lscratch);
-    _tile_loadd(TMM7, &b_[0][64], lscratch);
+    auto b_ = reinterpret_cast<int8_t (*)[ldb]>(b_scratch);
+    _tile_loadd(TMM6, b_[0], 64);
+    _tile_loadd(TMM7, b_[1], 64);
   }
 
   inline static void zero_accum()
@@ -347,10 +390,6 @@ struct av_gemm_impl
     _tile_zero(TMM1);
     _tile_zero(TMM2);
     _tile_zero(TMM3);
-  }
-
-  inline static void transpose_b(void *b_scratch, void *b, size_t real_k)
-  {
   }
 
   inline static void dot_prod()
@@ -402,14 +441,16 @@ struct av_gemm_impl
     int b_block = a_block / 4;
 
     auto a_ = reinterpret_cast<int8_t (*)[lda]>(a);
-    auto b_ = reinterpret_cast<int8_t (*)[lscratch]>(b_scratch);
+    auto b_ = reinterpret_cast<int8_t (*)[lda/4][64]>(b_scratch);
     auto c_ = reinterpret_cast<int8_t (*)[64]>(c);
+
+    size_t ldb = lda * 16;
 
 #   pragma unroll(k_step)
     for (int i = 0; i < k_step; ++i)
     {
       loada(&a_[0][i * a_block], lda, overlap);
-      loadb(&b_[i * b_block][0]);
+      loadb(&b_[0][i * b_block][0], ldb);
       dot_prod();
     }
     store_quant(&c_[0][0], overlap, m2);
@@ -419,7 +460,7 @@ struct av_gemm_impl
     for (int i = 0; i < k_step; ++i)
     {
       loada(&a_[0][i * a_block], lda, overlap);
-      loadb(&b_[i * b_block][128]);
+      loadb(&b_[2][i * b_block][0], ldb);
       dot_prod();
     }
     store_quant(&c_[0][32], overlap, m2);

@@ -1,24 +1,30 @@
 #include <cstring>
 #include <cstdlib>
 #include "transpose.hpp"
+#include "helper.hpp"
+
+
 
 int main() {
-  size_t a_row = 16;
-  size_t lda = 3072;
+  size_t a_row = 4;
+  size_t lda = 64;
 
   int8_t a[a_row][lda];
 
   for (size_t j = 0; j < a_row; ++j) {
     for (size_t i = 0; i < lda; ++i) {
-      a[j][i] = (j * lda + i) % 127;
+      a[j][i] = i;
     }
   }
 
-  int8_t b[16][64];
+  intel_mlperf::print_2d_matrix<int8_t>((int8_t*)a, 4, 64, lda);
+  getchar();
+
+  int8_t b[4][64];
   memset(b, 0, sizeof(b));
 
-  intel_mlperf::tr_vnni_x64<16>((void *)b, (void *)a, lda, 64);
-  memset(b, 0, sizeof(b));
+  intel_mlperf::i8_tr_4x<4>((void*)b, (void*)a, lda, 64);
+  intel_mlperf::print_2d_matrix<int8_t>((int8_t*)b, 4, 64, 64);
 
-  intel_mlperf::tr_vnni_x64<15>((void *)b, (void *)a, lda, 64);
+  return 0;
 }
