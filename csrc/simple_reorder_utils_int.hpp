@@ -28,39 +28,41 @@ class inst_policy;
 template <typename T, int instruction_set, int width>
 class ext_reg;
 
-template <> class ext_reg<float, avx, 8> {
+template <> class ext_reg<int, avx, 8> {
 public:
-  typedef __m256 type;
+  typedef __m256i type;
 };
 
-template <> class ext_reg<float, avx, 4> {
+template <> class ext_reg<int, avx, 4> {
 public:
-  typedef __m128 type;
+  typedef __m128i type;
 };
 
 template <> class inst_policy<avx> {
 public:
-  template <int reg_width, typename T = float> using reg_type
+  template <int reg_width, typename T = int> using reg_type
     = typename ext_reg<T, avx, reg_width>::type;
 
   static constexpr auto max_width = 256 / 8;
 
   static inline reg_type<8> unpackhi(reg_type<8> a, reg_type<8> b) {
-    return _mm256_unpackhi_ps(a, b);
+    return _mm256_unpackhi_epi32(a, b);
   }
 
   static inline reg_type<8> unpacklo(reg_type<8> a, reg_type<8> b) {
-    return _mm256_unpacklo_ps(a, b);
+    return _mm256_unpacklo_epi32(a, b);
   }
 
   template <int imm8>
   static inline reg_type<8> shuffle(reg_type<8> a, reg_type<8> b) {
-    return _mm256_shuffle_ps(a, b, imm8);
+    _mm256_shuffle_epi32(a, imm8);
+    _mm256_shuffle_epi32(b, imm8);
+    return _mm256_unpackhi_epi64(a, b);
   }
 
   template <int imm8>
   static inline reg_type<8> permute2f128(reg_type<8> a, reg_type<8> b) {
-    return _mm256_permute2f128_ps(a, b, imm8);
+    return _mm256_permute2f128_si256(a, b, imm8);
   }
 
   // load<8>
@@ -96,34 +98,34 @@ public:
   template <int reg_w>
   static inline void maskstore(int *adrs, int l, reg_type<reg_w> a);
   template <int reg_width>
-  static inline reg_type<reg_width> broadcast(float scalar);
+  static inline reg_type<reg_width> broadcast(int scalar);
 };
 
 template <>
 inline inst_policy<avx>::reg_type<8>
-inst_policy<avx>::loadu<8> (const float *adrs) {
-  return _mm256_loadu_ps(adrs);
+inst_policy<avx>::loadu<8> (const int *adrs) {
+  return _mm256_loadu_epi32(adrs);
 }
 
 template <>
 inline inst_policy<avx>::reg_type<8>
-inst_policy<avx>::maskload<8> (const float *adrs, int l) {
-  return _mm256_maskload_ps(adrs, mask(l));
+inst_policy<avx>::maskload<8> (const int *adrs, int l) {
+  return _mm256_maskload_epi32(adrs, mask(l));
 }
 
 template <>
-inline void inst_policy<avx>::storeu<8>(float *__p, reg_type<8> __a) {
-  _mm256_storeu_ps(__p, __a);
+inline void inst_policy<avx>::storeu<8>(int *__p, reg_type<8> __a) {
+  _mm256_storeu_epi32(__p, __a);
 }
 
 template <>
-inline void inst_policy<avx>::maskstore<8> (float *adrs, int l, reg_type<8> a) {
-  return _mm256_maskstore_ps(adrs, mask(l), a);
+inline void inst_policy<avx>::maskstore<8> (int *adrs, int l, reg_type<8> a) {
+  return _mm256_maskstore_epi32(adrs, mask(l), a);
 }
 
 template <> inline inst_policy<avx>::reg_type<8>
-inst_policy<avx>::broadcast<8>(float scalar) {
-  return _mm256_set1_ps(scalar);
+inst_policy<avx>::broadcast<8>(int scalar) {
+  return _mm256_set1_epi32(scalar);
 }
 
 template <> class inst_policy<avx2> : public inst_policy<avx> {};
@@ -179,10 +181,6 @@ struct int_to_int {
   typedef int o_type;
 };
 
-struct float_to_float {
-  typedef float i_type;
-  typedef float o_type;
-};
 }
 
 #if defined(__AVX__)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <immintrin.h>
+#include "helper.hpp"
 
 namespace intel_mlperf {
 
@@ -34,7 +35,7 @@ inline void tr_vnni_x64(void *at, const void *a, size_t lda, size_t ldat) {
 
 # pragma unroll (4)
   for (int i = 0; i < 4; ++ i) {
-    even[4*i] = _mm512_unpacklo_epi64(odd[4*i], odd[4*i + 2]);
+    even[4*i]     = _mm512_unpacklo_epi64(odd[4*i], odd[4*i + 2]);
     even[4*i + 1] = _mm512_unpackhi_epi64(odd[4*i], odd[4*i + 2]);
     even[4*i + 2] = _mm512_unpacklo_epi64(odd[4*i + 1], odd[4*i + 3]);
     even[4*i + 3] = _mm512_unpackhi_epi64(odd[4*i + 1], odd[4*i + 3]);

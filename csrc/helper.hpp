@@ -36,4 +36,20 @@ inline void print_2d_matrix(const uint8_t* ptr, int row, int col, int stride) {
     printf("---------------print 2d matrix------------------\n");
 }
 
+template<class T>
+inline void compare_matrix(const T* a, const T* b, int row, int col, int lda, int ldb) {
+    auto a_ = reinterpret_cast<const T (*)[lda]>(a);
+    auto b_ = reinterpret_cast<const T (*)[ldb]>(b);
+    printf("---------------compare 2d matrix------------------\n");
+    for (int i = 0; i < row; i++) {
+        for (int j = 0; j < col; j++) {
+            auto re = a_[i][j] - b_[i][j];
+            if (re != 0) {
+                printf("(%d, %d)\n", i, j);
+            }
+        }
+    }
+    printf("---------------compare 2d matrix end------------------\n");
+}
+
 }
