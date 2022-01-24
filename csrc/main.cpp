@@ -23,7 +23,7 @@ int main() {
   int8_t b[4][64];
   memset(b, 0, sizeof(b));
 
-  intel_mlperf::i8_tr_4x<4>((void*)b, (void*)a, lda, 64);
+  intel_mlperf::tr_vnni_4x<4>((void*)b, (void*)a, lda, 64);
   intel_mlperf::print_2d_matrix<int8_t>((int8_t*)b, 4, 64, 64);
 
   return 0;
