@@ -51,7 +51,7 @@ struct i32_scale_attlen_softmax_scale_i8<16, N> {
 
     __m512 vmax[N];
 
-#   pragma unroll N
+#   pragma unroll (N)
     for (int i = 0; i < N; ++i) {
       vmax[i] = _mm512_setzero_ps();
     }
@@ -59,7 +59,7 @@ struct i32_scale_attlen_softmax_scale_i8<16, N> {
     int d2;
     for (d2 = 0; d2 < att_len / 16 * 16; d2 += 16) {
 
-#     pragma unroll N
+#     pragma unroll (N)
       for (int i = 0; i < N; ++i) {
         auto l = _mm512_loadu_si512(&pin[i][d2]);
         auto f = _mm512_cvtepi32_ps(l) * vscale;
@@ -71,7 +71,7 @@ struct i32_scale_attlen_softmax_scale_i8<16, N> {
     if (d2 < att_len) {
       int rem = att_len - d2;
       __mmask16 mask = (1<<rem) -1;
-#     pragma unroll N
+#     pragma unroll (N)
       for (int i = 0; i < N; ++i) {
         auto l = _mm512_mask_loadu_epi32(neg_large, mask, &pin[i][d2]);
         auto f = _mm512_cvtepi32_ps(l) * vscale;
@@ -82,14 +82,14 @@ struct i32_scale_attlen_softmax_scale_i8<16, N> {
 
     __m512 vsum[N];
 
-#   pragma unroll N
+#   pragma unroll (N)
     for (int i = 0; i < N; ++ i) {
       vmax[i] = _mm512_max_reduce_ps(vmax[i]);
       vsum[i] = _mm512_setzero_ps();
     }
 
     for (d2 = 0; d2 < att_l16; d2 += 16) {
-#     pragma unroll N
+#     pragma unroll (N)
       for (int i = 0; i < N; ++ i) {
         auto f = _mm512_loadu_ps(&dout[i][d2]);
         auto d = f - vmax[i];
@@ -101,7 +101,7 @@ struct i32_scale_attlen_softmax_scale_i8<16, N> {
 
     auto voscale = _mm512_set1_ps(oscale);
 
-#   pragma unroll N
+#   pragma unroll (N)
     for (int i = 0; i < N; ++ i) {
 #ifdef usercp
       vsum[i] = voscale * _mm512_rcp14_ps(_mm512_add_reduce_ps(vsum[i]));
@@ -114,7 +114,7 @@ struct i32_scale_attlen_softmax_scale_i8<16, N> {
     auto zero = _mm512_setzero_ps();
 
     for (d2 = 0; d2 < ld/16*16; d2 += 16) {
-#     pragma unroll N
+#     pragma unroll (N)
       for (int i = 0; i < N; ++ i) {
         auto l = d2 < att_l16 ? _mm512_loadu_ps(&dout[i][d2])
           : zero;
@@ -126,7 +126,7 @@ struct i32_scale_attlen_softmax_scale_i8<16, N> {
     if (d2 < ld) {
       int rem = ld -d2;
       __mmask16 mask = (1<<rem) -1;
-#     pragma unroll N
+#     pragma unroll (N)
       for (int i = 0; i < N; ++ i) {
         auto l = d2 < att_l16 ? _mm512_loadu_ps(&dout[i][d2])
           : zero;

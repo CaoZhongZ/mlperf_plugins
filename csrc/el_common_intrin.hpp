@@ -11,7 +11,7 @@ static inline __m512i _mm512_scale_minmax_i8_ps(__m512 x, __m512 vS) {
   return _mm512_cvtps_epi32(c2);
 }
 
-static inline void _mm512_mask_cvtepi32_storeu_epi8(
+static inline void _mm512_mask_cvtepi32_storeu_epi8_compensate(
     void* base_addr, __mmask16 k, __m512i x, __m128i off) {
   auto z = _mm512_cvtepi32_epi8(x);
   auto o = z ^ off;
