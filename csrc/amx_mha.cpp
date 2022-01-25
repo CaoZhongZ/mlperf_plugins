@@ -129,47 +129,6 @@ inline bool amx_init()
   return true;
 }
 
-status_t reorder_k_to_buffer_v2(const int8_t *k_ptr, const int8_t *v_ptr,
-                                int8_t *k_buffer, int8_t *v_buffer,
-                                int row, int row_pad, int stride)
-{
-  /// reorder k to k_buffer and v to v_buffer
-  auto k_ptr_ = reinterpret_cast<const int (*)[stride / 4]>(k_ptr);
-  auto k_buffer_ = reinterpret_cast<int (*)[row_pad]>(k_buffer);
-
-  int8_t k_buffer_test[16*row_pad*4];
-  // 1024 = 16 * 64 
-  auto k_buffer_test_ = reinterpret_cast<int8_t (*)[1024]>(k_buffer_test);
-
-  for (int i = 0; i < row_pad / 16; i++) {
-    tr_vnni_x64<16>(k_buffer_test_[i], k_ptr_[i * 16], stride, 64);
-  }
-
-  for (int i = 0; i < 16; i++)
-  {
-    for (int j = 0; j < row_pad; ++j)
-    {
-      k_buffer_[i][j] = j >= row ? 0 : k_ptr_[j][i];
-    }
-  }
-
-  auto v_ptr_ = reinterpret_cast<const int8_t (*)[stride]>(v_ptr);
-  auto v_buffer_ = reinterpret_cast<int8_t (*)[256]>(v_buffer);
-
-  int v_buffer_row = row_pad / 4;
-  for (int i = 0; i < v_buffer_row; i++)
-  {
-    for (int j = 0; j < 256; j++)
-    {
-      int ori_row = i * 4 + j % 4;
-      int ori_col = j / 4;
-      v_buffer_[i][j] = ori_row < row ? v_ptr_[ori_row][ori_col] : 0;
-    }
-  }
-
-  return status_t::success;
-}
-
 status_t reorder_k_to_buffer_v3(const int8_t *k_ptr, const int8_t *v_ptr,
                                 int8_t *k_buffer, int8_t *v_buffer,
                                 int row, int col_tile, int stride)
@@ -244,6 +203,27 @@ status_t reorder_k_to_buffer_v3(const int8_t *k_ptr, const int8_t *v_ptr,
   for (int i = 0; i < v_buffer_row; i++) {
     i8_tr_4x<4>(&v_buffer_[0][i][0], v_ptr_[i*4], stride, v_stride);
   }
+
+  // int8_t v_buffer_test[col_tile * 16 * 64];
+  // auto v_buffer_test_ = reinterpret_cast<int8_t(*)[256]>(v_buffer_test);
+  // for (int i = 0; i < v_buffer_row; i++)
+  // {
+  //   for (int j = 0; j < 256; j++)
+  //   {
+  //     int ori_row = i * 4 + j % 4;
+  //     int ori_col = j / 4;
+  //     v_buffer_test_[i][j] = ori_row < row ? v_ptr_[ori_row][ori_col] : 0;
+  //   }
+  // }
+
+  // compare_matrix<int8_t>((int8_t*)v_buffer_[0], &v_buffer_test_[0][0], v_buffer_row, 64, 64, 256);
+  // getchar();
+  // compare_matrix<int8_t>((int8_t*)v_buffer_[1], &v_buffer_test_[0][64], v_buffer_row, 64, 64, 256);
+  // getchar();
+  // compare_matrix<int8_t>((int8_t*)v_buffer_[2], &v_buffer_test_[0][128], v_buffer_row, 64, 64, 256);
+  // getchar();
+  // compare_matrix<int8_t>((int8_t*)v_buffer_[3], &v_buffer_test_[0][192], v_buffer_row, 64, 64, 256);
+  // getchar();
 
   return status_t::success;
 }
@@ -364,10 +344,6 @@ struct qk_gemm_impl
 template <int n_tile, int k_step>
 struct av_gemm_impl
 {
-  static constexpr int ldb = 64;
-  static constexpr int lscratch = 256;
-  static constexpr int ldc = 64;
-
   inline static void loada(void *a, size_t lda, size_t overlap)
   {
     auto a_ = reinterpret_cast<int8_t (*)[lda]>(a);

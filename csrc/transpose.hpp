@@ -89,7 +89,7 @@ inline void i8_tr_4x(void *out, const void *a, size_t lda, size_t ldo) {
 
 # pragma unroll (tail)
   for (int i = 0; i < tail; ++i)
-    row[i] = _mm512_loadu_si512(a_ + i);
+    row[i] = _mm512_loadu_si512(a_[i]);
 
 # pragma unroll (4 - tail)
   for (int i = tail; i < 4; ++i)
@@ -118,10 +118,10 @@ inline void i8_tr_4x(void *out, const void *a, size_t lda, size_t ldo) {
   auto o_ = reinterpret_cast<int8_t (*)[ldo]>(out);
 
   if ( group == 1 ) {
-    _mm512_store_epi32(o_+0, nn0);
-    _mm512_store_epi32(o_+1, nn2);
-    _mm512_store_epi32(o_+2, nn1);
-    _mm512_store_epi32(o_+3, nn3);
+    _mm512_store_epi32(o_[0], nn0);
+    _mm512_store_epi32(o_[1], nn2);
+    _mm512_store_epi32(o_[2], nn1);
+    _mm512_store_epi32(o_[3], nn3);
   } else {
     // TODO: 128 * 2 group
   }

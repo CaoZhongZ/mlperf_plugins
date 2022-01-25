@@ -135,9 +135,7 @@ status_t reorder_k_to_buffer_v2(const int8_t *k_ptr, const int8_t *v_ptr,
 {
   /// reorder k to k_buffer and v to v_buffer
   auto k_ptr_ = reinterpret_cast<const int (*)[stride / 4]>(k_ptr);
-  auto v_ptr_ = reinterpret_cast<const int8_t (*)[stride]>(v_ptr);
   auto k_buffer_ = reinterpret_cast<int (*)[row_pad]>(k_buffer);
-  auto v_buffer_ = reinterpret_cast<int8_t (*)[256]>(v_buffer);
 
   int8_t k_buffer_test[16*row_pad*4];
   // 1024 = 16 * 64 
@@ -155,11 +153,8 @@ status_t reorder_k_to_buffer_v2(const int8_t *k_ptr, const int8_t *v_ptr,
     }
   }
 
-  for (int i = 0; i < row_pad / 16; i++) {
-    compare_matrix<int8_t>(k_buffer_test_[i], (int8_t*)&k_buffer_[0][i*16], 16, 64, 64, row_pad * 4);
-    getchar();
-  }
-  getchar();
+  auto v_ptr_ = reinterpret_cast<const int8_t (*)[stride]>(v_ptr);
+  auto v_buffer_ = reinterpret_cast<int8_t (*)[256]>(v_buffer);
 
   int v_buffer_row = row_pad / 4;
   for (int i = 0; i < v_buffer_row; i++)
@@ -180,17 +175,18 @@ status_t reorder_k_to_buffer_v3(const int8_t *k_ptr, const int8_t *v_ptr,
                                 int row, int col_tile, int stride)
 {
   /// reorder k to k_buffer and v to v_buffer
-  auto k_ptr_ = reinterpret_cast<const int8_t (*)[stride]>(k_ptr);
-  auto v_ptr_ = reinterpret_cast<const int8_t (*)[stride]>(v_ptr);
-  auto k_buffer_ = reinterpret_cast<int8_t (*)[1024]>(k_buffer);
-  auto v_buffer_ = reinterpret_cast<int8_t (*)[256]>(v_buffer);
+  int row_pad = col_tile * 16;
+  auto k_ptr_ = reinterpret_cast<const int(*)[stride / 4]>(k_ptr);
+  auto v_ptr_ = reinterpret_cast<const int8_t(*)[stride]>(v_ptr);
+  auto k_buffer_ = reinterpret_cast<int(*)[row_pad]>(k_buffer);
+  auto v_buffer_ = reinterpret_cast<int8_t(*)[256]>(v_buffer);
 
-  int tail = row - (col_tile - 1) * 16;
+  int k_tail = row - (col_tile - 1) * 16;
   for (int i = 0; i < col_tile; i++) {
     if (i == col_tile - 1) {
-      switch (tail) {
+      switch (k_tail) {
       case (1):
-        tr_vnni_x64<16>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
+        tr_vnni_x64<1>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
         break;
       case (2):
         tr_vnni_x64<2>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
@@ -243,7 +239,7 @@ status_t reorder_k_to_buffer_v3(const int8_t *k_ptr, const int8_t *v_ptr,
     }
   }
 
-  int v_buffer_row = col_tile * 4;
+  int v_buffer_row = row_pad / 4;
   for (int i = 0; i < v_buffer_row; i++)
   {
     for (int j = 0; j < 256; j++)
@@ -379,16 +375,16 @@ struct av_gemm_impl
 
   inline static void loada(void *a, size_t lda, size_t overlap)
   {
-    auto a_ = reinterpret_cast<int8_t (*)[lda]>(a);
+    auto a_ = reinterpret_cast<int8_t(*)[lda]>(a);
 
     _tile_loadd(TMM4, &a_[0][0], lda);
     if (n_tile == 2)
-      _tile_loadd(TMM5, &a_[16-overlap][0], lda);
+      _tile_loadd(TMM5, &a_[16 - overlap][0], lda);
   }
 
   inline static void loadb(void *b_scratch)
   {
-    auto b_ = reinterpret_cast<int8_t (*)[256]>(b_scratch);
+    auto b_ = reinterpret_cast<int8_t(*)[256]>(b_scratch);
     _tile_loadd(TMM6, &b_[0][0], lscratch);
     _tile_loadd(TMM7, &b_[0][64], lscratch);
   }
@@ -431,7 +427,7 @@ struct av_gemm_impl
 
     // quant out to c
     auto vscale = _mm512_set1_ps(m2);
-    auto c_out = reinterpret_cast<int8_t (*)[64]>(c);
+    auto c_out = reinterpret_cast<int8_t(*)[64]>(c);
 
     int q_rows = n_tile * 16 - overlap;
     for (int i = 0; i < q_rows; i++)
@@ -453,11 +449,11 @@ struct av_gemm_impl
     int a_block = lda / k_step;
     int b_block = a_block / 4;
 
-    auto a_ = reinterpret_cast<int8_t (*)[lda]>(a);
-    auto b_ = reinterpret_cast<int8_t (*)[lscratch]>(b_scratch);
-    auto c_ = reinterpret_cast<int8_t (*)[64]>(c);
+    auto a_ = reinterpret_cast<int8_t(*)[lda]>(a);
+    auto b_ = reinterpret_cast<int8_t(*)[lscratch]>(b_scratch);
+    auto c_ = reinterpret_cast<int8_t(*)[64]>(c);
 
-#   pragma unroll(k_step)
+#     pragma unroll(k_step)
     for (int i = 0; i < k_step; ++i)
     {
       loada(&a_[0][i * a_block], lda, overlap);
@@ -467,7 +463,7 @@ struct av_gemm_impl
     store_quant(&c_[0][0], overlap, m2);
     zero_accum();
 
-#   pragma unroll(k_step)
+#     pragma unroll(k_step)
     for (int i = 0; i < k_step; ++i)
     {
       loada(&a_[0][i * a_block], lda, overlap);
