@@ -83,7 +83,7 @@ inline void tr_vnni_x64(void *at, const void *a, size_t lda, size_t ldat) {
 // out shape is [4][slpad/4][16]
 //
 template <int tail, int group=1>
-inline void i8_tr_4x(void *out, const void *a, size_t lda, size_t ldo) {
+inline void tr_vnni_4x(void *out, const void *a, size_t lda, size_t ldo) {
   __m512i row[4];
   auto a_ = reinterpret_cast<const int8_t (*)[lda]>(a);
 
