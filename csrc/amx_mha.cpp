@@ -178,10 +178,10 @@ status_t reorder_k_to_buffer_v3(const int8_t *k_ptr, const int8_t *v_ptr,
   auto k_ptr_ = reinterpret_cast<const int8_t (*)[stride]>(k_ptr);
   auto k_buffer_ = reinterpret_cast<int8_t (*)[1024]>(k_buffer);
 
-  int tail = row - (col_tile - 1) * 16;
+  int k_tail = row - (col_tile - 1) * 16;
   for (int i = 0; i < col_tile; i++) {
     if (i == col_tile - 1) {
-      switch (tail) {
+      switch (k_tail) {
       case (1):
         tr_vnni_x64<1>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
         break;
@@ -238,11 +238,34 @@ status_t reorder_k_to_buffer_v3(const int8_t *k_ptr, const int8_t *v_ptr,
 
   int v_buffer_row = col_tile * 4;
   size_t v_stride = col_tile * 16 * 16;
+  int v_real_step = (row + 3) / 4;
+  int v_tail = row - (v_real_step - 1) * 4;
   auto v_ptr_ = reinterpret_cast<const int8_t (*)[stride]>(v_ptr);
   auto v_buffer_ = reinterpret_cast<int8_t (*)[v_buffer_row][64]>(v_buffer);
   
   for (int i = 0; i < v_buffer_row; i++) {
-    tr_vnni_4x<4>(&v_buffer_[0][i][0], v_ptr_[i*4], stride, v_stride);
+    if (i >= v_real_step - 1) {
+      switch (v_tail) {
+      case (1):
+        tr_vnni_4x<1>(&v_buffer_[0][i][0], v_ptr_[i*4], stride, v_stride);
+        break;
+      case (2):
+        tr_vnni_4x<2>(&v_buffer_[0][i][0], v_ptr_[i*4], stride, v_stride);
+        break;
+      case (3):
+        tr_vnni_4x<3>(&v_buffer_[0][i][0], v_ptr_[i*4], stride, v_stride);
+        break;
+      case (4):
+        tr_vnni_4x<4>(&v_buffer_[0][i][0], v_ptr_[i*4], stride, v_stride);
+        break;
+      default:
+        tr_vnni_4x<0>(&v_buffer_[0][i][0], v_ptr_[0], stride, v_stride);
+        break;
+      }
+      v_tail = -1;
+    } else {
+      tr_vnni_4x<4>(&v_buffer_[0][i][0], v_ptr_[i*4], stride, v_stride);
+    }
   }
 
   return status_t::success;

@@ -178,10 +178,10 @@ status_t reorder_k_to_buffer_v3(const int8_t *k_ptr, const int8_t *v_ptr,
   auto k_ptr_ = reinterpret_cast<const int8_t (*)[stride]>(k_ptr);
   auto k_buffer_ = reinterpret_cast<int8_t (*)[1024]>(k_buffer);
 
-  int tail = row - (col_tile - 1) * 16;
+  int k_tail = row - (col_tile - 1) * 16;
   for (int i = 0; i < col_tile; i++) {
     if (i == col_tile - 1) {
-      switch (tail) {
+      switch (k_tail) {
       case (1):
         tr_vnni_x64<1>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
         break;
@@ -238,11 +238,34 @@ status_t reorder_k_to_buffer_v3(const int8_t *k_ptr, const int8_t *v_ptr,
 
   int v_buffer_row = col_tile * 4;
   size_t v_stride = col_tile * 16 * 16;
+  int v_real_step = (row + 3) / 4;
+  int v_tail = row - (v_real_step - 1) * 4;
   auto v_ptr_ = reinterpret_cast<const int8_t (*)[stride]>(v_ptr);
   auto v_buffer_ = reinterpret_cast<int8_t (*)[v_buffer_row][64]>(v_buffer);
   
   for (int i = 0; i < v_buffer_row; i++) {
-    i8_tr_4x<4>(&v_buffer_[0][i][0], v_ptr_[i*4], stride, v_stride);
+    if (i >= v_real_step - 1) {
+      switch (v_tail) {
+      case (1):
+        tr_vnni_4x<1>(&v_buffer_[0][i][0], v_ptr_[i*4], stride, v_stride);
+        break;
+      case (2):
+        tr_vnni_4x<2>(&v_buffer_[0][i][0], v_ptr_[i*4], stride, v_stride);
+        break;
+      case (3):
+        tr_vnni_4x<3>(&v_buffer_[0][i][0], v_ptr_[i*4], stride, v_stride);
+        break;
+      case (4):
+        tr_vnni_4x<4>(&v_buffer_[0][i][0], v_ptr_[i*4], stride, v_stride);
+        break;
+      default:
+        tr_vnni_4x<0>(&v_buffer_[0][i][0], v_ptr_[0], stride, v_stride);
+        break;
+      }
+      v_tail = -1;
+    } else {
+      tr_vnni_4x<4>(&v_buffer_[0][i][0], v_ptr_[i*4], stride, v_stride);
+    }
   }
 
   return status_t::success;
@@ -252,7 +275,7 @@ status_t reorder_k_to_buffer_v3(const int8_t *k_ptr, const int8_t *v_ptr,
 template <int row_tile, int col_tile>
 struct qk_gemm_impl
 {
-  static constexpr int ldb = col_tile * 16;
+  static constexpr int ldc = col_tile * 16;
   static constexpr int lda = 3072;
 
   inline static void tile_loada(const void *a, int overlap)
@@ -283,26 +306,26 @@ struct qk_gemm_impl
   template <bool tail>
   inline static void dot_prod(void *c, int col_idx, int overlap)
   {
-    auto c_ = reinterpret_cast<int(*)[ldb]>(c);
+    auto c_ = reinterpret_cast<int(*)[ldc]>(c);
 
     __tile_dpbssd<TMM0, TMM4, TMM6>();
-    _tile_stored(TMM0, &c_[0][col_idx * 32], ldb * 4);
+    _tile_stored(TMM0, &c_[0][col_idx * 32], ldc * 4);
 
     if (!tail)
     {
       __tile_dpbssd<TMM1, TMM4, TMM7>();
-      _tile_stored(TMM1, &c_[0][col_idx * 32 + 16], ldb * 4);
+      _tile_stored(TMM1, &c_[0][col_idx * 32 + 16], ldc * 4);
     }
 
     if (row_tile == 2)
     {
       __tile_dpbssd<TMM2, TMM5, TMM6>();
-      _tile_stored(TMM2, &c_[16 - overlap][col_idx * 32], ldb * 4);
+      _tile_stored(TMM2, &c_[16 - overlap][col_idx * 32], ldc * 4);
 
       if (!tail)
       {
         __tile_dpbssd<TMM3, TMM5, TMM7>();
-        _tile_stored(TMM3, &c_[16 - overlap][col_idx * 32 + 16], ldb * 4);
+        _tile_stored(TMM3, &c_[16 - overlap][col_idx * 32 + 16], ldc * 4);
       }
     }
   }
@@ -336,25 +359,25 @@ struct qk_gemm_impl
       void *c_int8, void *c, int len, float M, float oscale, int overlap)
   {
     assert(len <= col_tile * 16);
-    auto c_int8_ = reinterpret_cast<int8_t (*)[ldb]>(c_int8);
-    auto c_ = reinterpret_cast<int(*)[ldb]>(c);
+    auto c_int8_ = reinterpret_cast<int8_t (*)[ldc]>(c_int8);
+    auto c_ = reinterpret_cast<int(*)[ldc]>(c);
 
-    i32_scale_attlen_softmax_scale_i8<16, 4>::run(&c_int8_[0][0], &c_[0][0], len, M, oscale, ldb);
-    i32_scale_attlen_softmax_scale_i8<16, 4>::run(&c_int8_[4][0], &c_[4][0], len, M, oscale, ldb);
-    i32_scale_attlen_softmax_scale_i8<16, 4>::run(&c_int8_[8][0], &c_[8][0], len, M, oscale, ldb);
-    i32_scale_attlen_softmax_scale_i8<16, 4>::run(&c_int8_[12][0], &c_[12][0], len, M, oscale, ldb);
+    i32_scale_attlen_softmax_scale_i8<16, 4>::run(&c_int8_[0][0], &c_[0][0], len, M, oscale, ldc);
+    i32_scale_attlen_softmax_scale_i8<16, 4>::run(&c_int8_[4][0], &c_[4][0], len, M, oscale, ldc);
+    i32_scale_attlen_softmax_scale_i8<16, 4>::run(&c_int8_[8][0], &c_[8][0], len, M, oscale, ldc);
+    i32_scale_attlen_softmax_scale_i8<16, 4>::run(&c_int8_[12][0], &c_[12][0], len, M, oscale, ldc);
 
     if (row_tile == 2)
     {
       auto start = 16 - overlap;
       i32_scale_attlen_softmax_scale_i8<16, 4>::run(
-          &c_int8_[start][0], &c_[start][0], len, M, oscale, ldb);
+          &c_int8_[start][0], &c_[start][0], len, M, oscale, ldc);
       i32_scale_attlen_softmax_scale_i8<16, 4>::run(
-          &c_int8_[start+4][0], &c_[start+4][0], len, M, oscale, ldb);
+          &c_int8_[start+4][0], &c_[start+4][0], len, M, oscale, ldc);
       i32_scale_attlen_softmax_scale_i8<16, 4>::run(
-          &c_int8_[start+8][0], &c_[start+8][0], len, M, oscale, ldb);
+          &c_int8_[start+8][0], &c_[start+8][0], len, M, oscale, ldc);
       i32_scale_attlen_softmax_scale_i8<16, 4>::run(
-          &c_int8_[start+12][0], &c_[start+12][0], len, M, oscale, ldb);
+          &c_int8_[start+12][0], &c_[start+12][0], len, M, oscale, ldc);
     }
   }
 };
@@ -364,10 +387,6 @@ struct qk_gemm_impl
 template <int n_tile, int k_step>
 struct av_gemm_impl
 {
-  static constexpr int ldb = 64;
-  static constexpr int lscratch = 256;
-  static constexpr int ldc = 64;
-
   inline static void loada(void *a, size_t lda, size_t overlap)
   {
     auto a_ = reinterpret_cast<int8_t (*)[lda]>(a);
@@ -485,8 +504,8 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr,
     }
   }
 
-  int8_t k_scrach[16 * sl_pad * 4];
-  int8_t v_scrach[sl_pad * 64];
+  alignas(64) int8_t k_scrach[16 * sl_pad * 4];
+  alignas(64) int8_t v_scrach[sl_pad * 64];
 
   auto q = reinterpret_cast<const int8_t (*)[ldqkv]>(qkv_ptr);
   auto a = reinterpret_cast<int8_t (*)[64]>(a_ptr);
@@ -496,8 +515,8 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr,
 
   int rollback = (sl % max_tile_row != 0) ? max_tile_row - (sl % max_tile_row) : 0;
   bool is_even = (col_tile % 2 == 0);
-  int a_scrach[32 * sl_pad];
-  int8_t apro_scrach[32 * sl_pad];
+  alignas(64) int a_scrach[32 * sl_pad];
+  alignas(64) int8_t apro_scrach[32 * sl_pad];
 
   int cur_r_pos = 0;
   int row_loop = col_tile / 2;
