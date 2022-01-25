@@ -129,6 +129,47 @@ inline bool amx_init()
   return true;
 }
 
+status_t reorder_k_to_buffer_v2(const int8_t *k_ptr, const int8_t *v_ptr,
+                                int8_t *k_buffer, int8_t *v_buffer,
+                                int row, int row_pad, int stride)
+{
+  /// reorder k to k_buffer and v to v_buffer
+  auto k_ptr_ = reinterpret_cast<const int (*)[stride / 4]>(k_ptr);
+  auto k_buffer_ = reinterpret_cast<int (*)[row_pad]>(k_buffer);
+
+  int8_t k_buffer_test[16*row_pad*4];
+  // 1024 = 16 * 64 
+  auto k_buffer_test_ = reinterpret_cast<int8_t (*)[1024]>(k_buffer_test);
+
+  for (int i = 0; i < row_pad / 16; i++) {
+    tr_vnni_x64<16>(k_buffer_test_[i], k_ptr_[i * 16], stride, 64);
+  }
+
+  for (int i = 0; i < 16; i++)
+  {
+    for (int j = 0; j < row_pad; ++j)
+    {
+      k_buffer_[i][j] = j >= row ? 0 : k_ptr_[j][i];
+    }
+  }
+
+  auto v_ptr_ = reinterpret_cast<const int8_t (*)[stride]>(v_ptr);
+  auto v_buffer_ = reinterpret_cast<int8_t (*)[256]>(v_buffer);
+
+  int v_buffer_row = row_pad / 4;
+  for (int i = 0; i < v_buffer_row; i++)
+  {
+    for (int j = 0; j < 256; j++)
+    {
+      int ori_row = i * 4 + j % 4;
+      int ori_col = j / 4;
+      v_buffer_[i][j] = ori_row < row ? v_ptr_[ori_row][ori_col] : 0;
+    }
+  }
+
+  return status_t::success;
+}
+
 status_t reorder_k_to_buffer_v3(const int8_t *k_ptr, const int8_t *v_ptr,
                                 int8_t *k_buffer, int8_t *v_buffer,
                                 int row, int col_tile, int stride)
@@ -201,29 +242,8 @@ status_t reorder_k_to_buffer_v3(const int8_t *k_ptr, const int8_t *v_ptr,
   auto v_buffer_ = reinterpret_cast<int8_t (*)[v_buffer_row][64]>(v_buffer);
   
   for (int i = 0; i < v_buffer_row; i++) {
-    i8_tr_4x<4>(&v_buffer_[0][i][0], v_ptr_[i*4], stride, v_stride);
+    tr_vnni_4x<4>(&v_buffer_[0][i][0], v_ptr_[i*4], stride, v_stride);
   }
-
-  // int8_t v_buffer_test[col_tile * 16 * 64];
-  // auto v_buffer_test_ = reinterpret_cast<int8_t(*)[256]>(v_buffer_test);
-  // for (int i = 0; i < v_buffer_row; i++)
-  // {
-  //   for (int j = 0; j < 256; j++)
-  //   {
-  //     int ori_row = i * 4 + j % 4;
-  //     int ori_col = j / 4;
-  //     v_buffer_test_[i][j] = ori_row < row ? v_ptr_[ori_row][ori_col] : 0;
-  //   }
-  // }
-
-  // compare_matrix<int8_t>((int8_t*)v_buffer_[0], &v_buffer_test_[0][0], v_buffer_row, 64, 64, 256);
-  // getchar();
-  // compare_matrix<int8_t>((int8_t*)v_buffer_[1], &v_buffer_test_[0][64], v_buffer_row, 64, 64, 256);
-  // getchar();
-  // compare_matrix<int8_t>((int8_t*)v_buffer_[2], &v_buffer_test_[0][128], v_buffer_row, 64, 64, 256);
-  // getchar();
-  // compare_matrix<int8_t>((int8_t*)v_buffer_[3], &v_buffer_test_[0][192], v_buffer_row, 64, 64, 256);
-  // getchar();
 
   return status_t::success;
 }
@@ -232,7 +252,7 @@ status_t reorder_k_to_buffer_v3(const int8_t *k_ptr, const int8_t *v_ptr,
 template <int row_tile, int col_tile>
 struct qk_gemm_impl
 {
-  static constexpr int ldb = col_tile * 16;
+  static constexpr int ldc = col_tile * 16;
   static constexpr int lda = 3072;
 
   inline static void tile_loada(const void *a, int overlap)
@@ -263,26 +283,26 @@ struct qk_gemm_impl
   template <bool tail>
   inline static void dot_prod(void *c, int col_idx, int overlap)
   {
-    auto c_ = reinterpret_cast<int(*)[ldb]>(c);
+    auto c_ = reinterpret_cast<int(*)[ldc]>(c);
 
     __tile_dpbssd<TMM0, TMM4, TMM6>();
-    _tile_stored(TMM0, &c_[0][col_idx * 32], ldb * 4);
+    _tile_stored(TMM0, &c_[0][col_idx * 32], ldc * 4);
 
     if (!tail)
     {
       __tile_dpbssd<TMM1, TMM4, TMM7>();
-      _tile_stored(TMM1, &c_[0][col_idx * 32 + 16], ldb * 4);
+      _tile_stored(TMM1, &c_[0][col_idx * 32 + 16], ldc * 4);
     }
 
     if (row_tile == 2)
     {
       __tile_dpbssd<TMM2, TMM5, TMM6>();
-      _tile_stored(TMM2, &c_[16 - overlap][col_idx * 32], ldb * 4);
+      _tile_stored(TMM2, &c_[16 - overlap][col_idx * 32], ldc * 4);
 
       if (!tail)
       {
         __tile_dpbssd<TMM3, TMM5, TMM7>();
-        _tile_stored(TMM3, &c_[16 - overlap][col_idx * 32 + 16], ldb * 4);
+        _tile_stored(TMM3, &c_[16 - overlap][col_idx * 32 + 16], ldc * 4);
       }
     }
   }
@@ -316,25 +336,25 @@ struct qk_gemm_impl
       void *c_int8, void *c, int len, float M, float oscale, int overlap)
   {
     assert(len <= col_tile * 16);
-    auto c_int8_ = reinterpret_cast<int8_t (*)[ldb]>(c_int8);
-    auto c_ = reinterpret_cast<int(*)[ldb]>(c);
+    auto c_int8_ = reinterpret_cast<int8_t (*)[ldc]>(c_int8);
+    auto c_ = reinterpret_cast<int(*)[ldc]>(c);
 
-    i32_scale_attlen_softmax_scale_i8<16, 4>::run(&c_int8_[0][0], &c_[0][0], len, M, oscale, ldb);
-    i32_scale_attlen_softmax_scale_i8<16, 4>::run(&c_int8_[4][0], &c_[4][0], len, M, oscale, ldb);
-    i32_scale_attlen_softmax_scale_i8<16, 4>::run(&c_int8_[8][0], &c_[8][0], len, M, oscale, ldb);
-    i32_scale_attlen_softmax_scale_i8<16, 4>::run(&c_int8_[12][0], &c_[12][0], len, M, oscale, ldb);
+    i32_scale_attlen_softmax_scale_i8<16, 4>::run(&c_int8_[0][0], &c_[0][0], len, M, oscale, ldc);
+    i32_scale_attlen_softmax_scale_i8<16, 4>::run(&c_int8_[4][0], &c_[4][0], len, M, oscale, ldc);
+    i32_scale_attlen_softmax_scale_i8<16, 4>::run(&c_int8_[8][0], &c_[8][0], len, M, oscale, ldc);
+    i32_scale_attlen_softmax_scale_i8<16, 4>::run(&c_int8_[12][0], &c_[12][0], len, M, oscale, ldc);
 
     if (row_tile == 2)
     {
       auto start = 16 - overlap;
       i32_scale_attlen_softmax_scale_i8<16, 4>::run(
-          &c_int8_[start][0], &c_[start][0], len, M, oscale, ldb);
+          &c_int8_[start][0], &c_[start][0], len, M, oscale, ldc);
       i32_scale_attlen_softmax_scale_i8<16, 4>::run(
-          &c_int8_[start+4][0], &c_[start+4][0], len, M, oscale, ldb);
+          &c_int8_[start+4][0], &c_[start+4][0], len, M, oscale, ldc);
       i32_scale_attlen_softmax_scale_i8<16, 4>::run(
-          &c_int8_[start+8][0], &c_[start+8][0], len, M, oscale, ldb);
+          &c_int8_[start+8][0], &c_[start+8][0], len, M, oscale, ldc);
       i32_scale_attlen_softmax_scale_i8<16, 4>::run(
-          &c_int8_[start+12][0], &c_[start+12][0], len, M, oscale, ldb);
+          &c_int8_[start+12][0], &c_[start+12][0], len, M, oscale, ldc);
     }
   }
 };
@@ -461,8 +481,8 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr,
     }
   }
 
-  int8_t k_scrach[16 * sl_pad * 4];
-  int8_t v_scrach[sl_pad * 64];
+  alignas(64) int8_t k_scrach[16 * sl_pad * 4];
+  alignas(64) int8_t v_scrach[sl_pad * 64];
 
   auto q = reinterpret_cast<const int8_t (*)[ldqkv]>(qkv_ptr);
   auto a = reinterpret_cast<int8_t (*)[64]>(a_ptr);
@@ -472,8 +492,8 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr,
 
   int rollback = (sl % max_tile_row != 0) ? max_tile_row - (sl % max_tile_row) : 0;
   bool is_even = (col_tile % 2 == 0);
-  int a_scrach[32 * sl_pad];
-  int8_t apro_scrach[32 * sl_pad];
+  alignas(64) int a_scrach[32 * sl_pad];
+  alignas(64) int8_t apro_scrach[32 * sl_pad];
 
   int cur_r_pos = 0;
   int row_loop = col_tile / 2;
