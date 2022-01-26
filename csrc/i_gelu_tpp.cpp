@@ -58,7 +58,7 @@ struct i32_scale_gelu_scale_i8<16, N> {
       auto f = _mm512_cvtepi32_ps(x) * vM;
       auto o = _mm512_gelu_ps(f);
       auto z = _mm512_scale_minmax_i8_ps(o, vS);
-      _mm512_mask_cvtepi32_storeu_epi8(&out[i * 16], 0xffff, z, zoff);
+      _mm512_mask_cvtepi32_storeu_epi8_compensate(&out[i * 16], 0xffff, z, zoff);
     }
   }
 
@@ -74,7 +74,7 @@ struct i32_scale_gelu_scale_i8<16, N> {
       auto f = _mm512_cvtepi32_ps(x) * vM;
       auto o = _mm512_gelu_ps(f);
       auto z = _mm512_scale_minmax_i8_ps(o, vS);
-      _mm512_mask_cvtepi32_storeu_epi8(&out[i * 16], 0xffff, z, zoff);
+      _mm512_mask_cvtepi32_storeu_epi8_compensate(&out[i * 16], 0xffff, z, zoff);
     }
     {
       auto i = N-1;
@@ -83,7 +83,7 @@ struct i32_scale_gelu_scale_i8<16, N> {
       auto f = _mm512_cvtepi32_ps(x) * vM;
       auto o = _mm512_gelu_ps(f);
       auto z = _mm512_scale_minmax_i8_ps(o, vS);
-      _mm512_mask_cvtepi32_storeu_epi8(&out[i * 16], tail, z, zoff);
+      _mm512_mask_cvtepi32_storeu_epi8_compensate(&out[i * 16], tail, z, zoff);
     }
   }
 };
@@ -130,7 +130,7 @@ struct f32_scale_i8<16, N> {
     for (int i = 0; i < N; ++ i) {
       auto f = _mm512_load_ps(&in[i * 16]);
       auto z = _mm512_scale_minmax_i8_ps(f, vS);
-      _mm512_mask_cvtepi32_storeu_epi8(&out[i * 16], 0xffff, z, zoff);
+      _mm512_mask_cvtepi32_storeu_epi8_compensate(&out[i * 16], 0xffff, z, zoff);
     }
   }
 
@@ -143,14 +143,14 @@ struct f32_scale_i8<16, N> {
     for (int i = 0; i < N -1; ++ i) {
       auto f = _mm512_load_ps(&in[i * 16]);
       auto z = _mm512_scale_minmax_i8_ps(f, vS);
-      _mm512_mask_cvtepi32_storeu_epi8(&out[i * 16], 0xffff, z, zoff);
+      _mm512_mask_cvtepi32_storeu_epi8_compensate(&out[i * 16], 0xffff, z, zoff);
     }
     {
       auto i = N-1;
       auto zero = _mm512_setzero_ps();
       auto f = _mm512_mask_loadu_ps(zero, tail, &in[i * 16]);
       auto z = _mm512_scale_minmax_i8_ps(f, vS);
-      _mm512_mask_cvtepi32_storeu_epi8(&out[i * 16], tail, z, zoff);
+      _mm512_mask_cvtepi32_storeu_epi8_compensate(&out[i * 16], tail, z, zoff);
     }
   }
 };
@@ -192,7 +192,7 @@ struct i8_scale_i8<16, N> {
     for (int i = 0; i < N; ++ i) {
       auto f = _mm512_loadu_i8_to_fp32(&in[i * 16]);
       auto z = _mm512_scale_minmax_i8_ps(f, vS);
-      _mm512_mask_cvtepi32_storeu_epi8(&out[i * 16], 0xffff, z, zoff);
+      _mm512_mask_cvtepi32_storeu_epi8_compensate(&out[i * 16], 0xffff, z, zoff);
     }
   }
 
@@ -205,14 +205,14 @@ struct i8_scale_i8<16, N> {
     for (int i = 0; i < N -1; ++ i) {
       auto f = _mm512_loadu_i8_to_fp32(&in[i * 16]);
       auto z = _mm512_scale_minmax_i8_ps(f, vS);
-      _mm512_mask_cvtepi32_storeu_epi8(&out[i * 16], 0xffff, z, zoff);
+      _mm512_mask_cvtepi32_storeu_epi8_compensate(&out[i * 16], 0xffff, z, zoff);
     }
     {
       auto i = N-1;
       auto zero = _mm512_setzero_ps();
       auto f = _mm512_mask_loadu_ps(zero, tail, &in[i * 16]);
       auto z = _mm512_scale_minmax_i8_ps(f, vS);
-      _mm512_mask_cvtepi32_storeu_epi8(&out[i * 16], tail, z, zoff);
+      _mm512_mask_cvtepi32_storeu_epi8_compensate(&out[i * 16], tail, z, zoff);
     }
   }
 };

@@ -1,10 +1,14 @@
 #include <cstring>
 #include <cstdlib>
+#include <chrono>
+#include <iostream>
 #include "transpose.hpp"
 #include "helper.hpp"
 #include "i_softmax_tpp.hpp"
 
 #include "i_softmax_tpp.hpp"
+
+using Time = std::chrono::high_resolution_clock;
 
 void softmax_isolation(void *d, void *c, int len, float m1, float m2, int64_t ld);
 
@@ -36,6 +40,13 @@ int main() {
   memset(d, 0, sizeof(d));
 
   softmax_isolation((void*)d, (void*)c, 384, 1.0, 1.0, 384);
+
+  auto start = Time::now();
+  for (int i = 0; i < 100000; i++) {
+    intel_mlperf::i32_scale_attlen_softmax_scale_i8<16, 8>::run((void*)d, (void*)c, 384, 1.0, 1.0, 384);
+  }
+  auto during = std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start).count();
+  std::cout << "100000 times softmax time : " << (float)during / 1000 / 1000 << " ms " << std::endl;
 
   return 0;
 }

@@ -54,7 +54,7 @@ void i_layernorm_tpp<16>::ref(
     auto gamma = w * r_vvar;
     auto o = (f - vmean) * gamma + b;
     auto i = _mm512_scale_minmax_i8_ps(o, voscale);
-    _mm512_mask_cvtepi32_storeu_epi8(&pout[d], 0xffff, i , vo_off);
+    _mm512_mask_cvtepi32_storeu_epi8_compensate(&pout[d], 0xffff, i , vo_off);
   }
   if (d < rl) {
     auto rem = rl - d;
@@ -66,7 +66,7 @@ void i_layernorm_tpp<16>::ref(
     auto gamma = w * r_vvar;
     auto o = (f - vmean) * gamma + b;
     auto i = _mm512_scale_minmax_i8_ps(o, voscale);
-    _mm512_mask_cvtepi32_storeu_epi8(&pout[d], k, i , vo_off);
+    _mm512_mask_cvtepi32_storeu_epi8_compensate(&pout[d], k, i , vo_off);
   }
 }
 
@@ -123,7 +123,7 @@ void i_layernorm_tpp<16>::ref(
     auto gamma = w * r_vvar;
     auto o = (f - vmean) * gamma + b;
     auto i = _mm512_scale_minmax_i8_ps(o, voscale);
-    _mm512_mask_cvtepi32_storeu_epi8(&pout[d], 0xffff, i, vo_off);
+    _mm512_mask_cvtepi32_storeu_epi8_compensate(&pout[d], 0xffff, i, vo_off);
   }
   if (d < rl) {
     auto rem = rl - d;
@@ -135,7 +135,7 @@ void i_layernorm_tpp<16>::ref(
     auto gamma = w * r_vvar;
     auto o = (f - vmean) * gamma + b;
     auto i = _mm512_scale_minmax_i8_ps(o, voscale);
-    _mm512_mask_cvtepi32_storeu_epi8(&pout[d], k, i, vo_off);
+    _mm512_mask_cvtepi32_storeu_epi8_compensate(&pout[d], k, i, vo_off);
   }
 }
 
@@ -203,7 +203,7 @@ void i_residual_layernorm_tpp<16>::ref(
     auto gamma = w * r_vvar;
     auto o = (f - vmean) * gamma + b;
     auto i = _mm512_scale_minmax_i8_ps(o, voscale);
-    _mm512_mask_cvtepi32_storeu_epi8(&pout[d], 0xffff, i, vo_off);
+    _mm512_mask_cvtepi32_storeu_epi8_compensate(&pout[d], 0xffff, i, vo_off);
   }
 
   if (d < rl) {
@@ -216,7 +216,7 @@ void i_residual_layernorm_tpp<16>::ref(
     auto gamma = w * r_vvar;
     auto o = (f - vmean) * gamma + b;
     auto i = _mm512_scale_minmax_i8_ps(o, voscale);
-    _mm512_mask_cvtepi32_storeu_epi8(&pout[d], k, i, vo_off);
+    _mm512_mask_cvtepi32_storeu_epi8_compensate(&pout[d], k, i, vo_off);
   }
 }
 
@@ -284,7 +284,7 @@ void i_residual_layernorm_tpp<16>::ref_cin(
     auto gamma = w * r_vvar;
     auto o = (f - vmean) * gamma + b;
     auto i = _mm512_scale_minmax_i8_ps(o, voscale);
-    _mm512_mask_cvtepi32_storeu_epi8(&pout[d], 0xffff, i, vo_off);
+    _mm512_mask_cvtepi32_storeu_epi8_compensate(&pout[d], 0xffff, i, vo_off);
   }
 
   if (d < rl) {
@@ -297,7 +297,7 @@ void i_residual_layernorm_tpp<16>::ref_cin(
     auto gamma = w * r_vvar;
     auto o = (f - vmean) * gamma + b;
     auto i = _mm512_scale_minmax_i8_ps(o, voscale);
-    _mm512_mask_cvtepi32_storeu_epi8(&pout[d], k, i, vo_off);
+    _mm512_mask_cvtepi32_storeu_epi8_compensate(&pout[d], k, i, vo_off);
   }
 }
 
