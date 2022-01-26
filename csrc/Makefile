@@ -2,4 +2,4 @@
 CXXFLAGS=-march=native -mtune=native -O3 -std=c++14
 CXX=g++
 
-main : main.cpp
+main : main.cpp softmax.cpp

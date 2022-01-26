@@ -42,7 +42,12 @@ namespace intel_mlperf
 
 static constexpr int max_tile_row = 16;
 static constexpr int max_tile_colsb = 64;
+
 int64_t copy_time = 0;
+int64_t qk_time = 0;
+int64_t soft_time = 0;
+int64_t av_time = 0;
+
 enum class status_t
 {
   success,
@@ -333,13 +338,13 @@ struct qk_gemm_impl
   // Preloaded A
   inline static void compute(void *c, const void *a, const void *b, int overlap)
   {
-    int col_tail = col_tile % 2;
-    int col_loop = col_tile / 2;
+    constexpr int col_tail = col_tile % 2;
+    constexpr int col_loop = col_tile / 2;
 
     tile_loada(a, overlap);
 
     int i = 0;
-#   pragma unroll(col_loop)
+    #pragma unroll (col_loop)
     for (; i < col_loop; ++i)
     {
       tile_loadb<false>(b, i);
@@ -679,10 +684,17 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr,
       break;
     case (24):
       qk_tilecfg.set_config(recfg_tile);
+      auto time_stamp1 = Time::now();
       qk_gemm_impl<2, 24>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
+      auto time_stamp2 = Time::now();
       qk_gemm_impl<2, 24>::softmax(apro_scrach, a_scrach, att_mask, M, oscale, overlap);
+      auto time_stamp3 = Time::now();
       av_tilecfg.set_config(recfg_tile);
       av_gemm_impl<2, 6>::compute(a[cur_r_pos], apro_scrach, sl_pad, rt_v, v_scrach, overlap, M2);
+      auto time_stamp4 = Time::now();
+      qk_time += std::chrono::duration_cast<std::chrono::nanoseconds>(time_stamp2 - time_stamp1).count();
+      soft_time += std::chrono::duration_cast<std::chrono::nanoseconds>(time_stamp3 - time_stamp2).count();
+      av_time += std::chrono::duration_cast<std::chrono::nanoseconds>(time_stamp4 - time_stamp3).count();
       break;
     }
   }
@@ -799,6 +811,9 @@ at::Tensor amx_mha(
   auto amx_status = amx_init();
   auto init_during = std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start).count();
   copy_time = 0;
+  qk_time = 0;
+  soft_time = 0;
+  av_time = 0;
 
   if (!amx_status)
   {
@@ -837,6 +852,9 @@ at::Tensor amx_mha(
 
   // std::cout << "-----------init during : " << (float)init_during / 1000 / 1000 << " ms--------------" << std::endl;
   std::cout << "-----------copy time: " << (float)copy_time / 1000 / 1000 << " ms--------------" << std::endl;
+  std::cout << "-----------qk time: " << (float)qk_time / 1000 / 1000 << " ms--------------" << std::endl;
+  std::cout << "-----------soft time: " << (float)soft_time / 1000 / 1000 << " ms--------------" << std::endl;
+  std::cout << "-----------av time: " << (float)av_time / 1000 / 1000 << " ms--------------" << std::endl;
   std::cout << "-----------amx time: " << (float)(amx_time - copy_time) / 1000 / 1000 << " ms--------------" << std::endl;
   std::cout << "-----------total time: " << (float)amx_time / 1000 / 1000 << " ms--------------" << std::endl;
   // std::cout << "-----------other time: " << (float)other_during / 1000 / 1000 << " ms--------------" << std::endl;
