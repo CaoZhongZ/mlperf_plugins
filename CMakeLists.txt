@@ -36,7 +36,7 @@ add_subdirectory(onednn)
 # Bert Torch inference SUT
 add_library(mlperf_plugins SHARED
   csrc/init.cpp csrc/linear.cpp csrc/cpu.cpp csrc/softmax.cpp csrc/i_softmax_tpp.cpp csrc/amx_mha.cpp
-  csrc/i_gelu_tpp.cpp csrc/activation.cpp csrc/i_layernorm_tpp.cpp csrc/normalization.cpp csrc/helper.cpp)
+  csrc/i_gelu_tpp.cpp csrc/activation.cpp csrc/i_layernorm_tpp.cpp csrc/normalization.cpp csrc/helper.cpp csrc/i_mha_tpp.cpp)
 set_property(TARGET mlperf_plugins PROPERTY CXX_STANDARD 14)
 
 message("Extra Torch C++ flags: ${TORCH_CXX_FLAGS}")
