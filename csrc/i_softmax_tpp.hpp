@@ -137,4 +137,12 @@ struct i32_scale_attlen_softmax_scale_i8<16, N> {
   }
 };
 
+void f_i32_scale_softmax_scale_i8(
+    int8_t *out, int32_t *in, float *att_mask,
+    float M, float oscale, int64_t ld, int l);
+
+void f_i32_scale_softmax_scale_i8(
+    int8_t *out, int32_t *in, int32_t att_len,
+    float M, float oscale, int64_t ld, int l);
+
 }

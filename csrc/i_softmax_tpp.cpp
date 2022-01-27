@@ -306,7 +306,7 @@ struct i32_scale_softmax_scale_i8<16, N> {
   }
 };
 
-static inline void f_i32_scale_softmax_scale_i8(
+inline void f_i32_scale_softmax_scale_i8(
     int8_t *out, int32_t *in, float *att_mask,
     float M, float oscale, int64_t ld, int l) {
   switch(l) {
@@ -370,7 +370,7 @@ static inline void f_i32_scale_softmax_scale_i8(
   f_i32_scale_softmax_scale_i8(pout[l1], pin[l1], att_mask, M, oscale, ld, l2);
 }
 
-static inline void f_i32_scale_softmax_scale_i8(
+inline void f_i32_scale_softmax_scale_i8(
     int8_t *out, int32_t *in, int32_t att_len,
     float M, float oscale, int64_t ld, int l) {
   switch(l) {

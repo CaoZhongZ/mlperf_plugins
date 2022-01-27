@@ -134,47 +134,6 @@ inline bool amx_init()
   return true;
 }
 
-status_t reorder_k_to_buffer_v2(const int8_t *k_ptr, const int8_t *v_ptr,
-                                int8_t *k_buffer, int8_t *v_buffer,
-                                int row, int row_pad, int stride)
-{
-  /// reorder k to k_buffer and v to v_buffer
-  auto k_ptr_ = reinterpret_cast<const int (*)[stride / 4]>(k_ptr);
-  auto k_buffer_ = reinterpret_cast<int (*)[row_pad]>(k_buffer);
-
-  int8_t k_buffer_test[16*row_pad*4];
-  // 1024 = 16 * 64 
-  auto k_buffer_test_ = reinterpret_cast<int8_t (*)[1024]>(k_buffer_test);
-
-  for (int i = 0; i < row_pad / 16; i++) {
-    tr_vnni_x64<16>(k_buffer_test_[i], k_ptr_[i * 16], stride, 64);
-  }
-
-  for (int i = 0; i < 16; i++)
-  {
-    for (int j = 0; j < row_pad; ++j)
-    {
-      k_buffer_[i][j] = j >= row ? 0 : k_ptr_[j][i];
-    }
-  }
-
-  auto v_ptr_ = reinterpret_cast<const int8_t (*)[stride]>(v_ptr);
-  auto v_buffer_ = reinterpret_cast<int8_t (*)[256]>(v_buffer);
-
-  int v_buffer_row = row_pad / 4;
-  for (int i = 0; i < v_buffer_row; i++)
-  {
-    for (int j = 0; j < 256; j++)
-    {
-      int ori_row = i * 4 + j % 4;
-      int ori_col = j / 4;
-      v_buffer_[i][j] = ori_row < row ? v_ptr_[ori_row][ori_col] : 0;
-    }
-  }
-
-  return status_t::success;
-}
-
 status_t reorder_k_to_buffer_v3(const int8_t *k_ptr, const int8_t *v_ptr,
                                 int8_t *k_buffer, int8_t *v_buffer,
                                 int row, int col_tile, int stride)
@@ -344,7 +303,7 @@ struct qk_gemm_impl
     tile_loada(a, overlap);
 
     int i = 0;
-    #pragma unroll (col_loop)
+#   pragma unroll (col_loop)
     for (; i < col_loop; ++i)
     {
       tile_loadb<false>(b, i);
@@ -366,24 +325,9 @@ struct qk_gemm_impl
     assert(len <= col_tile * 16);
     auto c_int8_ = reinterpret_cast<int8_t (*)[ldc]>(c_int8);
     auto c_ = reinterpret_cast<int(*)[ldc]>(c);
+    auto l = (row_tile == 1) ? 16 : (32 - overlap);
 
-    i32_scale_attlen_softmax_scale_i8<16, 4>::run(&c_int8_[0][0], &c_[0][0], len, M, oscale, ldc);
-    i32_scale_attlen_softmax_scale_i8<16, 4>::run(&c_int8_[4][0], &c_[4][0], len, M, oscale, ldc);
-    i32_scale_attlen_softmax_scale_i8<16, 4>::run(&c_int8_[8][0], &c_[8][0], len, M, oscale, ldc);
-    i32_scale_attlen_softmax_scale_i8<16, 4>::run(&c_int8_[12][0], &c_[12][0], len, M, oscale, ldc);
-
-    if (row_tile == 2)
-    {
-      auto start = 16 - overlap;
-      i32_scale_attlen_softmax_scale_i8<16, 4>::run(
-          &c_int8_[start][0], &c_[start][0], len, M, oscale, ldc);
-      i32_scale_attlen_softmax_scale_i8<16, 4>::run(
-          &c_int8_[start+4][0], &c_[start+4][0], len, M, oscale, ldc);
-      i32_scale_attlen_softmax_scale_i8<16, 4>::run(
-          &c_int8_[start+8][0], &c_[start+8][0], len, M, oscale, ldc);
-      i32_scale_attlen_softmax_scale_i8<16, 4>::run(
-          &c_int8_[start+12][0], &c_[start+12][0], len, M, oscale, ldc);
-    }
+    f_i32_scale_softmax_scale_i8(&c_int8_[0][0], &c_[0][0], len, M, oscale, ldc, l);
   }
 };
 // n_tile: 1 or 2
@@ -497,9 +441,17 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr,
 
   int sl_pad = (sl + 15) / 16 * 16;
   int col_tile = sl_pad / 16;
-  int v_row = sl_pad / 4;
-  int qkv_dis = ldqkv / 3;
 
+  alignas(64) int8_t k_scrach[16 * sl_pad * 4];
+  alignas(64) int8_t v_scrach[sl_pad * 64];
+
+  auto q = reinterpret_cast<const int8_t (*)[ldqkv]>(qkv_ptr);
+  int qkv_dis = ldqkv / 3;
+  auto copy_start = Time::now();
+  reorder_k_to_buffer_v3(&q[0][qkv_dis], &q[0][qkv_dis*2], k_scrach, v_scrach, sl, col_tile, ldqkv);
+  copy_time += std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - copy_start).count();
+
+  int v_row = col_tile * 4;
   int rt_v = 16;
   for (; rt_v > 0; rt_v--)
   {
@@ -509,22 +461,13 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr,
     }
   }
 
-  alignas(64) int8_t k_scrach[16 * sl_pad * 4];
-  alignas(64) int8_t v_scrach[sl_pad * 64];
-
-  auto q = reinterpret_cast<const int8_t (*)[ldqkv]>(qkv_ptr);
-  auto a = reinterpret_cast<int8_t (*)[64]>(a_ptr);
-  auto copy_start = Time::now();
-  reorder_k_to_buffer_v3(&q[0][qkv_dis], &q[0][qkv_dis*2], k_scrach, v_scrach, sl, col_tile, ldqkv);
-  copy_time += std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - copy_start).count();
-
+  int cur_r_pos = 0;
+  int row_loop = col_tile / 2;
   int rollback = (sl % max_tile_row != 0) ? max_tile_row - (sl % max_tile_row) : 0;
   bool is_even = (col_tile % 2 == 0);
   alignas(64) int a_scrach[32 * sl_pad];
   alignas(64) int8_t apro_scrach[32 * sl_pad];
-
-  int cur_r_pos = 0;
-  int row_loop = col_tile / 2;
+  auto a = reinterpret_cast<int8_t (*)[64]>(a_ptr);
   auto qk_tilecfg = Tilecfg();
   auto av_tilecfg = Tilecfg(rt_v);
   bool recfg_tile = (rt_v != max_tile_row);
@@ -795,8 +738,6 @@ at::Tensor amx_mha(
     const at::Scalar &oscale,
     const at::Scalar &m2)
 {
-
-  // std::cout << "call amx_mha" << std::endl;
   auto qkv_sizes = qkv.sizes();
   assert(qkv_sizes.size() == 3);
   auto bs = qkv_sizes[0];
@@ -807,6 +748,7 @@ at::Tensor amx_mha(
   int head_size = 64;
   int head_num = qkv_block / head_size;
 
+  auto attention = at::empty({bs, head_num, sl, head_size}, at::TensorOptions().dtype<int8_t>().memory_format(c10::MemoryFormat::Contiguous));
   auto start = Time::now();
   auto amx_status = amx_init();
   auto init_during = std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start).count();
@@ -818,13 +760,12 @@ at::Tensor amx_mha(
   if (!amx_status)
   {
     printf("amx init failed!\n");
-    return qkv;
+    return attention;
   }
   
   // create attention tensor
-  auto attention = at::empty({bs, head_num, sl, head_size}, at::TensorOptions().dtype<int8_t>().memory_format(c10::MemoryFormat::Contiguous));
+  
   auto att_ptr = reinterpret_cast<int8_t (*)[head_num][sl][head_size]>(attention.data_ptr());
-
   auto origin_ptr = reinterpret_cast<int8_t (*)[sl][3][head_num][head_size]>(qkv.data_ptr());
   auto att_mask_p = reinterpret_cast<int32_t *>(att_mask.data_ptr());
 
