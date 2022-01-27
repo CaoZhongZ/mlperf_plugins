@@ -130,10 +130,9 @@ inline bool amx_init() {
   return true;
 }
 
-static void reorder_k_to_buffer_v3(const int8_t *k_ptr, const int8_t *v_ptr,
-                                   int8_t *k_buffer, int8_t *v_buffer, int row,
-                                   int col_tile, int stride) {
-  /// reorder k to k_buffer and v to v_buffer
+static void reorder_k_to_buffer(const int8_t *k_ptr, int8_t *k_buffer, int row, int col_tile, int stride) {
+  /// reorder k to k_buffer
+  /// k_buffer format : [col_tile][16][64], every 16x64
   auto k_ptr_ = reinterpret_cast<const int8_t(*)[stride]>(k_ptr);
   auto k_buffer_ = reinterpret_cast<int8_t(*)[1024]>(k_buffer);
 
@@ -193,7 +192,11 @@ static void reorder_k_to_buffer_v3(const int8_t *k_ptr, const int8_t *v_ptr,
     tr_vnni_x64<16>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
     break;
   }
+}
 
+static void reorder_v_to_buffer(const int8_t *v_ptr, int8_t *v_buffer, int row, int col_tile, int stride) {
+  /// reorder v to v_buffer
+  /// v_buffer format [4][col_tile*4][64]
   int v_buffer_row = col_tile * 4;
   size_t v_stride = col_tile * 16 * 16;
   int v_real_step = (row + 3) / 4;
@@ -359,7 +362,9 @@ template <int n_tile, int k_step> struct av_gemm_impl {
     auto vscale = _mm512_set1_ps(m2);
     auto c_out = reinterpret_cast<int8_t(*)[64]>(c);
 
+#pragma unroll (n_tile)
     for (int i = 0; i < n_tile; i++) {
+#pragma unroll (16)
       for (int j = 0; j < 16; j++) {
         auto pr = _mm512_loadu_si512(scratch_[2 * i][j]);
         auto prf = _mm512_cvtepi32_ps(pr);
@@ -418,8 +423,8 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
   auto q = reinterpret_cast<const int8_t(*)[ldqkv]>(qkv_ptr);
   int qkv_dis = ldqkv / 3;
   auto copy_start = Time::now();
-  reorder_k_to_buffer_v3(&q[0][qkv_dis], &q[0][qkv_dis * 2], k_scrach, v_scrach,
-                         sl, col_tile, ldqkv);
+  reorder_k_to_buffer(&q[0][qkv_dis], k_scrach, sl, col_tile, ldqkv);
+  reorder_v_to_buffer(&q[0][qkv_dis * 2], v_scrach, sl, col_tile, ldqkv);
   copy_time += std::chrono::duration_cast<std::chrono::nanoseconds>(
                    Time::now() - copy_start)
                    .count();
