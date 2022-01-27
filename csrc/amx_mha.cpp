@@ -346,26 +346,30 @@ template <int n_tile, int k_step> struct av_gemm_impl {
 
   inline static void store_quant(void *c, int overlap, float m2) {
     alignas(64) int scratch[n_tile * 16 * 32];
-    auto scratch_ = reinterpret_cast<int(*)[32]>(scratch);
-    _tile_stored(TMM0, &scratch_[0][0], 128);
-    _tile_stored(TMM1, &scratch_[0][16], 128);
+    auto scratch_ = reinterpret_cast<int(*)[16][16]>(scratch);
+    _tile_stored(TMM0, scratch_[0], 64);
+    _tile_stored(TMM1, scratch_[1], 64);
 
     if (n_tile == 2) {
-      _tile_stored(TMM2, &scratch_[16 - overlap][0], 128);
-      _tile_stored(TMM3, &scratch_[16 - overlap][16], 128);
+      _tile_stored(TMM2, scratch_[2], 64);
+      _tile_stored(TMM3, scratch_[3], 64);
     }
 
     // quant out to c
     auto vscale = _mm512_set1_ps(m2);
     auto c_out = reinterpret_cast<int8_t(*)[64]>(c);
 
-    int q_rows = n_tile * 16 - overlap;
-    for (int i = 0; i < q_rows; i++) {
-      for (int j = 0; j < 32; j += 16) {
-        auto pr = _mm512_loadu_si512(&scratch_[i][j]);
+    for (int i = 0; i < n_tile; i++) {
+      for (int j = 0; j < 16; j++) {
+        auto pr = _mm512_loadu_si512(scratch_[2 * i][j]);
         auto prf = _mm512_cvtepi32_ps(pr);
         auto iout = _mm512_scale_minmax_i8_ps(vscale, prf);
-        _mm512_mask_cvtepi32_storeu_epi8(&c_out[i][j], 0xffff, iout);
+        int out_row = (i == n_tile - 1) ? (i * 16 - overlap + j) : (i * 16 + j);
+        _mm512_mask_cvtepi32_storeu_epi8(&c_out[out_row][0], 0xffff, iout);
+        pr = _mm512_loadu_si512(scratch_[2 * i + 1][j]);
+        prf = _mm512_cvtepi32_ps(pr);
+        iout = _mm512_scale_minmax_i8_ps(vscale, prf);
+        _mm512_mask_cvtepi32_storeu_epi8(&c_out[out_row][16], 0xffff, iout);
       }
     }
   }
@@ -446,7 +450,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
     switch (col_tile) {
     case (3):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<2, 3>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
+      qk_gemm_impl<2, 3>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, overlap);
       qk_gemm_impl<2, 3>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                   overlap);
       av_tilecfg.set_config(recfg_tile);
@@ -455,7 +459,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (4):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<2, 4>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
+      qk_gemm_impl<2, 4>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, overlap);
       qk_gemm_impl<2, 4>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                   overlap);
       av_tilecfg.set_config(recfg_tile);
@@ -464,7 +468,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (5):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<2, 5>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
+      qk_gemm_impl<2, 5>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, overlap);
       qk_gemm_impl<2, 5>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                   overlap);
       av_tilecfg.set_config(recfg_tile);
@@ -473,7 +477,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (6):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<2, 6>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
+      qk_gemm_impl<2, 6>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, overlap);
       qk_gemm_impl<2, 6>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                   overlap);
       av_tilecfg.set_config(recfg_tile);
@@ -482,7 +486,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (7):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<2, 7>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
+      qk_gemm_impl<2, 7>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, overlap);
       qk_gemm_impl<2, 7>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                   overlap);
       av_tilecfg.set_config(recfg_tile);
@@ -491,7 +495,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (8):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<2, 8>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
+      qk_gemm_impl<2, 8>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, overlap);
       qk_gemm_impl<2, 8>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                   overlap);
       av_tilecfg.set_config(recfg_tile);
@@ -500,7 +504,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (9):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<2, 9>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
+      qk_gemm_impl<2, 9>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, overlap);
       qk_gemm_impl<2, 9>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                   overlap);
       av_tilecfg.set_config(recfg_tile);
@@ -509,7 +513,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (10):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<2, 10>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
+      qk_gemm_impl<2, 10>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, overlap);
       qk_gemm_impl<2, 10>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                    overlap);
       av_tilecfg.set_config(recfg_tile);
@@ -518,7 +522,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (11):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<2, 11>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
+      qk_gemm_impl<2, 11>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, overlap);
       qk_gemm_impl<2, 11>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                    overlap);
       av_tilecfg.set_config(recfg_tile);
@@ -527,7 +531,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (12):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<2, 12>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
+      qk_gemm_impl<2, 12>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, overlap);
       qk_gemm_impl<2, 12>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                    overlap);
       av_tilecfg.set_config(recfg_tile);
@@ -536,7 +540,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (13):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<2, 13>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
+      qk_gemm_impl<2, 13>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, overlap);
       qk_gemm_impl<2, 13>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                    overlap);
       av_tilecfg.set_config(recfg_tile);
@@ -545,7 +549,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (14):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<2, 14>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
+      qk_gemm_impl<2, 14>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, overlap);
       qk_gemm_impl<2, 14>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                    overlap);
       av_tilecfg.set_config(recfg_tile);
@@ -554,7 +558,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (15):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<2, 15>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
+      qk_gemm_impl<2, 15>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, overlap);
       qk_gemm_impl<2, 15>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                    overlap);
       av_tilecfg.set_config(recfg_tile);
@@ -563,7 +567,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (16):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<2, 16>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
+      qk_gemm_impl<2, 16>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, overlap);
       qk_gemm_impl<2, 16>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                    overlap);
       av_tilecfg.set_config(recfg_tile);
@@ -572,7 +576,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (17):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<2, 17>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
+      qk_gemm_impl<2, 17>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, overlap);
       qk_gemm_impl<2, 17>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                    overlap);
       av_tilecfg.set_config(recfg_tile);
@@ -581,7 +585,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (18):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<2, 18>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
+      qk_gemm_impl<2, 18>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, overlap);
       qk_gemm_impl<2, 18>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                    overlap);
       av_tilecfg.set_config(recfg_tile);
@@ -590,7 +594,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (19):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<2, 19>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
+      qk_gemm_impl<2, 19>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, overlap);
       qk_gemm_impl<2, 19>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                    overlap);
       av_tilecfg.set_config(recfg_tile);
@@ -599,7 +603,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (20):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<2, 20>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
+      qk_gemm_impl<2, 20>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, overlap);
       qk_gemm_impl<2, 20>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                    overlap);
       av_tilecfg.set_config(recfg_tile);
@@ -608,7 +612,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (21):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<2, 21>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
+      qk_gemm_impl<2, 21>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, overlap);
       qk_gemm_impl<2, 21>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                    overlap);
       av_tilecfg.set_config(recfg_tile);
@@ -617,7 +621,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (22):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<2, 22>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
+      qk_gemm_impl<2, 22>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, overlap);
       qk_gemm_impl<2, 22>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                    overlap);
       av_tilecfg.set_config(recfg_tile);
@@ -626,7 +630,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (23):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<2, 23>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
+      qk_gemm_impl<2, 23>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, overlap);
       qk_gemm_impl<2, 23>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                    overlap);
       av_tilecfg.set_config(recfg_tile);
@@ -636,7 +640,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
     case (24):
       qk_tilecfg.set_config(recfg_tile);
       auto time_stamp1 = Time::now();
-      qk_gemm_impl<2, 24>::compute(a_scrach, q[cur_r_pos], k_scrach, overlap);
+      qk_gemm_impl<2, 24>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, overlap);
       auto time_stamp2 = Time::now();
       qk_gemm_impl<2, 24>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                    overlap);
@@ -662,7 +666,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
     switch (col_tile) {
     case (3):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<1, 3>::compute(a_scrach, q[cur_r_pos], k_scrach, 0);
+      qk_gemm_impl<1, 3>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 3>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                   0);
       av_tilecfg.set_config(recfg_tile);
@@ -671,7 +675,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (5):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<1, 5>::compute(a_scrach, q[cur_r_pos], k_scrach, 0);
+      qk_gemm_impl<1, 5>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 5>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                   0);
       av_tilecfg.set_config(recfg_tile);
@@ -680,7 +684,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (7):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<1, 7>::compute(a_scrach, q[cur_r_pos], k_scrach, 0);
+      qk_gemm_impl<1, 7>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 7>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                   0);
       av_tilecfg.set_config(recfg_tile);
@@ -689,7 +693,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (9):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<1, 9>::compute(a_scrach, q[cur_r_pos], k_scrach, 0);
+      qk_gemm_impl<1, 9>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 9>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                   0);
       av_tilecfg.set_config(recfg_tile);
@@ -698,7 +702,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (11):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<1, 11>::compute(a_scrach, q[cur_r_pos], k_scrach, 0);
+      qk_gemm_impl<1, 11>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 11>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                    0);
       av_tilecfg.set_config(recfg_tile);
@@ -707,7 +711,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (13):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<1, 13>::compute(a_scrach, q[cur_r_pos], k_scrach, 0);
+      qk_gemm_impl<1, 13>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 13>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                    0);
       av_tilecfg.set_config(recfg_tile);
@@ -716,7 +720,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (15):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<1, 15>::compute(a_scrach, q[cur_r_pos], k_scrach, 0);
+      qk_gemm_impl<1, 15>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 15>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                    0);
       av_tilecfg.set_config(recfg_tile);
@@ -725,7 +729,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (17):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<1, 17>::compute(a_scrach, q[cur_r_pos], k_scrach, 0);
+      qk_gemm_impl<1, 17>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 17>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                    0);
       av_tilecfg.set_config(recfg_tile);
@@ -734,7 +738,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (19):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<1, 19>::compute(a_scrach, q[cur_r_pos], k_scrach, 0);
+      qk_gemm_impl<1, 19>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 19>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                    0);
       av_tilecfg.set_config(recfg_tile);
@@ -743,7 +747,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (21):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<1, 21>::compute(a_scrach, q[cur_r_pos], k_scrach, 0);
+      qk_gemm_impl<1, 21>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 21>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                    0);
       av_tilecfg.set_config(recfg_tile);
@@ -752,7 +756,7 @@ status_t amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       break;
     case (23):
       qk_tilecfg.set_config(recfg_tile);
-      qk_gemm_impl<1, 23>::compute(a_scrach, q[cur_r_pos], k_scrach, 0);
+      qk_gemm_impl<1, 23>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 23>::softmax(apro_scrach, a_scrach, att_mask, M, oscale,
                                    0);
       av_tilecfg.set_config(recfg_tile);
