@@ -34,9 +34,12 @@ add_subdirectory(onednn)
 # Intel OpenMP denpendency
 
 # Bert Torch inference SUT
-add_library(mlperf_plugins SHARED
-  csrc/init.cpp csrc/linear.cpp csrc/cpu.cpp csrc/softmax.cpp csrc/i_softmax_tpp.cpp csrc/amx_mha.cpp
-  csrc/i_gelu_tpp.cpp csrc/activation.cpp csrc/i_layernorm_tpp.cpp csrc/normalization.cpp csrc/helper.cpp csrc/i_mha_tpp.cpp)
+set(tpps_src csrc/tpps/i_softmax_tpp.cpp csrc/tpps/i_gelu_tpp.cpp
+  csrc/tpps/i_layernorm_tpp.cpp csrc/tpps/i_mha_tpp.cpp)
+set(plugin_src csrc/init.cpp csrc/linear.cpp csrc/cpu.cpp csrc/softmax.cpp
+  csrc/amx_mha.cpp csrc/activation.cpp csrc/normalization.cpp csrc/helper.cpp)
+
+add_library(mlperf_plugins SHARED ${plugin_src})
 set_property(TARGET mlperf_plugins PROPERTY CXX_STANDARD 14)
 
 message("Extra Torch C++ flags: ${TORCH_CXX_FLAGS}")
@@ -54,7 +57,8 @@ endif()
 
 target_compile_options(mlperf_plugins BEFORE PUBLIC ${TORCH_CXX_FLAGS} ${OpenMP_CXX_OPTIONS})
 target_include_directories(mlperf_plugins SYSTEM PUBLIC include ${TORCH_INCLUDE_DIRS})
-target_include_directories(mlperf_plugins PRIVATE onednn/include libxsmm/include)
-target_link_directories(mlperf_plugins PRIVATE ${PROJECT_SOURCE_DIR}/libxsmm/lib)
+target_include_directories(mlperf_plugins PRIVATE onednn/include libxsmm/include csrc/tpps)
+target_link_directories(mlperf_plugins PRIVATE ${PROJECT_SOURCE_DIR}/libxsmm/lib csrc/tpps)
 target_link_libraries(dnnl PUBLIC ${OpenMP_CXX_LIBRARIES})
 target_link_libraries(mlperf_plugins "${TORCH_LIBRARIES}" dnnl ${OpenMP_CXX_LIBRARIES})
+target_link_libraries(mlperf_plugins tpps)
