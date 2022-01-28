@@ -37,20 +37,19 @@ struct i32_scale_attlen_softmax_scale_i8 {
 
 // For specific format of <int (*)[16][16]> to <int8_t (*)[16][64]>
 struct i32_scale_attlen_softmax_scale_i8_amx_tile_vnni {
-  constexpr static int N = 16;
   inline static void run(
       void *out, void *in, int32_t att_len, float M, float oscale) {
     auto pin = reinterpret_cast<int32_t (*)[16][16]>(in);
-    auto att_tile = (att_len + 15) / 16;
-    auto att_tail = att_tile - att_len; // 1 ~ 16 possible
+    auto att_tile = att_len / 16;
+    auto att_tail = att_len - att_tile * 16;
 
     // Scratch for max subtraction
-    alignas(64) float dout [att_tile][16][16];
+    alignas(64) float dout [att_tile + (att_tail > 0)][16][16];
 
     auto neg_large = _mm512_set1_epi32(-500000);
     auto vscale = _mm512_set1_ps(M);
 
-    __m512 vmax[N];
+    __m512 vmax[16];
 
 #   pragma unroll (16)
     for (int i = 0; i < 16; ++i) {
@@ -58,8 +57,7 @@ struct i32_scale_attlen_softmax_scale_i8_amx_tile_vnni {
     }
 
     int d2;
-    for (d2 = 0; d2 < att_tile -1; ++ d2) {
-
+    for (d2 = 0; d2 < att_tile; ++ d2) {
 #     pragma unroll (16)
       for (int i = 0; i < 16; ++i) {
         auto l = _mm512_loadu_si512(pin[d2][i]);
@@ -69,16 +67,18 @@ struct i32_scale_attlen_softmax_scale_i8_amx_tile_vnni {
       }
     }
 
-    __mmask16 mask = (1<<att_tail) -1;
-#   pragma unroll (16)
-    for (int i = 0; i < 16; ++i) {
-      auto l = _mm512_mask_loadu_epi32(neg_large, mask, pin[d2][i]);
-      auto f = _mm512_cvtepi32_ps(l) * vscale;
-      vmax[i] = _mm512_max_ps(f, vmax[i]);
-      _mm512_storeu_ps(dout[d2][i], f);
+    if (att_tail) {
+    	__mmask16 mask = (1<<att_tail) -1;
+#   	pragma unroll (16)
+    	for (int i = 0; i < 16; ++i) {
+    	  auto l = _mm512_mask_loadu_epi32(neg_large, mask, pin[d2][i]);
+    	  auto f = _mm512_cvtepi32_ps(l) * vscale;
+    	  vmax[i] = _mm512_max_ps(f, vmax[i]);
+    	  _mm512_storeu_ps(dout[d2][i], f);
+    	}
     }
 
-    __m512 vsum[N];
+    __m512 vsum[16];
 
 #   pragma unroll (16)
     for (int i = 0; i < 16; ++ i) {
@@ -86,7 +86,7 @@ struct i32_scale_attlen_softmax_scale_i8_amx_tile_vnni {
       vsum[i] = _mm512_setzero_ps();
     }
 
-    for (d2 = 0; d2 < att_tile; ++ d2) {
+    for (d2 = 0; d2 < att_tile + (att_tail > 0); ++ d2) {
 #     pragma unroll (16)
       for (int i = 0; i < 16; ++ i) {
         auto f = _mm512_loadu_ps(dout[d2][i]);
@@ -108,10 +108,11 @@ struct i32_scale_attlen_softmax_scale_i8_amx_tile_vnni {
 #endif
     }
 
-    auto pout = reinterpret_cast<int8_t (*)[16][4][16]>(out);
-    auto dout_ = reinterpret_cast<int (*)[4][16][16]>(dout);
     auto att_tile16_in_tile64 = att_tile / 4;
     auto att_tile16_in_tile64_tail = att_tile % 4;
+
+    auto pout = reinterpret_cast<int8_t (*)[16][4][16]>(out);
+    auto dout_ = reinterpret_cast<int (*)[4][16][16]>(dout);
 
     // Gather 4*16*16 int8_t tile into 16*64 tile
     for (d2 = 0; d2 < att_tile16_in_tile64; ++d2) {
