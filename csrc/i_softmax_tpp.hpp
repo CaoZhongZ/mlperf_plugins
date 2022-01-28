@@ -37,6 +37,7 @@ struct i32_scale_attlen_softmax_scale_i8 {
 
 // For specific format of <int (*)[16][16]> to <int8_t (*)[16][64]>
 struct i32_scale_attlen_softmax_scale_i8_amx_tile_vnni {
+  constexpr static int N = 16;
   inline static void run(
       void *out, void *in, int32_t att_len, float M, float oscale) {
     auto pin = reinterpret_cast<int32_t (*)[16][16]>(in);
@@ -44,7 +45,7 @@ struct i32_scale_attlen_softmax_scale_i8_amx_tile_vnni {
     auto att_tail = att_tile - att_len; // 1 ~ 16 possible
 
     // Scratch for max subtraction
-    alignas(64) float dout [N][att_l16];
+    alignas(64) float dout [att_tile][16][16];
 
     auto neg_large = _mm512_set1_epi32(-500000);
     auto vscale = _mm512_set1_ps(M);
@@ -109,7 +110,6 @@ struct i32_scale_attlen_softmax_scale_i8_amx_tile_vnni {
 
     auto pout = reinterpret_cast<int8_t (*)[16][4][16]>(out);
     auto dout_ = reinterpret_cast<int (*)[4][16][16]>(dout);
-    auto zero = _mm512_setzero_ps();
     auto att_tile16_in_tile64 = att_tile / 4;
     auto att_tile16_in_tile64_tail = att_tile % 4;
 
@@ -148,8 +148,8 @@ struct i32_scale_attlen_softmax_scale_i8_amx_tile_vnni {
 
         // write combine?
         _mm512_mask_cvtepi32_storeu_epi8(pout[d2][i][0], 0xffff, i0);
-        _mm_storeu_epi8(pout[d2][i][1], i1);
-        _mm256_storeu_epi8(pout[d2][i][2], i2);
+        _mm_storeu_si128((__m128i *)pout[d2][i][1], i1);
+        _mm256_storeu_si256((__m256i *)pout[d2][i][2], i2);
       }
       break;
     case 2:
@@ -158,13 +158,13 @@ struct i32_scale_attlen_softmax_scale_i8_amx_tile_vnni {
         auto l0 = _mm512_loadu_ps(dout_[d2][0][i]);
         auto i0 = _mm512_scale_minmax_i8_ps(l0, vsum[i]);
         auto l1 = _mm512_loadu_ps(dout_[d2][1][i]);
-        auto i1 = _mm512_scale_minmax_i8_ps(l0, vsum[i]);
+        auto i1 = _mm512_scale_minmax_i8_ps(l1, vsum[i]);
         auto i2 = _mm256_set1_epi8(0);
 
         // write combine?
         _mm512_mask_cvtepi32_storeu_epi8(pout[d2][i][0], 0xffff, i0);
         _mm512_mask_cvtepi32_storeu_epi8(pout[d2][i][1], 0xffff, i1);
-        _mm256_storeu_epi8(pout[d2][i][2], i2);
+        _mm256_storeu_si256((__m256i *)pout[d2][i][2], i2);
       }
       break;
     case 3:
@@ -173,16 +173,16 @@ struct i32_scale_attlen_softmax_scale_i8_amx_tile_vnni {
         auto l0 = _mm512_loadu_ps(dout_[d2][0][i]);
         auto i0 = _mm512_scale_minmax_i8_ps(l0, vsum[i]);
         auto l1 = _mm512_loadu_ps(dout_[d2][1][i]);
-        auto i1 = _mm512_scale_minmax_i8_ps(l0, vsum[i]);
+        auto i1 = _mm512_scale_minmax_i8_ps(l1, vsum[i]);
         auto l2 = _mm512_loadu_ps(dout_[d2][2][i]);
-        auto i2 = _mm512_scale_minmax_i8_ps(l0, vsum[i]);
+        auto i2 = _mm512_scale_minmax_i8_ps(l2, vsum[i]);
         auto i3 = _mm_set1_epi8(0);
 
         // write combine?
         _mm512_mask_cvtepi32_storeu_epi8(pout[d2][i][0], 0xffff, i0);
         _mm512_mask_cvtepi32_storeu_epi8(pout[d2][i][1], 0xffff, i1);
         _mm512_mask_cvtepi32_storeu_epi8(pout[d2][i][1], 0xffff, i2);
-        _mm_storeu_epi8(pout[d2][i][2], i3);
+        _mm_storeu_si128((__m128i *)pout[d2][i][2], i3);
       }
       break;
     default:

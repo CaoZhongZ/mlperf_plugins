@@ -42,18 +42,26 @@ int main() {
   softmax_isolation((void*)d, (void*)c, 384, 1.0, 1.0, 384);
 
   auto start = Time::now();
-  for (int i = 0; i < 100000; i++) {
+
+  // for (int i = 0; i < 100000; i++)
     intel_mlperf::i32_scale_attlen_softmax_scale_i8<16, 8>::run((void*)d, (void*)c, 384, 1.0, 1.0, 384);
-  }
+
   auto during = std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start).count();
   std::cout << "100000 times softmax time : " << (float)during / 1000 / 1000 << " ms " << std::endl;
+
+  start = Time::now();
+  // for (int i = 0; i < 100000; i++)
+    softmax_isolation((void*)d, (void*)c, 384, 1.0, 1.0, 384);
+
+  during = std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start).count();
+  std::cout << "100000 times tile softmax time : " << (float)during / 1000 / 1000 << " ms " << std::endl;
 
   return 0;
 }
 
 void softmax_isolation(void *d, void *c, int len, float m1, float m2, int64_t ld) {
-  intel_mlperf::i32_scale_attlen_softmax_scale_i8<16, 8>::run(d, c, len, m1, m2, ld);
+  intel_mlperf::i32_scale_attlen_softmax_scale_i8_amx_tile_vnni::run(d, c, len, m1, m2);
 }
 void softmax_isolation_16(void *d, void *c, int len, float m1, float m2, int64_t ld) {
-  intel_mlperf::i32_scale_attlen_softmax_scale_i8<16, 16>::run(d, c, len, m1, m2, ld);
+  intel_mlperf::i32_scale_attlen_softmax_scale_i8_amx_tile_vnni::run(d, c, len, m1, m2);
 }
