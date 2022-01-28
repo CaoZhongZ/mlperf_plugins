@@ -68,14 +68,14 @@ struct i32_scale_attlen_softmax_scale_i8_amx_tile_vnni {
     }
 
     if (att_tail) {
-    	__mmask16 mask = (1<<att_tail) -1;
-#   	pragma unroll (16)
-    	for (int i = 0; i < 16; ++i) {
-    	  auto l = _mm512_mask_loadu_epi32(neg_large, mask, pin[d2][i]);
-    	  auto f = _mm512_cvtepi32_ps(l) * vscale;
-    	  vmax[i] = _mm512_max_ps(f, vmax[i]);
-    	  _mm512_storeu_ps(dout[d2][i], f);
-    	}
+      __mmask16 mask = (1<<att_tail) -1;
+#     pragma unroll (16)
+      for (int i = 0; i < 16; ++i) {
+        auto l = _mm512_mask_loadu_epi32(neg_large, mask, pin[d2][i]);
+        auto f = _mm512_cvtepi32_ps(l) * vscale;
+        vmax[i] = _mm512_max_ps(f, vmax[i]);
+        _mm512_storeu_ps(dout[d2][i], f);
+      }
     }
 
     __m512 vsum[16];
