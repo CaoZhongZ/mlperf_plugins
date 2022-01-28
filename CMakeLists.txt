@@ -20,6 +20,8 @@ endif()
 find_package(OpenMP REQUIRED)
 
 OPTION(USERCP "usercp" ON) # Enabled by default
+OPTION(BUILD_TPPS_INTREE "Build tpps in source tree" ON)
+
 IF(USERCP)
     ADD_DEFINITIONS(-Dusercp)
 ENDIF(USERCP)
@@ -38,6 +40,10 @@ set(tpps_src csrc/tpps/i_softmax_tpp.cpp csrc/tpps/i_gelu_tpp.cpp
   csrc/tpps/i_layernorm_tpp.cpp csrc/tpps/i_mha_tpp.cpp)
 set(plugin_src csrc/init.cpp csrc/linear.cpp csrc/cpu.cpp csrc/softmax.cpp
   csrc/amx_mha.cpp csrc/activation.cpp csrc/normalization.cpp csrc/helper.cpp)
+
+if (BUILD_TPPS_INTREE)
+  list(APPEND plugin_src ${tpps_src})
+endif(BUILD_TPPS_INTREE)
 
 add_library(mlperf_plugins SHARED ${plugin_src})
 set_property(TARGET mlperf_plugins PROPERTY CXX_STANDARD 14)
@@ -61,4 +67,7 @@ target_include_directories(mlperf_plugins PRIVATE onednn/include libxsmm/include
 target_link_directories(mlperf_plugins PRIVATE ${PROJECT_SOURCE_DIR}/libxsmm/lib csrc/tpps)
 target_link_libraries(dnnl PUBLIC ${OpenMP_CXX_LIBRARIES})
 target_link_libraries(mlperf_plugins "${TORCH_LIBRARIES}" dnnl ${OpenMP_CXX_LIBRARIES})
+
+if(NOT BUILD_TPPS_INTREE)
 target_link_libraries(mlperf_plugins tpps)
+endif(NOT BUILD_TPPS_INTREE)
