@@ -39,9 +39,10 @@ struct i32_scale_attlen_softmax_scale_i8 {
 template <int N = 16>
 struct i32_scale_attlen_softmax_scale_i8_amx_tile_vnni {
   constexpr static size_t i_tile_w = 16;
+  constexpr static size_t i_tile_h = 16;
   inline static void run(
       void *out, void *in, int32_t att_len, float M, float oscale) {
-    auto pin = reinterpret_cast<int32_t (*)[16][i_tile_w]>(in);
+    auto pin = reinterpret_cast<int32_t (*)[i_tile_h][i_tile_w]>(in);
     auto att_tile = att_len / i_tile_w;
     auto att_tail = att_len - att_tile * i_tile_w;
 
@@ -114,7 +115,7 @@ struct i32_scale_attlen_softmax_scale_i8_amx_tile_vnni {
     auto att_tile16_in_tile64_tail = att_tile % 4;
 
     auto dout_ = reinterpret_cast<int (*)[4][N][i_tile_w]>(dout);
-    auto pout = reinterpret_cast<int8_t (*)[16][4][i_tile_w]>(out);
+    auto pout = reinterpret_cast<int8_t (*)[i_tile_h][4][i_tile_w]>(out);
 
     // Gather 4*16*16 int8_t tile into 16*64 tile
     for (d2 = 0; d2 < att_tile16_in_tile64; ++d2) {
@@ -184,8 +185,8 @@ struct i32_scale_attlen_softmax_scale_i8_amx_tile_vnni {
         // write combine?
         _mm512_mask_cvtepi32_storeu_epi8(pout[d2][i][0], 0xffff, i0);
         _mm512_mask_cvtepi32_storeu_epi8(pout[d2][i][1], 0xffff, i1);
-        _mm512_mask_cvtepi32_storeu_epi8(pout[d2][i][1], 0xffff, i2);
-        _mm_storeu_si128((__m128i *)pout[d2][i][2], i3);
+        _mm512_mask_cvtepi32_storeu_epi8(pout[d2][i][2], 0xffff, i2);
+        _mm_storeu_si128((__m128i *)pout[d2][i][3], i3);
       }
       break;
     default:
