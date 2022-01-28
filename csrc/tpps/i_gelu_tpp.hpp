@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdlib>
 #include <immintrin.h>
 
 namespace intel_mlperf {

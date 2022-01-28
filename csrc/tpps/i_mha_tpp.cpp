@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <cstdlib>
 
 #include "amx_tdpbssd.hpp"
 #include "el_common_intrin.hpp"
@@ -91,7 +92,7 @@ static void reorder_k_to_buffer(int8_t *k_buffer, const int8_t *k_ptr, int row,
     tr_vnni_x64<16>(k_buffer_[i], k_ptr_[i * 16], stride, 64);
   }
 
-  auto tr_vnni_tbl [] = {
+  decltype(tr_vnni_x64<1>)* tr_vnni_tbl [] = {
     tr_vnni_x64<1>, tr_vnni_x64<2>, tr_vnni_x64<3>, tr_vnni_x64<4>,
     tr_vnni_x64<5>, tr_vnni_x64<6>, tr_vnni_x64<7>, tr_vnni_x64<8>,
     tr_vnni_x64<9>, tr_vnni_x64<10>, tr_vnni_x64<11>, tr_vnni_x64<12>,
@@ -102,7 +103,7 @@ static void reorder_k_to_buffer(int8_t *k_buffer, const int8_t *k_ptr, int row,
   tr_vnni_tbl[k_tail](k_buffer_[i], k_ptr_[i * 16], stride, 64);
 }
 
-static void reorder_v_to_buffer(const int8_t *v_ptr, int8_t *v_buffer, int row,
+static void reorder_v_to_buffer(int8_t *v_buffer, const int8_t *v_ptr, int row,
                                 int col_tile, int stride) {
   /// reorder v to v_buffer
   /// v_buffer format [4][col_tile*4][64]
@@ -327,8 +328,8 @@ void amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
 
   auto q = reinterpret_cast<const int8_t(*)[ldqkv]>(qkv_ptr);
   int qkv_dis = ldqkv / 3;
-  reorder_k_to_buffer(&q[0][qkv_dis], k_scrach, sl, col_tile, ldqkv);
-  reorder_v_to_buffer(&q[0][qkv_dis * 2], v_scrach, sl, col_tile, ldqkv);
+  reorder_k_to_buffer(k_scrach, &q[0][qkv_dis], sl, col_tile, ldqkv);
+  reorder_v_to_buffer(v_scrach, &q[0][qkv_dis * 2], sl, col_tile, ldqkv);
 
   int v_row = col_tile * 4;
   int rt_v = 16;

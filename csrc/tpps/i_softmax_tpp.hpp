@@ -1,6 +1,7 @@
 #pragma once
-#include "el_common_intrin.hpp"
+#include <cstdlib>
 #include <immintrin.h>
+#include "el_common_intrin.hpp"
 
 namespace intel_mlperf {
 

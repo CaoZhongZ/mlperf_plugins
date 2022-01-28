@@ -1,6 +1,7 @@
+#include <cstdlib>
+
 #include "i_layernorm_tpp.hpp"
 #include "el_common_intrin.hpp"
-#include <cstdlib>
 
 namespace intel_mlperf {
 
