@@ -20,7 +20,7 @@ endif()
 find_package(OpenMP REQUIRED)
 
 OPTION(USERCP "usercp" ON) # Enabled by default
-OPTION(BUILD_TPPS_INTREE "Build tpps in source tree" ON)
+OPTION(BUILD_TPPS_INTREE "Build tpps in source tree" OFF)
 
 IF(USERCP)
     ADD_DEFINITIONS(-Dusercp)
