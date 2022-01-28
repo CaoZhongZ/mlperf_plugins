@@ -54,3 +54,6 @@ int main() {
 void softmax_isolation(void *d, void *c, int len, float m1, float m2, int64_t ld) {
   intel_mlperf::i32_scale_attlen_softmax_scale_i8<16, 8>::run(d, c, len, m1, m2, ld);
 }
+void softmax_isolation_16(void *d, void *c, int len, float m1, float m2, int64_t ld) {
+  intel_mlperf::i32_scale_attlen_softmax_scale_i8<16, 16>::run(d, c, len, m1, m2, ld);
+}

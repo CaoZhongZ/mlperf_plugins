@@ -1,5 +1,5 @@
-# CXXFLAGS=-g -xICELAKE-SERVER -O3 -std=c++11
-CXXFLAGS=-march=native -mtune=native -O3 -std=c++14
-CXX=g++
+CXXFLAGS=-g -xHOST -O3 -std=c++14
+# CXXFLAGS=-march=native -mtune=native -O3 -std=c++14
+CXX=icpc
 
 main : main.cpp softmax.cpp
