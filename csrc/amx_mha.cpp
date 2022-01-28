@@ -60,8 +60,8 @@ at::Tensor amx_mha(const at::Tensor &qkv, const at::Tensor &att_mask,
   int head_num = qkv_block / head_size;
 
   auto attention = at::empty({bs, head_num, sl, head_size},
-		  at::TensorOptions().dtype<int8_t>().memory_format(
-                  c10::MemoryFormat::Contiguous));
+                             at::TensorOptions().dtype<int8_t>().memory_format(
+                                 c10::MemoryFormat::Contiguous));
 
   auto amx_status = amx_init();
 
@@ -80,8 +80,8 @@ at::Tensor amx_mha(const at::Tensor &qkv, const at::Tensor &att_mask,
   int64_t amx_time = 0;
 
   // # pragma omp parallel for collapse(2)
-  for (int i = 0; i < bs; i++) {// batch size
-    for (int j = 0; j < head_num; j++) {// head num
+  for (int i = 0; i < bs; i++) {         // batch size
+    for (int j = 0; j < head_num; j++) { // head num
       auto cur_q_ptr = &origin_ptr[i][0][0][j][0];
       auto cur_a_ptr = &att_ptr[i][j][0][0];
 

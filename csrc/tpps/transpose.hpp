@@ -10,46 +10,54 @@ namespace intel_mlperf {
 // Single step of transpose 16 x 64 as vnni format
 template <int tail>
 inline void tr_vnni_x64(void *at, const void *a, size_t lda, size_t ldat) {
-  auto a_ = reinterpret_cast<const int8_t (*)[lda]>(a);
+  auto a_ = reinterpret_cast<const int8_t(*)[lda]>(a);
 
   __m512i even[16];
 
-# pragma unroll (tail)
-  for (int i = 0; i < tail; ++ i) {
+#pragma unroll(tail)
+  for (int i = 0; i < tail; ++i) {
     even[i] = _mm512_loadu_si512(a_ + i);
   }
 
-# pragma unroll (16 - tail)
+#pragma unroll(16 - tail)
   for (int i = tail; i < 16; ++i) {
     even[i] = _mm512_set1_epi32(0);
   }
 
   __m512i odd[16];
 
-# pragma unroll (8)
-  for (int i = 0; i < 8; ++ i) {
-    odd[2*i] = _mm512_unpacklo_epi32(even[2*i], even[2*i+1]);
-    odd[2*i + 1] = _mm512_unpackhi_epi32(even[2*i], even[2*i+1]);
+#pragma unroll(8)
+  for (int i = 0; i < 8; ++i) {
+    odd[2 * i] = _mm512_unpacklo_epi32(even[2 * i], even[2 * i + 1]);
+    odd[2 * i + 1] = _mm512_unpackhi_epi32(even[2 * i], even[2 * i + 1]);
   }
 
-# pragma unroll (4)
-  for (int i = 0; i < 4; ++ i) {
-    even[4*i]     = _mm512_unpacklo_epi64(odd[4*i], odd[4*i + 2]);
-    even[4*i + 1] = _mm512_unpackhi_epi64(odd[4*i], odd[4*i + 2]);
-    even[4*i + 2] = _mm512_unpacklo_epi64(odd[4*i + 1], odd[4*i + 3]);
-    even[4*i + 3] = _mm512_unpackhi_epi64(odd[4*i + 1], odd[4*i + 3]);
+#pragma unroll(4)
+  for (int i = 0; i < 4; ++i) {
+    even[4 * i] = _mm512_unpacklo_epi64(odd[4 * i], odd[4 * i + 2]);
+    even[4 * i + 1] = _mm512_unpackhi_epi64(odd[4 * i], odd[4 * i + 2]);
+    even[4 * i + 2] = _mm512_unpacklo_epi64(odd[4 * i + 1], odd[4 * i + 3]);
+    even[4 * i + 3] = _mm512_unpackhi_epi64(odd[4 * i + 1], odd[4 * i + 3]);
   }
 
-# pragma unroll (2)
-  for (int i = 0; i < 2; ++ i ){
-    odd[8*i+0] = _mm512_shuffle_i32x4(even[8*i+0], even[8*i + 4], 0x88);
-    odd[8*i+1] = _mm512_shuffle_i32x4(even[8*i+1], even[8*i + 5], 0x88);
-    odd[8*i+2] = _mm512_shuffle_i32x4(even[8*i+2], even[8*i + 6], 0x88);
-    odd[8*i+3] = _mm512_shuffle_i32x4(even[8*i+3], even[8*i + 7], 0x88);
-    odd[8*i+4] = _mm512_shuffle_i32x4(even[8*i+0], even[8*i + 4], 0xdd);
-    odd[8*i+5] = _mm512_shuffle_i32x4(even[8*i+1], even[8*i + 5], 0xdd);
-    odd[8*i+6] = _mm512_shuffle_i32x4(even[8*i+2], even[8*i + 6], 0xdd);
-    odd[8*i+7] = _mm512_shuffle_i32x4(even[8*i+3], even[8*i + 7], 0xdd);
+#pragma unroll(2)
+  for (int i = 0; i < 2; ++i) {
+    odd[8 * i + 0] =
+        _mm512_shuffle_i32x4(even[8 * i + 0], even[8 * i + 4], 0x88);
+    odd[8 * i + 1] =
+        _mm512_shuffle_i32x4(even[8 * i + 1], even[8 * i + 5], 0x88);
+    odd[8 * i + 2] =
+        _mm512_shuffle_i32x4(even[8 * i + 2], even[8 * i + 6], 0x88);
+    odd[8 * i + 3] =
+        _mm512_shuffle_i32x4(even[8 * i + 3], even[8 * i + 7], 0x88);
+    odd[8 * i + 4] =
+        _mm512_shuffle_i32x4(even[8 * i + 0], even[8 * i + 4], 0xdd);
+    odd[8 * i + 5] =
+        _mm512_shuffle_i32x4(even[8 * i + 1], even[8 * i + 5], 0xdd);
+    odd[8 * i + 6] =
+        _mm512_shuffle_i32x4(even[8 * i + 2], even[8 * i + 6], 0xdd);
+    odd[8 * i + 7] =
+        _mm512_shuffle_i32x4(even[8 * i + 3], even[8 * i + 7], 0xdd);
   }
 
   even[0] = _mm512_shuffle_i32x4(odd[0], odd[8], 0x88);
@@ -69,28 +77,28 @@ inline void tr_vnni_x64(void *at, const void *a, size_t lda, size_t ldat) {
   even[14] = _mm512_shuffle_i32x4(odd[6], odd[14], 0xdd);
   even[15] = _mm512_shuffle_i32x4(odd[7], odd[15], 0xdd);
 
-  auto at_ = reinterpret_cast<int8_t (*)[ldat]>(at);
+  auto at_ = reinterpret_cast<int8_t(*)[ldat]>(at);
 
-# pragma unroll (16)
-  for (int i = 0; i < 16; ++ i) {
+#pragma unroll(16)
+  for (int i = 0; i < 16; ++i) {
     _mm512_storeu_si512(at_ + i, even[i]);
   }
 }
 
 //
-// Transpose 4*64 to 64*4 
+// Transpose 4*64 to 64*4
 // out shape is [4][slpad/4][16]
 //
-template <int tail, int group=1>
+template <int tail, int group = 1>
 inline void tr_vnni_4x(void *out, const void *a, size_t lda, size_t ldo) {
   __m512i row[4];
-  auto a_ = reinterpret_cast<const int8_t (*)[lda]>(a);
+  auto a_ = reinterpret_cast<const int8_t(*)[lda]>(a);
 
-# pragma unroll (tail)
+#pragma unroll(tail)
   for (int i = 0; i < tail; ++i)
     row[i] = _mm512_loadu_si512(a_[i]);
 
-# pragma unroll (4 - tail)
+#pragma unroll(4 - tail)
   for (int i = tail; i < 4; ++i)
     row[i] = _mm512_set1_epi8(0);
 
@@ -114,9 +122,9 @@ inline void tr_vnni_4x(void *out, const void *a, size_t lda, size_t ldo) {
   auto nn2 = _mm512_shuffle_i32x4(new2, new3, 0x88);
   auto nn3 = _mm512_shuffle_i32x4(new2, new3, 0xdd);
 
-  auto o_ = reinterpret_cast<int8_t (*)[ldo]>(out);
+  auto o_ = reinterpret_cast<int8_t(*)[ldo]>(out);
 
-  if ( group == 1 ) {
+  if (group == 1) {
     _mm512_store_epi32(o_[0], nn0);
     _mm512_store_epi32(o_[1], nn2);
     _mm512_store_epi32(o_[2], nn1);
@@ -126,4 +134,4 @@ inline void tr_vnni_4x(void *out, const void *a, size_t lda, size_t ldo) {
   }
 }
 
-}
+} // namespace intel_mlperf
