@@ -221,7 +221,7 @@ struct i32_scale_softmax_scale_i8<16, N> {
 
     __m512 vmax[N];
 
-#   pragma unroll N
+#   pragma unroll (N)
     for (int i = 0; i < N; ++i) {
       vmax[i] = _mm512_setzero_ps();
     }
@@ -230,7 +230,7 @@ struct i32_scale_softmax_scale_i8<16, N> {
     for (d2 = 0; d2 < ld/16 * 16; d2 += 16) {
       auto m = _mm512_loadu_ps(&att_mask[d2]);
 
-#     pragma unroll N
+#     pragma unroll (N)
       for (int i = 0; i < N; ++i) {
         auto l = _mm512_loadu_si512(&pin[i][d2]);
         auto f = _mm512_cvtepi32_ps(l) * vscale + m;
@@ -244,7 +244,7 @@ struct i32_scale_softmax_scale_i8<16, N> {
       __mmask16 mask = (1<<rem) -1;
       auto m = _mm512_mask_loadu_ps(full_ps, mask, &att_mask[d2]);
 
-#     pragma unroll N
+#     pragma unroll (N)
       for (int i = 0; i < N; ++i) {
         auto l = _mm512_mask_loadu_epi32(zero, mask, &pin[i][d2]);
         auto f = _mm512_cvtepi32_ps(l) * vscale + m;
@@ -255,14 +255,14 @@ struct i32_scale_softmax_scale_i8<16, N> {
 
     __m512 vsum[N];
 
-#   pragma unroll N
+#   pragma unroll (N)
     for (int i = 0; i < N; ++ i) {
       vmax[i] = _mm512_max_reduce_ps(vmax[i]);
       vsum[i] = _mm512_setzero_ps();
     }
 
     for (d2 = 0; d2 < ld_16; d2 += 16) {
-#     pragma unroll N
+#     pragma unroll (N)
       for (int i = 0; i < N; ++ i) {
         auto f = _mm512_loadu_ps(&dout[i][d2]);
         auto d = f - vmax[i];
@@ -274,7 +274,7 @@ struct i32_scale_softmax_scale_i8<16, N> {
 
     auto voscale = _mm512_set1_ps(oscale);
 
-#   pragma unroll N
+#   pragma unroll (N)
     for (int i = 0; i < N; ++ i) {
 #ifdef usercp
       vsum[i] = voscale * _mm512_rcp14_ps(_mm512_add_reduce_ps(vsum[i]));
@@ -285,7 +285,7 @@ struct i32_scale_softmax_scale_i8<16, N> {
 
     auto pout = reinterpret_cast<int8_t (*)[ld]>(out);
     for (d2 = 0; d2 < ld/16 * 16; d2 += 16) {
-#     pragma unroll N
+#     pragma unroll (N)
       for (int i = 0; i < N; ++ i) {
         auto l = _mm512_loadu_ps(&dout[i][d2]);
         auto i_4 = _mm512_scale_minmax_i8_ps(l, vsum[i]);
@@ -296,7 +296,7 @@ struct i32_scale_softmax_scale_i8<16, N> {
     if (d2 < ld) {
       int rem = ld -d2;
       __mmask16 mask = (1<<rem) -1;
-#     pragma unroll N
+#     pragma unroll (N)
       for (int i = 0; i < N; ++ i) {
         auto l = _mm512_loadu_ps(&dout[i][d2]);
         auto i_4 = _mm512_scale_minmax_i8_ps(l, vsum[i]);

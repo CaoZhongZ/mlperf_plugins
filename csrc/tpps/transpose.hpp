@@ -1,7 +1,6 @@
 #pragma once
 
 #include <immintrin.h>
-#include "helper.hpp"
 
 namespace intel_mlperf {
 

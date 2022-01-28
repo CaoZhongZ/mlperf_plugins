@@ -3,7 +3,6 @@
 #include "i_mha_tpp.hpp"
 #include "amx_tdpbssd.hpp"
 #include "el_common_intrin.hpp"
-#include "helper.hpp"
 #include "i_softmax_tpp.hpp"
 #include "transpose.hpp"
 
