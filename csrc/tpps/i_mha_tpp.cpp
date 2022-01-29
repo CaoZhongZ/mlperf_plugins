@@ -323,7 +323,7 @@ template <int n_tile, int k_step> struct av_gemm_impl {
   }
 };
 
-i_amx_mha_top::i_amx_mha_tpp(size_t seq_len, size_t att_len,
+i_amx_mha_tpp::i_amx_mha_tpp(size_t seq_len, size_t att_len,
     float M, float oscale, float M2)
   : seq_len_(seq_len), att_len_(att_len), 
     sl_p16_(to_next(seq_len, 16)),
@@ -352,7 +352,7 @@ void i_amx_mha_tpp::compute_block(void* C, const void* Q, const void* K,
       C, softmax_result, V, sl_p64_, overlap_, M2);
 }
 
-compute_block_t i_amx_mha_tpp::compute_block_tbl_ [2][22] = {
+const i_amx_mha_tpp::compute_block_t i_amx_mha_tpp::compute_block_tbl_ [2][22] = {
   {
     &i_amx_mha_tpp::compute_block<2,3>, &i_amx_mha_tpp::compute_block<2,4>,
     &i_amx_mha_tpp::compute_block<2,5>, &i_amx_mha_tpp::compute_block<2,6>,
