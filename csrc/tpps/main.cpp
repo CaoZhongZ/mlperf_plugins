@@ -1,6 +1,3 @@
-#include "helper.hpp"
-#include "i_softmax_tpp.hpp"
-#include "transpose.hpp"
 #include <chrono>
 #include <cstdlib>
 #include <cstring>

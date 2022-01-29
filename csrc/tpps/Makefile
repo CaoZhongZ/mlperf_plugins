@@ -12,7 +12,7 @@ all : libtpps.a
 libtpps.a : $(kernels:.cpp=.o)
 	ar rcs $@ $^
 
-main : main.cpp
+main : main.cpp libtpps.a
 
 clean :
 	rm -f *.a *.o
