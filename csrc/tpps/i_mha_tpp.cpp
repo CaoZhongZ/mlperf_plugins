@@ -22,7 +22,7 @@ namespace intel_mlperf {
 static constexpr int max_tile_row = 16;
 static constexpr int max_tile_colsb = 64;
 
-template <typename T, int pad> T to_next(T x) {
+template <typename T> T to_next(T x, int pad) {
   return (x + pad -1) / pad * pad;
 }
 
@@ -92,10 +92,10 @@ static void tr_vnni_x16(int8_t *scratch, const int8_t *src, int row,
   // scratch format : int8_t [col_tile][16][64]
   auto scratch_ = reinterpret_cast<int8_t(*)[16 * 64]>(scratch);
 
-  auto n_tile = row / 16;
+  auto n_block = row / 16;
   auto tail = row % 16;
 
-  for (int i = 0; i < n_tile; i++) {
+  for (int i = 0; i < n_block; i++) {
     tr_vnni_x64<16>(scratch_[i], src_[i], stride, 64);
   }
 
@@ -107,14 +107,14 @@ static void tr_vnni_x16(int8_t *scratch, const int8_t *src, int row,
       tr_vnni_x64<13>, tr_vnni_x64<14>, tr_vnni_x64<15>, tr_vnni_x64<16>,
     };
 
-    tr_vnni_tbl[tail](scratch[n_block], src[n_block], stride, 64);
+    tr_vnni_tbl[tail](scratch_[n_block], src_[n_block], stride, 64);
   }
 }
 
 // dual transpose in essential
 static void tr_vnni_4x(int8_t *scratch, const int8_t *src, int row,
     int stride) {
-  auto v_ptr_ = reinterpret_cast<const int8_t(*)[4][stride]>(v_ptr);
+  auto src_ = reinterpret_cast<const int8_t(*)[4][stride]>(src);
 
   auto n_tile = row / 4;
   auto tail = row % 4;
@@ -227,17 +227,17 @@ template <int row_tile, int col_tile> struct qk_gemm_impl {
 
 // n_tile: 1 or 2
 //
-template <int k_tile, int k_tile> struct av_gemm_impl {
-  inline static void loada(void *a, size_t lda, size_t overlap) {
-    auto a_ = reinterpret_cast<int8_t(*)[lda]>(a);
+template <int n_tile, int k_step> struct av_gemm_impl {
+  inline static void loada(const void *a, size_t overlap) {
+    auto a_ = reinterpret_cast<const int8_t(*)[k_step][16][64]>(a);
 
-    _tile_loadd(TMM4, a_[0], lda);
+    _tile_loadd(TMM4, a_[0], 64);
     if (n_tile == 2)
-      _tile_loadd(TMM5, a_[16], lda);
+      _tile_loadd(TMM5, a_[1], 64);
   }
 
-  inline static void loadb(void *b_scratch, size_t ldb) {
-    auto b_ = reinterpret_cast<int8_t(*)[ldb]>(b_scratch);
+  inline static void loadb(const void *b) {
+    auto b_ = reinterpret_cast<const int8_t(*)[16][64]>(b);
     _tile_loadd(TMM6, b_[0], 64);
     _tile_loadd(TMM7, b_[1], 64);
   }
@@ -258,87 +258,88 @@ template <int k_tile, int k_tile> struct av_gemm_impl {
     }
   }
 
-  inline static void store_quant(void *c, int overlap, float m2) {
-    alignas(64) int scratch[n_tile * 16 * 32];
-    auto scratch_ = reinterpret_cast<int(*)[16][16]>(scratch);
-    _tile_stored(TMM0, scratch_[0], 64);
-    _tile_stored(TMM1, scratch_[1], 64);
+  inline static void store_quant(void *c, int ldc, int overlap, float m2) {
+    alignas(64) int scratch[n_tile][2][16][16];
+
+    _tile_stored(TMM0, scratch[0][0], 64);
+    _tile_stored(TMM1, scratch[0][1], 64);
 
     if (n_tile == 2) {
-      _tile_stored(TMM2, scratch_[2], 64);
-      _tile_stored(TMM3, scratch_[3], 64);
+      _tile_stored(TMM2, scratch[1][2], 64);
+      _tile_stored(TMM3, scratch[1][3], 64);
     }
 
     // quant out to c
     auto vscale = _mm512_set1_ps(m2);
-    auto c_out = reinterpret_cast<int8_t(*)[64]>(c);
+    auto c_out = reinterpret_cast<int8_t(*)[16][ldc/32][2][16]>(c);
 
 #pragma unroll(n_tile)
-    for (int i = 0; i < n_tile; i++) {
+    for (int i = 0; i < n_tile ; i++) {
 #pragma unroll(16)
       for (int j = 0; j < 16; j++) {
-        auto pr = _mm512_loadu_si512(scratch_[2 * i][j]);
-        auto prf = _mm512_cvtepi32_ps(pr);
-        auto iout = _mm512_scale_minmax_i8_ps(vscale, prf);
-        int out_row = (i == n_tile - 1) ? (i * 16 - overlap + j) : (i * 16 + j);
-        _mm512_mask_cvtepi32_storeu_epi8(&c_out[out_row][0], 0xffff, iout);
-        pr = _mm512_loadu_si512(scratch_[2 * i + 1][j]);
-        prf = _mm512_cvtepi32_ps(pr);
-        iout = _mm512_scale_minmax_i8_ps(vscale, prf);
-        _mm512_mask_cvtepi32_storeu_epi8(&c_out[out_row][16], 0xffff, iout);
+        if (i == n_tile - 1 && j >= overlap) {
+          auto l0 = _mm512_loadu_si512(scratch[i][0][j]);
+          auto f0 = _mm512_cvtepi32_ps(l0);
+          auto i0 = _mm512_scale_minmax_i8_ps(vscale, f0);
+
+          auto l1 = _mm512_loadu_si512(scratch[i][1][j]);
+          auto f1 = _mm512_cvtepi32_ps(l0);
+          auto i1 = _mm512_scale_minmax_i8_ps(vscale, f1);
+
+          _mm512_mask_cvtepi32_storeu_epi8(c_out[i][j - overlap][0], 0xffff, i0);
+          _mm512_mask_cvtepi32_storeu_epi8(c_out[i][j - overlap][1], 0xffff, i1);
+        }
       }
     }
   }
 
-  inline static void compute(void *c, void *a, void *b, size_t lda,
+  inline static void compute(void *c, const void *a, const void *b, int ldc,
       size_t overlap, float m2) {
-
     zero_accum();
-    int a_block = lda / k_step;
-    int b_block = a_block / 4;
 
-    auto a_ = reinterpret_cast<int8_t(*)[lda]>(a);
-    auto b_ = reinterpret_cast<int8_t(*)[lda / 4][64]>(b_scratch);
-    auto c_ = reinterpret_cast<int8_t(*)[64]>(c);
-
-    size_t ldb = lda * 16;
+    // a shape is int8_t [2][k_step][16][64]
+    auto a_ = reinterpret_cast<const int8_t(*)[16][64]>(a);
+    // b shape is int8_t [2][k_step][32][64]
+    auto b_ = reinterpret_cast<const int8_t(*)[k_step][32][64]>(b);
+    // c shape is int8_t [seq_len][ldc];
+    auto c_ = reinterpret_cast<int8_t(*)[16][ldc]>(c);
 
 #pragma unroll(k_step)
     for (int i = 0; i < k_step; ++i) {
-      loada(&a_[0][i * a_block], lda, overlap);
-      loadb(&b_[0][i * b_block][0], ldb);
+      loada(a_[i], overlap);
+      loadb(b_[0][i]);
       dot_prod();
     }
-    store_quant(&c_[0][0], overlap, m2);
+    store_quant(c_[0], ldc, overlap, m2);
     zero_accum();
 
 #pragma unroll(k_step)
     for (int i = 0; i < k_step; ++i) {
-      loada(&a_[0][i * a_block], lda, overlap);
-      loadb(&b_[2][i * b_block][0], ldb);
+      loada(a_[i], overlap);
+      loadb(b_[1][i]);
       dot_prod();
     }
-    store_quant(&c_[0][32], overlap, m2);
+    store_quant(c_[0], ldc, overlap, m2);
   }
 };
 
 // XXX: 64 width 64 amx
 struct i_amx_mha_tpp {
-  i_amx_mha(size_t sequence_length, size_t att_len,
+  i_amx_mha_tpp(size_t seq_len, size_t att_len,
       float M, float oscale, float M2)
-    : sequence_length_(sequence_length), att_len_(att_len), 
-      sl_p16_(to_next<16>(sequence_legnth_)),
-      sl_p64_(to_next<64>(sequence_length_)),
-      overlap_(sl_p16 - sequence_length) {
-    loop_block_ = sequence_length / 32;
-    loop_tail_ =  sequence_length % 32;
+    : seq_len_(seq_len), att_len_(att_len), 
+      sl_p16_(to_next(seq_len, 16)),
+      sl_p64_(to_next(seq_len, 64)),
+      overlap_(sl_p16_ - seq_len) {
+    loop_block_ = seq_len / 32;
+    loop_tail_ = seq_len % 32;
 
     compute_block_ = compute_block_tbl_[0][sl_p16_/16];
     compute_tail_ = compute_block_tbl_[loop_tail_ < 16][sl_p16_/16];
   }
 
 private:
-  const size_t sequence_length_;
+  const size_t seq_len_;
   const size_t att_len_;
 
   const size_t sl_p16_;
@@ -347,78 +348,88 @@ private:
   const size_t overlap_;
 
   size_t loop_block_;
-  size_t loop_tail_
+  size_t loop_tail_;
 
-  const decltype(compute_block<2,3>) * compute_block_tbl [][22] = {
-    {
-      compute_block<2,3>, compute_block<2,4>, compute_block<2,5>,
-      compute_block<2,6>, compute_block<2,7>, compute_block<2,8>,
-      compute_block<2,9>, compute_block<2,10>, compute_block<2,11>,
-      compute_block<2,12>, compute_block<2,13>, compute_block<2,14>,
-      compute_block<2,15>, compute_block<2,16>, compute_block<2,17>,
-      compute_block<2,18>, compute_block<2,19>, compute_block<2,20>,
-      compute_block<2,21>, compute_block<2,22>, compute_block<2,23>,
-      compute_block<2,24>
-    }, {
-      compute_block<1,3>, compute_block<1,4>, compute_block<1,5>, 
-      compute_block<1,6>, compute_block<1,7>, compute_block<1,8>,
-      compute_block<1,9>, compute_block<1,10>, compute_block<1,11>,
-      compute_block<1,12>, compute_block<1,13>, compute_block<1,14>,
-      compute_block<1,15>, compute_block<1,16>, compute_block<1,17>,
-      compute_block<1,18>, compute_block<1,19>, compute_block<1,20>,
-      compute_block<1,21>, compute_block<1,22>, compute_block<1,23>,
-      compute_block<1,24>
-    }
-  };
-
-  const decltype(compute_block<2,3>) * compute_block_;
-  const decltype(compute_block<2,3>) * compute_tail_;
-
-public:
   template <int row_tile, int col_tile>
-  void compute_block(void* C, void* Q, void* K, void *V, size_t ld_att,
-      float M, float oscale, float M2) {
+  void compute_block(void* C, const void* Q, const void* K, const void *V,
+      size_t ld_att, float M, float oscale, float M2) {
 
-    alignas(64) int32_t gemm_result[row_tile][sl_p16_];
+    alignas(64) int32_t gemm_result[row_tile * sl_p16_];
     qk_gemm_impl<row_tile, col_tile>::compute(
         gemm_result, Q, K, ld_att, overlap_);
 
-    alignas(64) int8_t softmax_result[row_tile][sl_p64_];
+    alignas(64) int8_t softmax_result[row_tile * sl_p64_];
     qk_gemm_impl<row_tile, col_tile>::softmax(
-        softmax_result, gemm_result, att_len, M, oscale);
+        softmax_result, gemm_result, att_len_, M, oscale);
 
-    av_gemm_impl<row_tile, col_tile/4>::compute(
+    av_gemm_impl<row_tile, (col_tile + 3)/4>::compute(
         C, softmax_result, V, sl_p64_, overlap_, M2);
   }
 
+  typedef void (i_amx_mha_tpp::*compute_block_t) (
+      void*, const void*, const void*, const void*, size_t,
+      float, float, float);
+
+  const compute_block_t compute_block_tbl_ [2][22]  {
+    {
+      &i_amx_mha_tpp::compute_block<2,3>, &i_amx_mha_tpp::compute_block<2,4>,
+      &i_amx_mha_tpp::compute_block<2,5>, &i_amx_mha_tpp::compute_block<2,6>,
+      &i_amx_mha_tpp::compute_block<2,7>, &i_amx_mha_tpp::compute_block<2,8>,
+      &i_amx_mha_tpp::compute_block<2,9>, &i_amx_mha_tpp::compute_block<2,10>,
+      &i_amx_mha_tpp::compute_block<2,11>, &i_amx_mha_tpp::compute_block<2,12>,
+      &i_amx_mha_tpp::compute_block<2,13>, &i_amx_mha_tpp::compute_block<2,14>,
+      &i_amx_mha_tpp::compute_block<2,15>, &i_amx_mha_tpp::compute_block<2,16>,
+      &i_amx_mha_tpp::compute_block<2,17>, &i_amx_mha_tpp::compute_block<2,18>,
+      &i_amx_mha_tpp::compute_block<2,19>, &i_amx_mha_tpp::compute_block<2,20>,
+      &i_amx_mha_tpp::compute_block<2,21>, &i_amx_mha_tpp::compute_block<2,22>,
+      &i_amx_mha_tpp::compute_block<2,23>, &i_amx_mha_tpp::compute_block<2,24>
+    }, {
+      &i_amx_mha_tpp::compute_block<1,3>, &i_amx_mha_tpp::compute_block<1,4>,
+      &i_amx_mha_tpp::compute_block<1,5>, &i_amx_mha_tpp::compute_block<1,6>,
+      &i_amx_mha_tpp::compute_block<1,7>, &i_amx_mha_tpp::compute_block<1,8>,
+      &i_amx_mha_tpp::compute_block<1,9>, &i_amx_mha_tpp::compute_block<1,10>,
+      &i_amx_mha_tpp::compute_block<1,11>, &i_amx_mha_tpp::compute_block<1,12>,
+      &i_amx_mha_tpp::compute_block<1,13>, &i_amx_mha_tpp::compute_block<1,14>,
+      &i_amx_mha_tpp::compute_block<1,15>, &i_amx_mha_tpp::compute_block<1,16>,
+      &i_amx_mha_tpp::compute_block<1,17>, &i_amx_mha_tpp::compute_block<1,18>,
+      &i_amx_mha_tpp::compute_block<1,19>, &i_amx_mha_tpp::compute_block<1,20>,
+      &i_amx_mha_tpp::compute_block<1,21>, &i_amx_mha_tpp::compute_block<1,22>,
+      &i_amx_mha_tpp::compute_block<1,23>, &i_amx_mha_tpp::compute_block<1,24>
+    }
+  };
+
+  compute_block_t compute_block_;
+  compute_block_t compute_tail_;
+
+public:
   void compute_head(void *C, const void *ATT, int ld_att, float M,
       float oscale, float M2) {
 
     enum {Q_ = 0, K_, V_};
 
     auto q = reinterpret_cast<const int8_t(*)[ld_att/3]>(ATT);
-    alignas(64) int8_t k_scrach[sl_p16_ * 64];
-    alignas(64) int8_t v_scrach[sl_p64_ * 64];
+    alignas(64) int8_t k_scratch[sl_p16_ * 64];
+    alignas(64) int8_t v_scratch[sl_p64_ * 64];
 
     // 48K
-    tr_vnni_x16(k_scrach, q[K_], sl, ld_q);
-    tr_vnni_4x(v_scrach, q[V_], sl, ld_q);
+    tr_vnni_x16(k_scratch, q[K_], seq_len_, ld_att);
+    tr_vnni_4x(v_scratch, q[V_], seq_len_, ld_att);
 
     // We use 2 * 2 block outer product scheme if possible
-    int row_block = sl_ / 32;
-    int row_tail = sl_ % 32;
+    int row_block = seq_len_ / 32;
+    int row_tail = seq_len_ % 32;
 
     auto c = reinterpret_cast<int8_t(*)[32][64]>(C);
     Tilecfg().set_config();
 
     auto attention = reinterpret_cast<const int8_t(*)[32][ld_att]>(ATT);
 
-    for (int i = 0; i < loop_block; i++) {
-      compute_block_(c[i], attention[i], k_scratch, v_scratch, ld_att, M, oscale, M2);
+    for (int i = 0; i < loop_block_; i++) {
+      (this->*compute_block_)(c[i], attention[i], k_scratch, v_scratch, ld_att, M, oscale, M2);
     }
 
-    if (loop_tail > 0) {
-      compute_tail_(c[row_block], q[row_block], k_scratch, v_scratch, ld_att,
+    if (loop_tail_ > 0) {
+      (this->*compute_tail_)(c[row_block], q[row_block], k_scratch, v_scratch, ld_att,
               M, oscale, M2);
     }
   }
