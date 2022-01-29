@@ -323,116 +323,93 @@ template <int n_tile, int k_step> struct av_gemm_impl {
   }
 };
 
-// XXX: 64 width 64 amx
-struct i_amx_mha_tpp {
-  i_amx_mha_tpp(size_t seq_len, size_t att_len,
-      float M, float oscale, float M2)
-    : seq_len_(seq_len), att_len_(att_len), 
-      sl_p16_(to_next(seq_len, 16)),
-      sl_p64_(to_next(seq_len, 64)),
-      overlap_(sl_p16_ - seq_len) {
-    loop_block_ = seq_len / 32;
-    loop_tail_ = seq_len % 32;
+i_amx_mha_top::i_amx_mha_tpp(size_t seq_len, size_t att_len,
+    float M, float oscale, float M2)
+  : seq_len_(seq_len), att_len_(att_len), 
+    sl_p16_(to_next(seq_len, 16)),
+    sl_p64_(to_next(seq_len, 64)),
+    overlap_(sl_p16_ - seq_len) {
+  loop_block_ = seq_len / 32;
+  loop_tail_ = seq_len % 32;
 
-    compute_block_ = compute_block_tbl_[0][sl_p16_/16];
-    compute_tail_ = compute_block_tbl_[loop_tail_ < 16][sl_p16_/16];
-  }
+  compute_block_ = compute_block_tbl_[0][sl_p16_/16];
+  compute_tail_ = compute_block_tbl_[loop_tail_ < 16][sl_p16_/16];
+}
 
-private:
-  const size_t seq_len_;
-  const size_t att_len_;
+template <int row_tile, int col_tile>
+void i_amx_mha_tpp::compute_block(void* C, const void* Q, const void* K,
+    const void *V, size_t ld_att, float M, float oscale, float M2) {
 
-  const size_t sl_p16_;
-  const size_t sl_p64_;
+  alignas(64) int32_t gemm_result[row_tile * sl_p16_];
+  qk_gemm_impl<row_tile, col_tile>::compute(
+      gemm_result, Q, K, ld_att, overlap_);
 
-  const size_t overlap_;
+  alignas(64) int8_t softmax_result[row_tile * sl_p64_];
+  qk_gemm_impl<row_tile, col_tile>::softmax(
+      softmax_result, gemm_result, att_len_, M, oscale);
 
-  size_t loop_block_;
-  size_t loop_tail_;
+  av_gemm_impl<row_tile, (col_tile + 3)/4>::compute(
+      C, softmax_result, V, sl_p64_, overlap_, M2);
+}
 
-  template <int row_tile, int col_tile>
-  void compute_block(void* C, const void* Q, const void* K, const void *V,
-      size_t ld_att, float M, float oscale, float M2) {
-
-    alignas(64) int32_t gemm_result[row_tile * sl_p16_];
-    qk_gemm_impl<row_tile, col_tile>::compute(
-        gemm_result, Q, K, ld_att, overlap_);
-
-    alignas(64) int8_t softmax_result[row_tile * sl_p64_];
-    qk_gemm_impl<row_tile, col_tile>::softmax(
-        softmax_result, gemm_result, att_len_, M, oscale);
-
-    av_gemm_impl<row_tile, (col_tile + 3)/4>::compute(
-        C, softmax_result, V, sl_p64_, overlap_, M2);
-  }
-
-  typedef void (i_amx_mha_tpp::*compute_block_t) (
-      void*, const void*, const void*, const void*, size_t,
-      float, float, float);
-
-  const compute_block_t compute_block_tbl_ [2][22]  {
-    {
-      &i_amx_mha_tpp::compute_block<2,3>, &i_amx_mha_tpp::compute_block<2,4>,
-      &i_amx_mha_tpp::compute_block<2,5>, &i_amx_mha_tpp::compute_block<2,6>,
-      &i_amx_mha_tpp::compute_block<2,7>, &i_amx_mha_tpp::compute_block<2,8>,
-      &i_amx_mha_tpp::compute_block<2,9>, &i_amx_mha_tpp::compute_block<2,10>,
-      &i_amx_mha_tpp::compute_block<2,11>, &i_amx_mha_tpp::compute_block<2,12>,
-      &i_amx_mha_tpp::compute_block<2,13>, &i_amx_mha_tpp::compute_block<2,14>,
-      &i_amx_mha_tpp::compute_block<2,15>, &i_amx_mha_tpp::compute_block<2,16>,
-      &i_amx_mha_tpp::compute_block<2,17>, &i_amx_mha_tpp::compute_block<2,18>,
-      &i_amx_mha_tpp::compute_block<2,19>, &i_amx_mha_tpp::compute_block<2,20>,
-      &i_amx_mha_tpp::compute_block<2,21>, &i_amx_mha_tpp::compute_block<2,22>,
-      &i_amx_mha_tpp::compute_block<2,23>, &i_amx_mha_tpp::compute_block<2,24>
-    }, {
-      &i_amx_mha_tpp::compute_block<1,3>, &i_amx_mha_tpp::compute_block<1,4>,
-      &i_amx_mha_tpp::compute_block<1,5>, &i_amx_mha_tpp::compute_block<1,6>,
-      &i_amx_mha_tpp::compute_block<1,7>, &i_amx_mha_tpp::compute_block<1,8>,
-      &i_amx_mha_tpp::compute_block<1,9>, &i_amx_mha_tpp::compute_block<1,10>,
-      &i_amx_mha_tpp::compute_block<1,11>, &i_amx_mha_tpp::compute_block<1,12>,
-      &i_amx_mha_tpp::compute_block<1,13>, &i_amx_mha_tpp::compute_block<1,14>,
-      &i_amx_mha_tpp::compute_block<1,15>, &i_amx_mha_tpp::compute_block<1,16>,
-      &i_amx_mha_tpp::compute_block<1,17>, &i_amx_mha_tpp::compute_block<1,18>,
-      &i_amx_mha_tpp::compute_block<1,19>, &i_amx_mha_tpp::compute_block<1,20>,
-      &i_amx_mha_tpp::compute_block<1,21>, &i_amx_mha_tpp::compute_block<1,22>,
-      &i_amx_mha_tpp::compute_block<1,23>, &i_amx_mha_tpp::compute_block<1,24>
-    }
-  };
-
-  compute_block_t compute_block_;
-  compute_block_t compute_tail_;
-
-public:
-  void compute_head(void *C, const void *ATT, int ld_att, float M,
-      float oscale, float M2) {
-
-    enum {Q_ = 0, K_, V_};
-
-    auto q = reinterpret_cast<const int8_t(*)[ld_att/3]>(ATT);
-    alignas(64) int8_t k_scratch[sl_p16_ * 64];
-    alignas(64) int8_t v_scratch[sl_p64_ * 64];
-
-    // 48K
-    tr_vnni_x16(k_scratch, q[K_], seq_len_, ld_att);
-    tr_vnni_4x(v_scratch, q[V_], seq_len_, ld_att);
-
-    // We use 2 * 2 block outer product scheme if possible
-    int row_block = seq_len_ / 32;
-    int row_tail = seq_len_ % 32;
-
-    auto c = reinterpret_cast<int8_t(*)[32][64]>(C);
-    Tilecfg().set_config();
-
-    auto attention = reinterpret_cast<const int8_t(*)[32][ld_att]>(ATT);
-
-    for (int i = 0; i < loop_block_; i++) {
-      (this->*compute_block_)(c[i], attention[i], k_scratch, v_scratch, ld_att, M, oscale, M2);
-    }
-
-    if (loop_tail_ > 0) {
-      (this->*compute_tail_)(c[row_block], q[row_block], k_scratch, v_scratch, ld_att,
-              M, oscale, M2);
-    }
+compute_block_t i_amx_mha_tpp::compute_block_tbl_ [2][22] = {
+  {
+    &i_amx_mha_tpp::compute_block<2,3>, &i_amx_mha_tpp::compute_block<2,4>,
+    &i_amx_mha_tpp::compute_block<2,5>, &i_amx_mha_tpp::compute_block<2,6>,
+    &i_amx_mha_tpp::compute_block<2,7>, &i_amx_mha_tpp::compute_block<2,8>,
+    &i_amx_mha_tpp::compute_block<2,9>, &i_amx_mha_tpp::compute_block<2,10>,
+    &i_amx_mha_tpp::compute_block<2,11>, &i_amx_mha_tpp::compute_block<2,12>,
+    &i_amx_mha_tpp::compute_block<2,13>, &i_amx_mha_tpp::compute_block<2,14>,
+    &i_amx_mha_tpp::compute_block<2,15>, &i_amx_mha_tpp::compute_block<2,16>,
+    &i_amx_mha_tpp::compute_block<2,17>, &i_amx_mha_tpp::compute_block<2,18>,
+    &i_amx_mha_tpp::compute_block<2,19>, &i_amx_mha_tpp::compute_block<2,20>,
+    &i_amx_mha_tpp::compute_block<2,21>, &i_amx_mha_tpp::compute_block<2,22>,
+    &i_amx_mha_tpp::compute_block<2,23>, &i_amx_mha_tpp::compute_block<2,24>
+  }, {
+    &i_amx_mha_tpp::compute_block<1,3>, &i_amx_mha_tpp::compute_block<1,4>,
+    &i_amx_mha_tpp::compute_block<1,5>, &i_amx_mha_tpp::compute_block<1,6>,
+    &i_amx_mha_tpp::compute_block<1,7>, &i_amx_mha_tpp::compute_block<1,8>,
+    &i_amx_mha_tpp::compute_block<1,9>, &i_amx_mha_tpp::compute_block<1,10>,
+    &i_amx_mha_tpp::compute_block<1,11>, &i_amx_mha_tpp::compute_block<1,12>,
+    &i_amx_mha_tpp::compute_block<1,13>, &i_amx_mha_tpp::compute_block<1,14>,
+    &i_amx_mha_tpp::compute_block<1,15>, &i_amx_mha_tpp::compute_block<1,16>,
+    &i_amx_mha_tpp::compute_block<1,17>, &i_amx_mha_tpp::compute_block<1,18>,
+    &i_amx_mha_tpp::compute_block<1,19>, &i_amx_mha_tpp::compute_block<1,20>,
+    &i_amx_mha_tpp::compute_block<1,21>, &i_amx_mha_tpp::compute_block<1,22>,
+    &i_amx_mha_tpp::compute_block<1,23>, &i_amx_mha_tpp::compute_block<1,24>
   }
 };
+
+void i_amx_mha_tpp::compute_head(void *C, const void *ATT, int ld_att, float M,
+    float oscale, float M2) {
+
+  enum {Q_ = 0, K_, V_};
+
+  auto q = reinterpret_cast<const int8_t(*)[ld_att/3]>(ATT);
+  alignas(64) int8_t k_scratch[sl_p16_ * 64];
+  alignas(64) int8_t v_scratch[sl_p64_ * 64];
+
+  tr_vnni_x16(k_scratch, q[K_], seq_len_, ld_att);
+  tr_vnni_4x(v_scratch, q[V_], seq_len_, ld_att);
+
+  // We use 2 * 2 block outer product scheme if possible
+  int row_block = seq_len_ / 32;
+  int row_tail = seq_len_ % 32;
+
+  auto c = reinterpret_cast<int8_t(*)[32][64]>(C);
+  Tilecfg().set_config();
+
+  auto attention = reinterpret_cast<const int8_t(*)[32][ld_att]>(ATT);
+
+  for (int i = 0; i < loop_block_; i++) {
+    (this->*compute_block_)(
+        c[i], attention[i], k_scratch, v_scratch, ld_att, M, oscale, M2);
+  }
+
+  if (loop_tail_ > 0) {
+    (this->*compute_tail_)(
+        c[row_block], q[row_block], k_scratch, v_scratch, ld_att, M, oscale, M2);
+  }
+}
 
 } // namespace intel_mlperf
