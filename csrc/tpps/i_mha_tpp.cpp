@@ -118,24 +118,24 @@ static void tr_vnni_4x(int8_t *scratch, const int8_t *src, int row,
 
   auto n_tile = row / 4;
   auto tail = row % 4;
-  auto v_stride = 4 * (n_tile + (tail>0)) * 64;
+  auto group_sz = to_next(row, 64) * 32;
 
   // scratch format int8_t [4][row_pad4][64]
   auto scratch_ = reinterpret_cast<int8_t(*)[64]>(scratch);
 
   for (int i = 0; i < n_tile; i++) {
-    tr_vnni_4x<4>(scratch_[i], src_[i], stride, v_stride);
+    tr_vnni_4x<4,2>(scratch_[i], src_[i], stride, group_sz);
   }
 
   switch (tail) {
   case (1):
-    tr_vnni_4x<1>(scratch_[n_tile], src_[n_tile], stride, v_stride);
+    tr_vnni_4x<1,2>(scratch_[n_tile], src_[n_tile], stride, group_sz);
     break;
   case (2):
-    tr_vnni_4x<2>(scratch_[n_tile], src_[n_tile], stride, v_stride);
+    tr_vnni_4x<2,2>(scratch_[n_tile], src_[n_tile], stride, group_sz);
     break;
   case (3):
-    tr_vnni_4x<3>(scratch_[n_tile], src_[n_tile], stride, v_stride);
+    tr_vnni_4x<3,2>(scratch_[n_tile], src_[n_tile], stride, group_sz);
     break;
   default:
     break;

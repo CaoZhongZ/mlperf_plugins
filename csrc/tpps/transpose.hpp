@@ -91,7 +91,8 @@ inline void tr_vnni_x64(void *at, const void *a, size_t lda, size_t ldat) {
 // out shape is [4][slpad/4][16]
 //
 template <int tail, int group = 1>
-inline void tr_vnni_4x(void *out, const void *a, size_t lda, size_t ldo) {
+inline void tr_vnni_4x(void *out, const void *a, size_t lda,
+    size_t group_sz) {
   if (tail == 0) return;
 
   __m512i row[4];
@@ -121,19 +122,27 @@ inline void tr_vnni_4x(void *out, const void *a, size_t lda, size_t ldo) {
   auto new3 = _mm512_shuffle_i32x4(_tt2, _tt3, 0xdd);
 
   auto nn0 = _mm512_shuffle_i32x4(new0, new1, 0x88);
-  auto nn1 = _mm512_shuffle_i32x4(new0, new1, 0xdd);
-  auto nn2 = _mm512_shuffle_i32x4(new2, new3, 0x88);
+  auto nn1 = _mm512_shuffle_i32x4(new2, new3, 0x88);
+  auto nn2 = _mm512_shuffle_i32x4(new0, new1, 0xdd);
   auto nn3 = _mm512_shuffle_i32x4(new2, new3, 0xdd);
 
-  auto o_ = reinterpret_cast<int8_t(*)[ldo]>(out);
-
   if (group == 1) {
+    // Cut output in 4 equally divided groups
+    auto o_ = reinterpret_cast<int8_t(*)[group_sz]>(out);
     _mm512_store_epi32(o_[0], nn0);
-    _mm512_store_epi32(o_[1], nn2);
-    _mm512_store_epi32(o_[2], nn1);
+    _mm512_store_epi32(o_[1], nn1);
+    _mm512_store_epi32(o_[2], nn2);
     _mm512_store_epi32(o_[3], nn3);
   } else {
-    // TODO: 128 * 2 group
+    // Cut output into 2 equally divided interleaving A, B groups
+    constexpr int t_sz = 16 * 64;
+    auto o_ = reinterpret_cast<int8_t*>(out);
+    // o shape is [group_sz/2/t_sz][2][t_sz], which is each group with
+    // group size group_sz and each group has two tile
+    _mm512_store_epi32(o_, nn0);
+    _mm512_store_epi32(o_ + t_sz, nn1);
+    _mm512_store_epi32(o_ + group_sz, nn2);
+    _mm512_store_epi32(o_ + group_sz + t_sz, nn3);
   }
 }
 
