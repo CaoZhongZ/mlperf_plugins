@@ -323,8 +323,7 @@ template <int n_tile, int k_step> struct av_gemm_impl {
   }
 };
 
-i_amx_mha_tpp::i_amx_mha_tpp(size_t seq_len, size_t att_len,
-    float M, float oscale, float M2)
+i_amx_mha_tpp::i_amx_mha_tpp(size_t seq_len, size_t att_len)
   : seq_len_(seq_len), att_len_(att_len), 
     sl_p16_(to_next(seq_len, 16)),
     sl_p64_(to_next(seq_len, 64)),

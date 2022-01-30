@@ -8,7 +8,7 @@
 namespace intel_mlperf {
 
 struct i_amx_mha_tpp {
-  i_amx_mha_tpp(size_t seq_len, size_t att_len, float M, float oscale, float M2);
+  i_amx_mha_tpp(size_t seq_len, size_t att_len);
 
   template <int row_tile, int col_tile>
   void compute_block(void *C, const void* Q, const void* K, const void* V,

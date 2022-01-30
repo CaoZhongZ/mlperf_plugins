@@ -35,11 +35,11 @@ int main(int argc, char **argv) {
   // Stepping in 64 and do all the columns
   auto att = reinterpret_cast<int8_t (*)[64]>(attention);
   auto res = reinterpret_cast<int8_t (*)[64]>(result);
+  intel_mlperf::i_amx_mha_tpp mha(seq_len, 64);
 
   auto start = Time::now();
   for (int i = 0; i < 16; ++ i) {
-    intel_mlperf::i_amx_mha_tpp::compute_head(
-        res[i], att[i], 3072, 0.001, 100, 0.001);
+    mha.compute_head(res[i], att[i], 3072, 0.001, 100, 0.001);
   }
   auto during =
       std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start)
