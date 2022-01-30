@@ -11,6 +11,7 @@ namespace intel_mlperf {
 template <int tail>
 inline void tr_vnni_x64(void *at, const void *a, size_t lda, size_t ldat) {
   auto a_ = reinterpret_cast<const int8_t(*)[lda]>(a);
+  if (tail == 0) return;
 
   __m512i even[16];
 
@@ -91,6 +92,8 @@ inline void tr_vnni_x64(void *at, const void *a, size_t lda, size_t ldat) {
 //
 template <int tail, int group = 1>
 inline void tr_vnni_4x(void *out, const void *a, size_t lda, size_t ldo) {
+  if (tail == 0) return;
+
   __m512i row[4];
   auto a_ = reinterpret_cast<const int8_t(*)[lda]>(a);
 

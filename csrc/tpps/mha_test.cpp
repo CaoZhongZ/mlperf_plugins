@@ -13,7 +13,7 @@ template <typename T> void fill_seq(T *t, size_t rows, size_t cols) {
   for (size_t i = 0; i < rows; ++i) {
     int start = i;
     for (size_t j = 0; j < cols; ++j)
-      t[i][j] = start++ % 16;
+      t[i][j] = start++ % 42;
   }
 }
 

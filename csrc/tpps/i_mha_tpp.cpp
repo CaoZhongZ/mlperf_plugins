@@ -101,10 +101,10 @@ static void tr_vnni_x16(int8_t *scratch, const int8_t *src, int row,
 
   if (tail > 0) {
     decltype(tr_vnni_x64<1>)* tr_vnni_tbl [] = {
-      tr_vnni_x64<1>, tr_vnni_x64<2>, tr_vnni_x64<3>, tr_vnni_x64<4>,
-      tr_vnni_x64<5>, tr_vnni_x64<6>, tr_vnni_x64<7>, tr_vnni_x64<8>,
-      tr_vnni_x64<9>, tr_vnni_x64<10>, tr_vnni_x64<11>, tr_vnni_x64<12>,
-      tr_vnni_x64<13>, tr_vnni_x64<14>, tr_vnni_x64<15>, tr_vnni_x64<16>,
+      tr_vnni_x64<0>, tr_vnni_x64<1>, tr_vnni_x64<2>, tr_vnni_x64<3>,
+      tr_vnni_x64<4>, tr_vnni_x64<5>, tr_vnni_x64<6>, tr_vnni_x64<7>,
+      tr_vnni_x64<8>, tr_vnni_x64<9>, tr_vnni_x64<10>, tr_vnni_x64<11>,
+      tr_vnni_x64<12>, tr_vnni_x64<13>, tr_vnni_x64<14>, tr_vnni_x64<15>
     };
 
     tr_vnni_tbl[tail](scratch_[n_block], src_[n_block], stride, 64);
@@ -136,9 +136,6 @@ static void tr_vnni_4x(int8_t *scratch, const int8_t *src, int row,
     break;
   case (3):
     tr_vnni_4x<3>(scratch_[n_tile], src_[n_tile], stride, v_stride);
-    break;
-  case (4):
-    tr_vnni_4x<4>(scratch_[n_tile], src_[n_tile], stride, v_stride);
     break;
   default:
     break;
