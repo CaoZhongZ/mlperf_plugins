@@ -29,7 +29,18 @@ int main(int argc, char **argv) {
   int8_t attention[seq_len][3072];
   fill_seq(attention, seq_len, 3072);
 
+  int8_t result[seq_len][1024];
+  memset(result, 0, sizeof(result));
+
+  // Stepping in 64 and do all the columns
+  auto att = reinterpret_cast<int8_t (*)[64]>(attention);
+  auto res = reinterpret_cast<int8_t (*)[64]>(result);
+
   auto start = Time::now();
+  for (int i = 0; i < 16; ++ i) {
+    intel_mlperf::i_amx_mha_tpp::compute_head(
+        res[i], att[i], 3072, 0.001, 100, 0.001);
+  }
   auto during =
       std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start)
           .count();
