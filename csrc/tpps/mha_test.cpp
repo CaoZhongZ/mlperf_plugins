@@ -62,6 +62,21 @@ inline bool amx_init() {
   return true;
 }
 
+// helpers to print a tile of array
+template <typename T>
+void tile_printer(void *arr, size_t row, size_t col, size_t stride) {
+  auto t = reinterpret_cast<T (*)[stride]>(arr);
+  std::cout<<"tile @"<<arr<<":"<<std::endl;
+  for (int i = 0; i < row; ++i) {
+    for (int j = 0; j < col; ++j) {
+      std::cout<<t[i][j]<<", ";
+    }
+    std::cout<<std::endl;
+  }
+}
+template void tile_printer<int>;
+template void tile_printer<int8_t>;
+
 int main(int argc, char **argv) {
   cxxopts::Options opts("mha_test", "MHA kernel test");
   opts.add_options()

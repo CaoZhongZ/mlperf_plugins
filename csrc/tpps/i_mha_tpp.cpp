@@ -161,7 +161,7 @@ template <int row_tile, int col_tile> struct qk_gemm_impl {
 
   template <bool tail>
   inline static void tile_loadb(const void *b, int col_idx) {
-    auto b_ = reinterpret_cast<const int8_t(*)[1024]>(b);
+    auto b_ = reinterpret_cast<const int8_t(*)[16*64]>(b);
     _tile_loadd(TMM6, b_[col_idx * 2], 64);
     if (!tail)
       _tile_loadd(TMM7, b_[col_idx * 2 + 1], 64);
