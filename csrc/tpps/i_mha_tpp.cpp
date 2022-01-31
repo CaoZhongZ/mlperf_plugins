@@ -394,23 +394,20 @@ void i_amx_mha_tpp::compute_head(void *C, const void *ATT, int ld_att, float M,
   tr_vnni_x16(k_scratch, q[K_], seq_len_, ld_att);
   tr_vnni_4x(v_scratch, q[V_], seq_len_, ld_att);
 
-  // We use 2 * 2 block outer product scheme if possible
-  int row_block = seq_len_ / 32;
-  int row_tail = seq_len_ % 32;
-
-  auto c = reinterpret_cast<int8_t(*)[32][64]>(C);
   Tilecfg().set_config();
 
   auto attention = reinterpret_cast<const int8_t(*)[32][ld_att]>(ATT);
+  auto context = reinterpret_cast<int8_t(*)[32][1024]>(C);
 
   for (int i = 0; i < loop_block_; i++) {
     (this->*compute_block_)(
-        c[i], attention[i], k_scratch, v_scratch, ld_att, M, oscale, M2);
+        context[i], attention[i], k_scratch, v_scratch, ld_att, M, oscale, M2);
   }
 
   if (loop_tail_ > 0) {
     (this->*compute_tail_)(
-        c[row_block], q[row_block], k_scratch, v_scratch, ld_att, M, oscale, M2);
+        context[loop_block_], attention[loop_block_], k_scratch, v_scratch,
+        ld_att, M, oscale, M2);
   }
 }
 
