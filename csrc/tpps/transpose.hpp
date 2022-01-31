@@ -95,10 +95,10 @@ inline void tr_vnni_4x(void *out, const void *a, size_t lda,
     size_t group_sz) {
   __m512i nn0, nn1, nn2, nn3;
   if (tail == 0) {
-    nn0 = _mm512_setzero_epi8();
-    nn1 = _mm512_setzero_epi8();
-    nn2 = _mm512_setzero_epi8();
-    nn3 = _mm512_setzero_epi8();
+    nn0 = _mm512_setzero_epi32();
+    nn1 = _mm512_setzero_epi32();
+    nn2 = _mm512_setzero_epi32();
+    nn3 = _mm512_setzero_epi32();
   } else {
     __m512i row[4];
     auto a_ = reinterpret_cast<const int8_t(*)[lda]>(a);
