@@ -1,3 +1,6 @@
+#include <asm/prctl.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -23,11 +26,49 @@ template <typename T> void fill_seq(T *t, size_t rows, size_t cols) {
   }
 }
 
+#define XFEATURE_XTILECFG 17
+#define XFEATURE_XTILEDATA 18
+#define XFEATURE_MASK_XTILECFG (1 << XFEATURE_XTILECFG)
+#define XFEATURE_MASK_XTILEDATA (1 << XFEATURE_XTILEDATA)
+#define XFEATURE_MASK_XTILE (XFEATURE_MASK_XTILECFG | XFEATURE_MASK_XTILEDATA)
+
+#define ARCH_GET_XCOMP_SUPP 0x1021
+#define ARCH_GET_XCOMP_PERM 0x1022
+#define ARCH_REQ_XCOMP_PERM 0x1023
+
+#define ARCH_MAP_VDSO_X32 0x2001
+#define ARCH_MAP_VDSO_32 0x2002
+#define ARCH_MAP_VDSO_64 0x2003
+
+inline bool amx_init() {
+  unsigned long bitmask = 0;
+  long status = syscall(SYS_arch_prctl, ARCH_GET_XCOMP_PERM, &bitmask);
+  if (0 != status)
+    return false;
+  if (bitmask & XFEATURE_MASK_XTILEDATA)
+    return true;
+
+  status = syscall(SYS_arch_prctl, ARCH_REQ_XCOMP_PERM, XFEATURE_XTILEDATA);
+  if (0 != status)
+    return false; // XFEATURE_XTILEDATA setup is failed, TMUL usage is not
+                  // allowed
+  status = syscall(SYS_arch_prctl, ARCH_GET_XCOMP_PERM, &bitmask);
+
+  // XFEATURE_XTILEDATA setup is failed, can't use TMUL
+  if (0 != status || !(bitmask & XFEATURE_MASK_XTILEDATA))
+    return false;
+
+  // XFEATURE_XTILEDATA set successfully, TMUL usage is allowed
+  return true;
+}
+
 int main(int argc, char **argv) {
   cxxopts::Options opts("mha_test", "MHA kernel test");
   opts.add_options()
     ("l,seq_len", "Sequence length", cxxopts::value<size_t>()->default_value("384"))
   ;
+
+  amx_init();
 
   auto parsed_opts = opts.parse(argc, argv);
   auto seq_len = parsed_opts["seq_len"].as<size_t>();
