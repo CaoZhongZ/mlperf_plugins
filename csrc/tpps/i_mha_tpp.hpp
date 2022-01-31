@@ -33,7 +33,7 @@ private:
   size_t loop_block_;
   size_t loop_tail_;
 
-  static const compute_block_t compute_block_tbl_ [2][22];
+  static const compute_block_t compute_block_tbl_ [2][25];
 
   compute_block_t compute_block_;
   compute_block_t compute_tail_;
