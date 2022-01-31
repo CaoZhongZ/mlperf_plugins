@@ -118,7 +118,8 @@ static void tr_vnni_4x(int8_t *scratch, const int8_t *src, int row,
 
   auto n_tile = row / 4;
   auto tail = row % 4;
-  auto group_sz = to_next(row, 64) * 32;
+  auto row_p64 = to_next(row, 64);
+  auto group_sz = row_p64 * 32;
 
   // scratch format int8_t [4][row_pad4][64]
   auto scratch_ = reinterpret_cast<int8_t(*)[64]>(scratch);
@@ -139,6 +140,11 @@ static void tr_vnni_4x(int8_t *scratch, const int8_t *src, int row,
     break;
   default:
     break;
+  }
+
+  // fill zero to the empty lines, input is not important
+  for (int i = n_tile + (tail > 0); i <  row_p64/4; ++i) {
+    tr_vnni_4x<0, 2>(scratch_[n_tile], nullptr, stride, group_sz);
   }
 }
 

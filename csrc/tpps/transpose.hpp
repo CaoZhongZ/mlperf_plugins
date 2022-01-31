@@ -93,38 +93,44 @@ inline void tr_vnni_x64(void *at, const void *a, size_t lda, size_t ldat) {
 template <int tail, int group = 1>
 inline void tr_vnni_4x(void *out, const void *a, size_t lda,
     size_t group_sz) {
-  if (tail == 0) return;
-
-  __m512i row[4];
-  auto a_ = reinterpret_cast<const int8_t(*)[lda]>(a);
+  __m512i nn0, nn1, nn2, nn3;
+  if (tail == 0) {
+    nn0 = _mm512_setzero_epi8();
+    nn1 = _mm512_setzero_epi8();
+    nn2 = _mm512_setzero_epi8();
+    nn3 = _mm512_setzero_epi8();
+  } else {
+    __m512i row[4];
+    auto a_ = reinterpret_cast<const int8_t(*)[lda]>(a);
 
 #pragma unroll(tail)
-  for (int i = 0; i < tail; ++i)
-    row[i] = _mm512_loadu_si512(a_[i]);
+    for (int i = 0; i < tail; ++i)
+      row[i] = _mm512_loadu_si512(a_[i]);
 
 #pragma unroll(4 - tail)
-  for (int i = tail; i < 4; ++i)
-    row[i] = _mm512_set1_epi8(0);
+    for (int i = tail; i < 4; ++i)
+      row[i] = _mm512_set1_epi8(0);
 
-  auto __t0 = _mm512_unpacklo_epi8(row[0], row[1]);
-  auto __t1 = _mm512_unpackhi_epi8(row[0], row[1]);
-  auto __t2 = _mm512_unpacklo_epi8(row[2], row[3]);
-  auto __t3 = _mm512_unpackhi_epi8(row[2], row[3]);
+    auto __t0 = _mm512_unpacklo_epi8(row[0], row[1]);
+    auto __t1 = _mm512_unpackhi_epi8(row[0], row[1]);
+    auto __t2 = _mm512_unpacklo_epi8(row[2], row[3]);
+    auto __t3 = _mm512_unpackhi_epi8(row[2], row[3]);
 
-  auto _tt0 = _mm512_unpacklo_epi16(__t0, __t2);
-  auto _tt1 = _mm512_unpackhi_epi16(__t0, __t2);
-  auto _tt2 = _mm512_unpacklo_epi16(__t1, __t3);
-  auto _tt3 = _mm512_unpackhi_epi16(__t1, __t3);
+    auto _tt0 = _mm512_unpacklo_epi16(__t0, __t2);
+    auto _tt1 = _mm512_unpackhi_epi16(__t0, __t2);
+    auto _tt2 = _mm512_unpacklo_epi16(__t1, __t3);
+    auto _tt3 = _mm512_unpackhi_epi16(__t1, __t3);
 
-  auto new0 = _mm512_shuffle_i32x4(_tt0, _tt1, 0x88);
-  auto new1 = _mm512_shuffle_i32x4(_tt2, _tt3, 0x88);
-  auto new2 = _mm512_shuffle_i32x4(_tt0, _tt1, 0xdd);
-  auto new3 = _mm512_shuffle_i32x4(_tt2, _tt3, 0xdd);
+    auto new0 = _mm512_shuffle_i32x4(_tt0, _tt1, 0x88);
+    auto new1 = _mm512_shuffle_i32x4(_tt2, _tt3, 0x88);
+    auto new2 = _mm512_shuffle_i32x4(_tt0, _tt1, 0xdd);
+    auto new3 = _mm512_shuffle_i32x4(_tt2, _tt3, 0xdd);
 
-  auto nn0 = _mm512_shuffle_i32x4(new0, new1, 0x88);
-  auto nn1 = _mm512_shuffle_i32x4(new2, new3, 0x88);
-  auto nn2 = _mm512_shuffle_i32x4(new0, new1, 0xdd);
-  auto nn3 = _mm512_shuffle_i32x4(new2, new3, 0xdd);
+    nn0 = _mm512_shuffle_i32x4(new0, new1, 0x88);
+    nn1 = _mm512_shuffle_i32x4(new2, new3, 0x88);
+    nn2 = _mm512_shuffle_i32x4(new0, new1, 0xdd);
+    nn3 = _mm512_shuffle_i32x4(new2, new3, 0xdd);
+  }
 
   if (group == 1) {
     // Cut output in 4 equally divided groups
