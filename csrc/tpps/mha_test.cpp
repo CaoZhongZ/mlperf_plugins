@@ -10,15 +10,16 @@
 using Time = std::chrono::high_resolution_clock;
 
 template <typename T> void fill_seq(T *t, size_t rows, size_t cols) {
-  int period = 4;
-  T start = 0;
+  int period = 5;
+  int start = 0;
   for (size_t i = 0; i < rows; ++i) {
-    for (size_t j = 0; j < cols; ++j)
+    for (size_t j = 0; j < cols; ++j) {
       if (-- period == 0) {
         start += 1;
         period = 4;
       }
       t[i][j] = start % 42;
+    }
   }
 }
 
