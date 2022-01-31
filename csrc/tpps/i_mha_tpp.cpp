@@ -354,8 +354,9 @@ void i_amx_mha_tpp::compute_block(void* C, const void* Q, const void* K,
       C, softmax_result, V, sl_p64_, overlap_, M2);
 }
 
-const i_amx_mha_tpp::compute_block_t i_amx_mha_tpp::compute_block_tbl_ [2][22] = {
+const i_amx_mha_tpp::compute_block_t i_amx_mha_tpp::compute_block_tbl_ [2][25] = {
   {
+    nullptr, nullptr, nullptr,
     &i_amx_mha_tpp::compute_block<2,3>, &i_amx_mha_tpp::compute_block<2,4>,
     &i_amx_mha_tpp::compute_block<2,5>, &i_amx_mha_tpp::compute_block<2,6>,
     &i_amx_mha_tpp::compute_block<2,7>, &i_amx_mha_tpp::compute_block<2,8>,
@@ -368,6 +369,7 @@ const i_amx_mha_tpp::compute_block_t i_amx_mha_tpp::compute_block_tbl_ [2][22] =
     &i_amx_mha_tpp::compute_block<2,21>, &i_amx_mha_tpp::compute_block<2,22>,
     &i_amx_mha_tpp::compute_block<2,23>, &i_amx_mha_tpp::compute_block<2,24>
   }, {
+    nullptr, nullptr, nullptr,
     &i_amx_mha_tpp::compute_block<1,3>, &i_amx_mha_tpp::compute_block<1,4>,
     &i_amx_mha_tpp::compute_block<1,5>, &i_amx_mha_tpp::compute_block<1,6>,
     &i_amx_mha_tpp::compute_block<1,7>, &i_amx_mha_tpp::compute_block<1,8>,
