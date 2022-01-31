@@ -63,19 +63,35 @@ inline bool amx_init() {
 }
 
 // helpers to print a tile of array
-template <typename T>
-void tile_printer(void *arr, size_t row, size_t col, size_t stride) {
-  auto t = reinterpret_cast<T (*)[stride]>(arr);
+void _i8(const void *arr, size_t row, size_t col, size_t stride) {
+  auto t = reinterpret_cast<const int8_t (*)[stride]>(arr);
   std::cout<<"tile @"<<arr<<":"<<std::endl;
   for (int i = 0; i < row; ++i) {
     for (int j = 0; j < col; ++j) {
-      std::cout<<t[i][j]<<", ";
+      std::cout<<(int)t[i][j];
+      if (j == col -1)
+        std::cout<<";";
+      else
+        std::cout<<",";
     }
     std::cout<<std::endl;
   }
 }
-template void tile_printer<int>;
-template void tile_printer<int8_t>;
+
+void _i32(const void *arr, size_t row, size_t col, size_t stride) {
+  auto t = reinterpret_cast<const int (*)[stride]>(arr);
+  std::cout<<"tile @"<<arr<<":"<<std::endl;
+  for (int i = 0; i < row; ++i) {
+    for (int j = 0; j < col; ++j) {
+      std::cout<<(int)t[i][j];
+      if (j == col -1)
+        std::cout<<";";
+      else
+        std::cout<<",";
+    }
+    std::cout<<std::endl;
+  }
+}
 
 int main(int argc, char **argv) {
   cxxopts::Options opts("mha_test", "MHA kernel test");
