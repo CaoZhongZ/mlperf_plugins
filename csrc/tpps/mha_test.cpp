@@ -63,17 +63,32 @@ inline bool amx_init() {
 }
 
 // helpers to print a tile of array
-void _i8(const void *arr, size_t row, size_t col, size_t stride) {
+void _i8(const void *arr, size_t rs, size_t rt, size_t cs, size_t ct,
+    size_t stride) {
+  auto t = reinterpret_cast<const int8_t (*)[stride]>(arr);
+  std::cout<<"tile @"<<arr<<":"<<std::endl;
+  for (int i = rs; i < rt; ++i) {
+    for (int j = cs; j < ct; ++j) {
+      std::cout<<(int)t[i][j]<<",";
+    }
+    std::cout<<std::endl;
+  }
+}
+
+void _i8_row(const void *arr, size_t row, size_t col, size_t stride) {
+  auto t = reinterpret_cast<const int8_t (*)[stride]>(arr);
+  std::cout<<"tile @"<<arr<<":"<<std::endl;
+  for (int j = 0; j < col; ++j) {
+    std::cout<<(int)t[row][j]<<",";
+  }
+  std::cout<<std::endl;
+}
+
+void _i8_col(const void *arr, size_t row, size_t col, size_t stride) {
   auto t = reinterpret_cast<const int8_t (*)[stride]>(arr);
   std::cout<<"tile @"<<arr<<":"<<std::endl;
   for (int i = 0; i < row; ++i) {
-    for (int j = 0; j < col; ++j) {
-      std::cout<<(int)t[i][j];
-      if (j == col -1)
-        std::cout<<";";
-      else
-        std::cout<<",";
-    }
+    std::cout<<(int)t[i][col]<<";";
     std::cout<<std::endl;
   }
 }
