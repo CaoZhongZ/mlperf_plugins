@@ -204,18 +204,17 @@ template <int row_tile, int col_tile> struct qk_gemm_impl {
 
     tile_loada(a, lda, overlap);
 
-    int i = 0;
 #pragma unroll(col_loop)
-    for (; i < col_loop; ++i) {
+    for (int i = 0; i < col_loop; ++i) {
       tile_loadb<false>(b, i);
       zero_accum();
       dot_prod<false>(c, i);
     }
 
     if (col_tail) {
-      tile_loadb<true>(b, i);
+      tile_loadb<true>(b, col_loop);
       zero_accum();
-      dot_prod<true>(c, i);
+      dot_prod<true>(c, col_loop);
     }
   }
 
