@@ -69,7 +69,11 @@ void _i8(const void *arr, size_t rs, size_t rt, size_t cs, size_t ct,
   std::cout<<"tile @"<<arr<<":"<<std::endl;
   for (int i = rs; i < rt; ++i) {
     for (int j = cs; j < ct; ++j) {
-      std::cout<<(int)t[i][j]<<",";
+      std::cout<<(int)t[i][j];
+      if (j == ct -1)
+        std::cout<<";";
+      else
+        std::cout<<",";
     }
     std::cout<<std::endl;
   }
