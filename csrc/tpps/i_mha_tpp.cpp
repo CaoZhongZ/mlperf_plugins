@@ -348,11 +348,11 @@ template <int row_tile, int col_tile>
 void i_amx_mha_tpp::compute_block(void* C, const void* Q, const void* K,
     const void *V, size_t ld_att, float M, float oscale, float M2) {
 
-  alignas(64) int32_t gemm_result[row_tile * sl_p16_];
+  alignas(64) int32_t gemm_result[row_tile * 16 * sl_p16_];
   qk_gemm_impl<row_tile, col_tile>::compute(
       gemm_result, Q, K, ld_att, overlap_);
 
-  alignas(64) int8_t softmax_result[row_tile * sl_p64_];
+  alignas(64) int8_t softmax_result[row_tile * 16 * sl_p64_];
   qk_gemm_impl<row_tile, col_tile>::softmax(
       softmax_result, gemm_result, att_len_, M, oscale);
 
