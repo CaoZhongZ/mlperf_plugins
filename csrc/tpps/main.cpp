@@ -1,4 +1,4 @@
-#include "helper.hpp"
+// #include "helper.hpp"
 #include "i_softmax_tpp.hpp"
 #include "transpose.hpp"
 #include <chrono>
@@ -92,13 +92,13 @@ void softmax_isolation(void *d, void *c, int len, float m1, float m2,
 void softmax_isolation_16(void *d, void *c, int len, float m1, float m2, int64_t ld) {
   auto d_ = reinterpret_cast<int8_t (*)[64]>(d);
   auto c_ = reinterpret_cast<int (*)[16]>(c);
-  intel_mlperf::i32_scale_attlen_softmax_scale_i8_amx_tile_vnni<8>::run(d_, c_, len, m1, m2);
-  intel_mlperf::i32_scale_attlen_softmax_scale_i8_amx_tile_vnni<8>::run(d_ + 8, c_ + 8, len, m1, m2);
+  intel_mlperf::i32_scale_attlen_softmax_scale_i8_amx_tile_vnni<8>::run(d_, c_, len, m1, m2, len);
+  intel_mlperf::i32_scale_attlen_softmax_scale_i8_amx_tile_vnni<8>::run(d_ + 8, c_ + 8, len, m1, m2, len);
 }
 #else
 void softmax_isolation_16(void *d, void *c, int len, float m1, float m2,
                           int64_t ld) {
   intel_mlperf::i32_scale_attlen_softmax_scale_i8_amx_tile_vnni<16>::run(
-      d, c, len, m1, m2);
+      d, c, len, m1, m2, len);
 }
 #endif

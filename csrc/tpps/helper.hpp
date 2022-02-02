@@ -45,7 +45,7 @@ inline void compare_matrix(const T* a, const T* b, int row, int col, int lda, in
         for (int j = 0; j < col; j++) {
             auto re = a_[i][j] - b_[i][j];
             if (re != 0) {
-                printf("(%d, %d)\n", i, j);
+                printf("(%d, %d) %d <--> %d\n", i, j, a_[i][j], b_[i][j]);
             }
         }
     }
