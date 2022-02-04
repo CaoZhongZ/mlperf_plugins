@@ -293,15 +293,21 @@ template <int n_tile, int k_step> struct av_gemm_impl {
     for (int i = 0; i < n_tile ; i++) {
 #pragma unroll(16)
       for (int j = 0; j < 16; j++) {
+        __m512i i0, i1;
         if (i != n_tile - 1 || j >= overlap) {
           auto l0 = _mm512_loadu_si512(scratch[i][j]);
           auto f0 = _mm512_cvtepi32_ps(l0);
-          auto i0 = _mm512_scale_minmax_i8_ps(vscale, f0);
+          i0 = _mm512_scale_minmax_i8_ps(vscale, f0);
 
           auto l1 = _mm512_loadu_si512(scratch[i+1][j]);
           auto f1 = _mm512_cvtepi32_ps(l0);
-          auto i1 = _mm512_scale_minmax_i8_ps(vscale, f1);
+          i1 = _mm512_scale_minmax_i8_ps(vscale, f1);
+        }
 
+        if (i != n_tile -1) {
+          _mm512_mask_cvtepi32_storeu_epi8(c_out[i][j][0], 0xffff, i0);
+          _mm512_mask_cvtepi32_storeu_epi8(c_out[i][j][1], 0xffff, i1);
+        } else if (j >= overlap) {
           _mm512_mask_cvtepi32_storeu_epi8(c_out[i][j - overlap][0], 0xffff, i0);
           _mm512_mask_cvtepi32_storeu_epi8(c_out[i][j - overlap][1], 0xffff, i1);
         }
