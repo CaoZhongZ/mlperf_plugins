@@ -225,18 +225,18 @@ template <int row_tile, int col_tile> struct qk_gemm_impl {
     }
   }
 
-  inline static void softmax(int8_t *c_int8, int *c, int seq_len, float M,
+  inline static void softmax(int8_t *att_int8, int *att, int att_len, float M,
                              float oscale) {
-    auto sl_16 = to_next(seq_len, 16);
-    auto sl_64 = to_next(seq_len, 64);
+    auto sl_16 = to_next(att_len, 16);
+    auto sl_64 = to_next(att_len, 64);
 
-    auto c_ = reinterpret_cast<int (*)[16][sl_16]>(c);
-    auto c_int8_ = reinterpret_cast<int8_t (*)[16][sl_64]>(c_int8);
+    auto att_ = reinterpret_cast<int (*)[16][sl_16]>(att);
+    auto att_int8_ = reinterpret_cast<int8_t (*)[16][sl_64]>(att_int8);
 
 #pragma unroll (row_tile)
     for (int i = 0; i < row_tile; ++i) {
-      i32_scale_attlen_softmax_scale_i8_amx_tile_vnni<16>(
-                              c_int8_[i], c_[i], seq_len, M, oscale);
+      i32_scale_attlen_softmax_scale_i8_amx_tile_vnni<16>::run(
+                              att_int8_[i], att_[i], att_len, M, oscale);
     }
   }
 };
@@ -339,8 +339,8 @@ template <int n_tile, int k_step> struct av_gemm_impl {
   }
 };
 
-i_amx_mha_tpp::i_amx_mha_tpp(size_t seq_len, size_t att_len)
-  : seq_len_(seq_len), att_len_(att_len), 
+i_amx_mha_tpp::i_amx_mha_tpp(size_t seq_len, size_t head_len)
+  : seq_len_(seq_len), head_len_(head_len),
     sl_p16_(to_next(seq_len, 16)),
     sl_p64_(to_next(seq_len, 64)),
     overlap_(sl_p16_ - seq_len) {
@@ -361,7 +361,7 @@ void i_amx_mha_tpp::compute_block(void* C, const void* Q, const void* K,
 
   alignas(64) int8_t softmax_result[row_tile * 16 * sl_p64_];
   qk_gemm_impl<row_tile, col_tile>::softmax(
-      softmax_result, gemm_result, att_len_, M, oscale);
+      softmax_result, gemm_result, seq_len_, M, oscale);
 
   av_gemm_impl<row_tile, (col_tile + 3)/4>::compute(
       C, softmax_result, V, sl_p64_, overlap_, M2);
