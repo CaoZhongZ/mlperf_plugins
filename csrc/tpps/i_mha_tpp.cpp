@@ -225,12 +225,19 @@ template <int row_tile, int col_tile> struct qk_gemm_impl {
     }
   }
 
-  inline static void softmax(int8_t *c_int8, int *c, int len, float M,
+  inline static void softmax(int8_t *c_int8, int *c, int seq_len, float M,
                              float oscale) {
-    assert(len <= col_tile * 16);
-    auto l = (row_tile == 1) ? 16 : 32;
+    auto sl_16 = to_next(seq_len, 16);
+    auto sl_64 = to_next(seq_len, 64);
 
-    f_i32_scale_softmax_scale_i8(c_int8, c, len, M, oscale, ldc, l);
+    auto c_ = reinterpret_cast<int (*)[16][sl_16]>(c);
+    auto c_int8_ = reinterpret_cast<int8_t (*)[16][sl_64]>(c_int8);
+
+#pragma unroll (row_tile)
+    for (int i = 0; i < row_tile; ++i) {
+      i32_scale_attlen_softmax_scale_i8_amx_tile_vnni<16>(
+                              c_int8_[i], c_[i], seq_len, M, oscale);
+    }
   }
 };
 

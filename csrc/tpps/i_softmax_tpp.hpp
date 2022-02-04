@@ -37,7 +37,7 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_i8_amx_tile_vnni {
                          float oscale) {
     auto pin = reinterpret_cast<int32_t(*)[i_tile_h][i_tile_w]>(in);
     auto att_tile = att_len / i_tile_w;
-    auto att_tail = att_len - att_tile * i_tile_w;
+    auto att_tail = att_len % i_tile_w;
 
     // Scratch for max subtraction
     alignas(64) float dout[att_tile + (att_tail > 0)][N][i_tile_w];
