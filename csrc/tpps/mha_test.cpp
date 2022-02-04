@@ -136,7 +136,7 @@ int main(int argc, char **argv) {
 
   auto start = Time::now();
   for (int i = 0; i < 16; ++ i) {
-    mha.compute_head(res[i], att[i], 3072, 0.0001, 8200, 0.001);
+    mha.compute_head(res[i], att[i], 3072, 0.0001, 8200, 0.0001);
   }
   auto during =
       std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start)

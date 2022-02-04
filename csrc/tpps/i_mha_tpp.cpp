@@ -274,15 +274,15 @@ template <int n_tile, int k_step> struct av_gemm_impl {
     }
   }
 
-  inline static void store_quant(void *c, int ldc, int overlap, float m2) {
-    alignas(64) int scratch[n_tile][2][16][16];
+  inline static void quant_store(void *c, int ldc, int overlap, float m2) {
+    alignas(64) int scratch[n_tile * 2][16][16];
 
-    _tile_stored(TMM0, scratch[0][0], 64);
-    _tile_stored(TMM1, scratch[0][1], 64);
+    _tile_stored(TMM0, scratch[0], 64);
+    _tile_stored(TMM1, scratch[1], 64);
 
     if (n_tile == 2) {
-      _tile_stored(TMM2, scratch[1][2], 64);
-      _tile_stored(TMM3, scratch[1][3], 64);
+      _tile_stored(TMM2, scratch[2], 64);
+      _tile_stored(TMM3, scratch[3], 64);
     }
 
     // quant out to c
@@ -293,12 +293,12 @@ template <int n_tile, int k_step> struct av_gemm_impl {
     for (int i = 0; i < n_tile ; i++) {
 #pragma unroll(16)
       for (int j = 0; j < 16; j++) {
-        if (i == n_tile - 1 && j >= overlap) {
-          auto l0 = _mm512_loadu_si512(scratch[i][0][j]);
+        if (i != n_tile - 1 || j >= overlap) {
+          auto l0 = _mm512_loadu_si512(scratch[i][j]);
           auto f0 = _mm512_cvtepi32_ps(l0);
           auto i0 = _mm512_scale_minmax_i8_ps(vscale, f0);
 
-          auto l1 = _mm512_loadu_si512(scratch[i][1][j]);
+          auto l1 = _mm512_loadu_si512(scratch[i+1][j]);
           auto f1 = _mm512_cvtepi32_ps(l0);
           auto i1 = _mm512_scale_minmax_i8_ps(vscale, f1);
 
@@ -317,8 +317,8 @@ template <int n_tile, int k_step> struct av_gemm_impl {
     auto a_ = reinterpret_cast<const int8_t(*)[16][64]>(a);
     // b shape is int8_t [2][k_step][32][64]
     auto b_ = reinterpret_cast<const int8_t(*)[k_step][32][64]>(b);
-    // c shape is int8_t [seq_len][ldc];
-    auto c_ = reinterpret_cast<int8_t(*)[16][ldc]>(c);
+    // c shape is int8_t [seq_len][ldc/64][2][32];
+    auto c_ = reinterpret_cast<int8_t*>(c);
 
 #pragma unroll(k_step)
     for (int i = 0; i < k_step; ++i) {
@@ -326,7 +326,7 @@ template <int n_tile, int k_step> struct av_gemm_impl {
       loadb(b_[0][i]);
       dot_prod();
     }
-    store_quant(c_[0], ldc, overlap, m2);
+    quant_store(c_, ldc, overlap, m2);
     zero_accum();
 
 #pragma unroll(k_step)
@@ -335,7 +335,7 @@ template <int n_tile, int k_step> struct av_gemm_impl {
       loadb(b_[1][i]);
       dot_prod();
     }
-    store_quant(c_[0], ldc, overlap, m2);
+    quant_store(c_ + 32, ldc, overlap, m2);
   }
 };
 
@@ -364,7 +364,7 @@ void i_amx_mha_tpp::compute_block(void* C, const void* Q, const void* K,
       softmax_result, gemm_result, seq_len_, M, oscale);
 
   av_gemm_impl<row_tile, (col_tile + 3)/4>::compute(
-      C, softmax_result, V, sl_p64_, overlap_, M2);
+      C, softmax_result, V, ld_att/3, overlap_, M2);
 }
 
 const i_amx_mha_tpp::compute_block_t i_amx_mha_tpp::compute_block_tbl_ [2][25] = {
