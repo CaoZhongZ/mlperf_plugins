@@ -275,42 +275,58 @@ template <int n_tile, int k_step> struct av_gemm_impl {
     }
   }
 
-  inline static void quant_store(void *c, int ldc, int overlap, float m2) {
-    alignas(64) int scratch[n_tile * 2][16][16];
-
-    _tile_stored(TMM0, scratch[0], 64);
-    _tile_stored(TMM1, scratch[1], 64);
-
+  inline static void store(void *scratch) {
+    auto c = reinterpret_cast<int (*)[16][16]>(scratch);
+    _tile_store(TMM0, c[0], 64);
+    _tile_store(TMM1, c[1], 64);
     if (n_tile == 2) {
-      _tile_stored(TMM2, scratch[2], 64);
-      _tile_stored(TMM3, scratch[3], 64);
+      _tile_store(TMM0, c[2], 64);
+      _tile_store(TMM1, c[3], 64);
     }
+  }
 
-    // quant out to c
+  inline static void quant_out(void *c, void *scratch, int ldc,
+      int overlap, float m2) {
+
+    // [2][n_tile][2][16][16]
+    auto c_tmp = reinterpret_cast<int (*)[n_tile][2][16][16]>(scratch);
     auto vscale = _mm512_set1_ps(m2);
-    auto c_out = reinterpret_cast<int8_t(*)[16][ldc/32][2][16]>(c);
+    // quant out to c [n_tile][16][ldc]
+    auto c_out = reinterpret_cast<int8_t(*)[16][ldc/16][16]>(c);
 
-#pragma unroll(n_tile)
-    for (int i = 0; i < n_tile ; i++) {
+#pragma unroll (n_tile)
+    for (int i = 0; i < n_tile; ++ i) {
 #pragma unroll(16)
-      for (int j = 0; j < 16; j++) {
-        __m512i i0, i1;
-        if (i != n_tile - 1 || j >= overlap) {
-          auto l0 = _mm512_loadu_si512(scratch[i][j]);
+      for (int j = 0; j < 16; ++j) {
+        __m512i i0, i1, i2, i3;
+        if (i != n_tile -1 || j >= overlap) {
+          auto l0 = _mm512_loadu_si512(c_tmp[0][i][0][j]);
           auto f0 = _mm512_cvtepi32_ps(l0);
           i0 = _mm512_scale_minmax_i8_ps(vscale, f0);
 
-          auto l1 = _mm512_loadu_si512(scratch[i+1][j]);
-          auto f1 = _mm512_cvtepi32_ps(l0);
+          auto l1 = _mm512_loadu_si512(c_tmp[0][i][1][j]);
+          auto f1 = _mm512_cvtepi32_ps(l1);
           i1 = _mm512_scale_minmax_i8_ps(vscale, f1);
+
+          auto l2 = _mm512_loadu_si512(c_tmp[1][i][0][j]);
+          auto f2 = _mm512_cvtepi32_ps(l2);
+          i2 = _mm512_scale_minmax_i8_ps(vscale, f0);
+
+          auto l3 = _mm512_loadu_si512(c_tmp[1][i][1][j]);
+          auto f3 = _mm512_cvtepi32_ps(l3);
+          i3 = _mm512_scale_minmax_i8_ps(vscale, f1);
         }
 
         if (i != n_tile -1) {
           _mm512_mask_cvtepi32_storeu_epi8(c_out[i][j][0], 0xffff, i0);
           _mm512_mask_cvtepi32_storeu_epi8(c_out[i][j][1], 0xffff, i1);
+          _mm512_mask_cvtepi32_storeu_epi8(c_out[i][j][2], 0xffff, i2);
+          _mm512_mask_cvtepi32_storeu_epi8(c_out[i][j][3], 0xffff, i3);
         } else if (j >= overlap) {
           _mm512_mask_cvtepi32_storeu_epi8(c_out[i][j - overlap][0], 0xffff, i0);
           _mm512_mask_cvtepi32_storeu_epi8(c_out[i][j - overlap][1], 0xffff, i1);
+          _mm512_mask_cvtepi32_storeu_epi8(c_out[i][j - overlap][2], 0xffff, i2);
+          _mm512_mask_cvtepi32_storeu_epi8(c_out[i][j - overlap][3], 0xffff, i3);
         }
       }
     }
@@ -327,13 +343,15 @@ template <int n_tile, int k_step> struct av_gemm_impl {
     // c shape is int8_t [seq_len][ldc/64][2][32];
     auto c_ = reinterpret_cast<int8_t*>(c);
 
+    int scratch[2][n_tile][2][16][16];
 #pragma unroll(k_step)
     for (int i = 0; i < k_step; ++i) {
       loada(a_[i], overlap);
       loadb(b_[0][i]);
       dot_prod();
     }
-    quant_store(c_, ldc, overlap, m2);
+
+    store(scratch[0]);
     zero_accum();
 
 #pragma unroll(k_step)
@@ -342,7 +360,9 @@ template <int n_tile, int k_step> struct av_gemm_impl {
       loadb(b_[1][i]);
       dot_prod();
     }
-    quant_store(c_ + 32, ldc, overlap, m2);
+    store(scratch[1]);
+
+    quant_out(c, scratch, ldc, overlap, m2);
   }
 };
 
