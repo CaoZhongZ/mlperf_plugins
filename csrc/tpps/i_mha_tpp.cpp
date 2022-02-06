@@ -72,7 +72,6 @@ public:
     cfg.palette = 1;
   }
 
-private:
   static constexpr int num_valid = 8;
   struct cfg {
     uint8_t palette;        /* byte 0 */
@@ -415,8 +414,10 @@ void i_amx_mha_tpp::compute_head(void *C, const void *ATT, int ld_att, float M,
   tr_vnni_x16(k_scratch, q[K_], seq_len_, ld_att);
   tr_vnni_4x(v_scratch, q[V_], seq_len_, ld_att);
 
-  Tilecfg().set_config();
-
+  Tilecfg __cfg;
+  _tile_release();
+  _tile_loadconfig(&__cfg.cfg);
+  
   auto attention = reinterpret_cast<const int8_t(*)[32][ld_att]>(ATT);
   auto context = reinterpret_cast<int8_t(*)[32][1024]>(C);
 
