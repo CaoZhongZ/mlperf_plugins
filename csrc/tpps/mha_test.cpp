@@ -118,13 +118,16 @@ int main(int argc, char **argv) {
     ("l,seq_len", "Sequence length", cxxopts::value<size_t>()->default_value("384"))
     ("M,scale1", "First scale", cxxopts::value<float>()->default_value("0.0001"))
     ("s,oscale", "Second scale", cxxopts::value<float>()->default_value("8200"))
-    ("f,eltscale", "Final scale", cxxopts::value<float>()->default_value("0.0001))
+    ("f,eltscale", "Final scale", cxxopts::value<float>()->default_value("0.0001"))
   ;
 
   amx_init();
 
   auto parsed_opts = opts.parse(argc, argv);
   auto seq_len = parsed_opts["seq_len"].as<size_t>();
+  auto M = parsed_opts["scale1"].as<float>();
+  auto oscale = parsed_opts["oscale"].as<float>();
+  auto M2 = parsed_opts["eltscale"].as<float>();
 
   int8_t attention[seq_len][3072];
   fill_seq(attention, seq_len, 3072);
@@ -139,7 +142,7 @@ int main(int argc, char **argv) {
 
   auto start = Time::now();
   for (int i = 0; i < 16; ++ i) {
-    mha.compute_head(res[i], att[i], 3072, 0.0001, 8200, 0.0001);
+    mha.compute_head(res[i], att[i], 3072, M, oscale, M2);
   }
   auto during =
       std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start)
