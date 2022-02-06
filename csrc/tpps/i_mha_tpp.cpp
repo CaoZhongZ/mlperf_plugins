@@ -277,11 +277,11 @@ template <int n_tile, int k_step> struct av_gemm_impl {
 
   inline static void store(void *scratch) {
     auto c = reinterpret_cast<int (*)[16][16]>(scratch);
-    _tile_store(TMM0, c[0], 64);
-    _tile_store(TMM1, c[1], 64);
+    _tile_stored(TMM0, c[0], 64);
+    _tile_stored(TMM1, c[1], 64);
     if (n_tile == 2) {
-      _tile_store(TMM0, c[2], 64);
-      _tile_store(TMM1, c[3], 64);
+      _tile_stored(TMM0, c[2], 64);
+      _tile_stored(TMM1, c[3], 64);
     }
   }
 
