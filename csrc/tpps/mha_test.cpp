@@ -15,13 +15,14 @@ using Time = std::chrono::high_resolution_clock;
 template <typename T> void fill_seq(T *t, size_t rows, size_t cols) {
   int period = 5;
   int start = 0;
+  auto t_ = reinterpret_cast<T (*)[cols]>(t);
   for (size_t i = 0; i < rows; ++i) {
     for (size_t j = 0; j < cols; ++j) {
       if (-- period == 0) {
         start += 1;
         period = 4;
       }
-      t[i][j] = start % 42;
+      t_[i][j] = start % 42;
     }
   }
 }
@@ -120,6 +121,7 @@ int main(int argc, char **argv) {
     ("s,oscale", "Second scale", cxxopts::value<float>()->default_value("8200"))
     ("f,eltscale", "Final scale", cxxopts::value<float>()->default_value("0.0001"))
     ("t,times", "Testing time", cxxopts::value<int>()->default_value("64"))
+    ("b,batch", "Testing batch", cxxopts::value<int>()->default_value("64"))
   ;
 
   amx_init();
@@ -130,12 +132,15 @@ int main(int argc, char **argv) {
   auto oscale = parsed_opts["oscale"].as<float>();
   auto M2 = parsed_opts["eltscale"].as<float>();
   auto times = parsed_opts["times"].as<int>();
+  auto batch = parsed_opts["batch"].as<int>();
 
-  int8_t attention[seq_len][3072];
-  fill_seq(attention, seq_len, 3072);
+  void *attention;
+  posix_memalign(&attention, 4096, batch * seq_len * 3072);
+  fill_seq((int8_t *)attention, batch*seq_len, 3072);
 
-  int8_t result[seq_len][1024];
-  memset(result, 0, sizeof(result));
+  void *result;
+  posix_memalign(&result, 4096, batch * seq_len * 1024);
+  memset(result, 0, batch * seq_len * 1024);
 
   // Stepping in 64 and do all the heads
   auto att = reinterpret_cast<int8_t (*)[64]>(attention);
@@ -143,15 +148,19 @@ int main(int argc, char **argv) {
   intel_mlperf::i_amx_mha_tpp mha(seq_len, 64);
 
   auto start = Time::now();
-  for (int t = 0; t < times; ++t)
-  for (int i = 0; i < 16; ++ i) {
-    mha.compute_head(res[i], att[i], 3072, M, oscale, M2);
+  for (int b = 0; b < batch; ++b) {
+    for (int i = 0; i < 16; ++ i) {
+      mha.compute_head(res[i], att[i], 3072, M, oscale, M2);
+    }
   }
   auto during =
       std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start)
           .count();
   std::cout << "100000 times tile softmax time : "
             << (float)during / 1000 / 1000 << " ms " << std::endl;
+
+  free(attention);
+  free(result);
 
   return 0;
 }
