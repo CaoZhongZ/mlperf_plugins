@@ -12,7 +12,7 @@ struct i_amx_mha_tpp {
 
   template <int row_tile, int col_tile>
   void compute_block(void *C, const void* Q, const void* K, const void* V,
-      size_t ld_att, float M, float oscale, float M2);
+      size_t ld_att, float M, float oscale, float M2, int overlap);
 
   void compute_head(void *C, const void *ATT, int ld_att, float M, float oscale,
       float M2);
@@ -20,7 +20,7 @@ struct i_amx_mha_tpp {
 private:
   typedef void (i_amx_mha_tpp::* compute_block_t) (
       void*, const void*, const void*, const void*, size_t,
-      float, float, float);
+      float, float, float, int);
 
   const size_t seq_len_;
   const size_t head_len_;

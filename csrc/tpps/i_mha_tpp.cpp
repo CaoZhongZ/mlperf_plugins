@@ -360,18 +360,19 @@ i_amx_mha_tpp::i_amx_mha_tpp(size_t seq_len, size_t head_len)
 
 template <int row_tile, int col_tile>
 void i_amx_mha_tpp::compute_block(void* C, const void* Q, const void* K,
-    const void *V, size_t ld_att, float M, float oscale, float M2) {
+    const void *V, size_t ld_att, float M, float oscale, float M2,
+    int overlap) {
 
   alignas(64) int32_t gemm_result[row_tile * 16 * sl_p16_];
   qk_gemm_impl<row_tile, col_tile>::compute(
-      gemm_result, Q, K, ld_att, overlap_);
+      gemm_result, Q, K, ld_att, overlap);
 
   alignas(64) int8_t softmax_result[row_tile * 16 * sl_p64_];
   qk_gemm_impl<row_tile, col_tile>::softmax(
       softmax_result, gemm_result, seq_len_, M, oscale);
 
   av_gemm_impl<row_tile, (col_tile + 3)/4>::compute(
-      C, softmax_result, V, ld_att/3, overlap_, M2);
+      C, softmax_result, V, ld_att/3, overlap, M2);
 }
 
 const i_amx_mha_tpp::compute_block_t i_amx_mha_tpp::compute_block_tbl_ [2][25] = {
@@ -425,13 +426,13 @@ void i_amx_mha_tpp::compute_head(void *C, const void *ATT, int ld_att, float M,
 
   for (int i = 0; i < loop_block_; i++) {
     (this->*compute_block_)(
-        context[i], attention[i], k_scratch, v_scratch, ld_att, M, oscale, M2);
+        context[i], attention[i], k_scratch, v_scratch, ld_att, M, oscale, M2, 0);
   }
 
   if (loop_tail_ > 0) {
     (this->*compute_tail_)(
         context[loop_block_], attention[loop_block_], k_scratch, v_scratch,
-        ld_att, M, oscale, M2);
+        ld_att, M, oscale, M2, overlap_);
   }
 }
 
