@@ -116,6 +116,9 @@ int main(int argc, char **argv) {
   cxxopts::Options opts("mha_test", "MHA kernel test");
   opts.add_options()
     ("l,seq_len", "Sequence length", cxxopts::value<size_t>()->default_value("384"))
+    ("M,scale1", "First scale", cxxopts::value<float>()->default_value("0.0001"))
+    ("s,oscale", "Second scale", cxxopts::value<float>()->default_value("8200"))
+    ("f,eltscale", "Final scale", cxxopts::value<float>()->default_value("0.0001))
   ;
 
   amx_init();
@@ -129,7 +132,7 @@ int main(int argc, char **argv) {
   int8_t result[seq_len][1024];
   memset(result, 0, sizeof(result));
 
-  // Stepping in 64 and do all the columns
+  // Stepping in 64 and do all the heads
   auto att = reinterpret_cast<int8_t (*)[64]>(attention);
   auto res = reinterpret_cast<int8_t (*)[64]>(result);
   intel_mlperf::i_amx_mha_tpp mha(seq_len, 64);
