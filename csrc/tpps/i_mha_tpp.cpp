@@ -99,7 +99,7 @@ static void tr_vnni_x16(int8_t *scratch, const int8_t *src, int row,
   }
 
   if (tail > 0) {
-    decltype(tr_vnni_x64<1>)* tr_vnni_tbl [] = {
+    static decltype(tr_vnni_x64<1>)* const tr_vnni_tbl [] = {
       tr_vnni_x64<0>, tr_vnni_x64<1>, tr_vnni_x64<2>, tr_vnni_x64<3>,
       tr_vnni_x64<4>, tr_vnni_x64<5>, tr_vnni_x64<6>, tr_vnni_x64<7>,
       tr_vnni_x64<8>, tr_vnni_x64<9>, tr_vnni_x64<10>, tr_vnni_x64<11>,
@@ -235,9 +235,9 @@ template <int row_tile, int col_tile> struct qk_gemm_impl {
 #pragma unroll (row_tile)
     for (int i = 0; i < row_tile; ++i) {
       i32_scale_attlen_softmax_scale_i8_amx_tile_vnni<8>::run(
-                              att_int8_[i][0], att_[i][0], att_len, M, oscale);
+                              att_int8_[i][0][0], att_[i][0][0], att_len, M, oscale);
       i32_scale_attlen_softmax_scale_i8_amx_tile_vnni<8>::run(
-                              (char*)att_int8_[i][8], (char*)att_[i][8], att_len, M, oscale);
+                              att_int8_[i][0][8], att_[i][0][8], att_len, M, oscale);
     }
   }
 };

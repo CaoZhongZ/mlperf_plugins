@@ -120,7 +120,7 @@ int main(int argc, char **argv) {
     ("M,scale1", "First scale", cxxopts::value<float>()->default_value("0.0001"))
     ("s,oscale", "Second scale", cxxopts::value<float>()->default_value("8200"))
     ("f,eltscale", "Final scale", cxxopts::value<float>()->default_value("0.0001"))
-    ("t,times", "Testing time", cxxopts::value<int>()->default_value("64"))
+    ("t,times", "Testing time", cxxopts::value<int>()->default_value("1"))
     ("b,batch", "Testing batch", cxxopts::value<int>()->default_value("64"))
   ;
 
@@ -143,12 +143,16 @@ int main(int argc, char **argv) {
   memset(result, 0, batch * seq_len * 1024);
 
   // Stepping in 64 and do all the heads
-  auto att = reinterpret_cast<int8_t (*)[64]>(attention);
-  auto res = reinterpret_cast<int8_t (*)[64]>(result);
+  auto b_att = reinterpret_cast<int8_t (*)[seq_len * 3072]>(attention);
+  auto b_res = reinterpret_cast<int8_t (*)[seq_len * 1024]>(result);
   intel_mlperf::i_amx_mha_tpp mha(seq_len, 64);
 
   auto start = Time::now();
+  for (int t = 0; t < times; ++t)
   for (int b = 0; b < batch; ++b) {
+    auto att = reinterpret_cast<int8_t (*)[64]>(b_att[b]);
+    auto res = reinterpret_cast<int8_t (*)[64]>(b_res[b]);
+#   pragma nounroll
     for (int i = 0; i < 16; ++ i) {
       mha.compute_head(res[i], att[i], 3072, M, oscale, M2);
     }
@@ -156,7 +160,7 @@ int main(int argc, char **argv) {
   auto during =
       std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start)
           .count();
-  std::cout << "100000 times tile softmax time : "
+  std::cout << "Total time : "
             << (float)during / 1000 / 1000 << " ms " << std::endl;
 
   free(attention);
