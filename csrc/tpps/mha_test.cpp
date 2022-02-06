@@ -119,6 +119,7 @@ int main(int argc, char **argv) {
     ("M,scale1", "First scale", cxxopts::value<float>()->default_value("0.0001"))
     ("s,oscale", "Second scale", cxxopts::value<float>()->default_value("8200"))
     ("f,eltscale", "Final scale", cxxopts::value<float>()->default_value("0.0001"))
+    ("t,times", "Testing time", cxxopts::value<int>()->default_value("64"))
   ;
 
   amx_init();
@@ -128,6 +129,7 @@ int main(int argc, char **argv) {
   auto M = parsed_opts["scale1"].as<float>();
   auto oscale = parsed_opts["oscale"].as<float>();
   auto M2 = parsed_opts["eltscale"].as<float>();
+  auto times = parsed_opts["times"].as<int>();
 
   int8_t attention[seq_len][3072];
   fill_seq(attention, seq_len, 3072);
@@ -141,6 +143,7 @@ int main(int argc, char **argv) {
   intel_mlperf::i_amx_mha_tpp mha(seq_len, 64);
 
   auto start = Time::now();
+  for (int t = 0; t < times; ++t)
   for (int i = 0; i < 16; ++ i) {
     mha.compute_head(res[i], att[i], 3072, M, oscale, M2);
   }

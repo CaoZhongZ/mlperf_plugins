@@ -85,7 +85,7 @@ void softmax_isolation(void *d, void *c, int len, float m1, float m2,
                                                               len, m1, m2, ld);
 }
 
-#if 0
+#if 1
 void softmax_isolation_16(void *d, void *c, int len, float m1, float m2, int64_t ld) {
   auto d_ = reinterpret_cast<int8_t (*)[64]>(d);
   auto c_ = reinterpret_cast<int (*)[16]>(c);

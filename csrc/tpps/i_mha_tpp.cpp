@@ -203,7 +203,7 @@ template <int row_tile, int col_tile> struct qk_gemm_impl {
   }
 
   // Preloaded A
-  inline static void compute(void *c, const void *a, const void *b, size_t lda,
+  static void compute(void *c, const void *a, const void *b, size_t lda,
                              int overlap) {
     constexpr int col_tail = col_tile % 2;
     constexpr int col_loop = col_tile / 2;
@@ -224,18 +224,20 @@ template <int row_tile, int col_tile> struct qk_gemm_impl {
     }
   }
 
-  inline static void softmax(int8_t *att_int8, int *att, int att_len, float M,
+  static void softmax(int8_t *att_int8, int *att, int att_len, float M,
                              float oscale) {
-    auto sl_16 = to_next(att_len, 16);
-    auto sl_64 = to_next(att_len, 64);
+    auto sl_t16 = to_next(att_len, 16)/16;
+    auto sl_t64 = to_next(att_len, 64)/64;
 
-    auto att_ = reinterpret_cast<int (*)[16][sl_16]>(att);
-    auto att_int8_ = reinterpret_cast<int8_t (*)[16][sl_64]>(att_int8);
+    auto att_ = reinterpret_cast<int (*)[sl_t16][16][16]>(att);
+    auto att_int8_ = reinterpret_cast<int8_t (*)[sl_t64][16][64]>(att_int8);
 
 #pragma unroll (row_tile)
     for (int i = 0; i < row_tile; ++i) {
-      i32_scale_attlen_softmax_scale_i8_amx_tile_vnni<16>::run(
-                              att_int8_[i], att_[i], att_len, M, oscale);
+      i32_scale_attlen_softmax_scale_i8_amx_tile_vnni<8>::run(
+                              att_int8_[i][0], att_[i][0], att_len, M, oscale);
+      i32_scale_attlen_softmax_scale_i8_amx_tile_vnni<8>::run(
+                              (char*)att_int8_[i][8], (char*)att_[i][8], att_len, M, oscale);
     }
   }
 };

@@ -1,6 +1,6 @@
 CXX=icpc
-OPT=-g -O0
-CXXFLAGS=-fPIC -fopenmp -xSAPPHIRERAPIDS -fma $(OPT) -std=c++14 -Wall -Dusercp
+OPT=-g -O3
+CXXFLAGS=-fPIC -fopenmp -xHOST -fma $(OPT) -std=c++14 -Wall -Dusercp
 
 kernels=i_gelu_tpp.cpp i_layernorm_tpp.cpp i_mha_tpp.cpp i_softmax_tpp.cpp i_gelu_tpp.hpp \
 				i_layernorm_tpp.hpp i_mha_tpp.hpp  i_softmax_tpp.hpp
