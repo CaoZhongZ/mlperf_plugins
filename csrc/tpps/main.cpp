@@ -17,6 +17,8 @@ template <typename T> void fill_seq(T *t, size_t rows, size_t cols) {
 
 void softmax_isolation(void *d, void *c, int len, float m1, float m2,
                        int64_t ld);
+void softmax_isolation_8(void *d, void *c, int len, float m1, float m2,
+                          int64_t ld);
 void softmax_isolation_16(void *d, void *c, int len, float m1, float m2,
                           int64_t ld);
 
@@ -26,11 +28,13 @@ static constexpr size_t rows = 16;
 int main() {
   int32_t c[24][rows][cols];
   int8_t d[24][rows][cols];
+  int8_t dc[25][rows][cols];
 
   for (int i = 0; i < 24; ++i)
     fill_seq(c[i], rows, cols);
 
   memset(d, 0, sizeof(d));
+  memset(dc, 0, sizeof(dc));
 
   auto start = Time::now();
 
@@ -43,21 +47,26 @@ int main() {
   auto during =
       std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start)
           .count();
-  std::cout << "100000 times softmax time : " << (float)during / 1000 / 1000
+  std::cout << "softmax time : " << (float)during / 1000 / 1000
             << " ms " << std::endl;
 
   start = Time::now();
   for (int i = 0; i < 1000; i++) {
     for (int j = 0; j < 24; ++j) {
       softmax_isolation_16(d[j], c[j], cols, 0.01, 10000, cols);
+      softmax_isolation_8(dc[j], c[j], cols, 0.01, 10000, cols);
     }
   }
 
   during =
       std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start)
           .count();
-  std::cout << "100000 times tile softmax time : "
+  std::cout << "tile softmax time : "
             << (float)during / 1000 / 1000 << " ms " << std::endl;
+
+  if (memcmp(d, dc, sizeof(d)) != 0) {
+    std::cout<< "Something happend"<<std::endl;
+  }
 
   start = Time::now();
   for (int i = 0; i < 1000; i++) {
@@ -69,7 +78,7 @@ int main() {
   during =
       std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start)
           .count();
-  std::cout << "100000 times tile softmax time : "
+  std::cout << "softmax time : "
             << (float)during / 1000 / 1000 << " ms " << std::endl;
 
   return 0;
@@ -85,17 +94,15 @@ void softmax_isolation(void *d, void *c, int len, float m1, float m2,
                                                               len, m1, m2, ld);
 }
 
-#if 1
-void softmax_isolation_16(void *d, void *c, int len, float m1, float m2, int64_t ld) {
+void softmax_isolation_8(void *d, void *c, int len, float m1, float m2, int64_t ld) {
   auto d_ = reinterpret_cast<int8_t (*)[64]>(d);
   auto c_ = reinterpret_cast<int (*)[16]>(c);
   intel_mlperf::i32_scale_attlen_softmax_scale_i8_amx_tile_vnni<8>::run(d_, c_, len, m1, m2);
   intel_mlperf::i32_scale_attlen_softmax_scale_i8_amx_tile_vnni<8>::run(d_ + 8, c_ + 8, len, m1, m2);
 }
-#else
+
 void softmax_isolation_16(void *d, void *c, int len, float m1, float m2,
                           int64_t ld) {
   intel_mlperf::i32_scale_attlen_softmax_scale_i8_amx_tile_vnni<16>::run(
       d, c, len, m1, m2);
 }
-#endif
