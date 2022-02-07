@@ -226,7 +226,6 @@ template <int row_tile, int col_tile> struct qk_gemm_impl {
 
     i32_scale_attlen_softmax_scale_i8_amx_tile_vnni<16>::run(c_int8_[0], c_[0], len, M, oscale, c_len_pad64);
 
-    
     if (row_tile == 2) {
       i32_scale_attlen_softmax_scale_i8_amx_tile_vnni<16>::run(c_int8_[1], c_[1], len, M, oscale, c_len_pad64);
     }
@@ -234,7 +233,7 @@ template <int row_tile, int col_tile> struct qk_gemm_impl {
 };
 
 // n_tile: 1 or 2
-// k_tile: {1, 2, 3, 4, 5, 6, 8, 17, 19, 23}
+// k_tile: {1, 2, 3, 4, 5, 6}
 template <int n_tile, int k_step> struct av_gemm_impl {
   inline static void loada(void *a, size_t idx) {
     auto a_ = reinterpret_cast<int8_t (*)[k_step][16][64]>(a);
@@ -340,14 +339,6 @@ void amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
   int qkv_dis = ldqkv / 3;
   reorder_k_to_buffer(k_scrach, &q[0][qkv_dis], sl, col_tile, ldqkv);
   reorder_v_to_buffer_p64(v_scrach_p64, &q[0][qkv_dis * 2], sl, ldqkv);
-
-  int v_row = col_tile * 4;
-  int rt_v = 16;
-  for (; rt_v > 0; rt_v--) {
-    if (v_row % rt_v == 0) {
-      break;
-    }
-  }
 
   int cur_r_pos = 0;
   int row_loop = col_tile / 2;
