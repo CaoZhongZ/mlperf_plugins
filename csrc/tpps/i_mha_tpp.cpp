@@ -168,29 +168,24 @@ template <int row_tile, int col_tile> struct qk_gemm_impl {
     _tile_zero(TMM3);
   }
 
-  template <bool tail> inline static void dot_prod(void *c, void *com_c, int col_idx) {
+  template <bool tail> inline static void dot_prod(void *c, int col_idx) {
     auto c_ = reinterpret_cast<int (*)[col_tile][16][16]>(c);
-    auto com_c_ = reinterpret_cast<int(*)[ldc]>(com_c);
 
     __tile_dpbssd<TMM0, TMM4, TMM6>();
     _tile_stored(TMM0, c_[0][col_idx * 2], 64);
-    _tile_stored(TMM0, &com_c_[0][col_idx * 32], ldc * 4);
 
     if (!tail) {
       __tile_dpbssd<TMM1, TMM4, TMM7>();
       _tile_stored(TMM1, c_[0][col_idx * 2 + 1], 64);
-      _tile_stored(TMM1, &com_c_[0][col_idx * 32 + 16], ldc * 4);
     }
 
     if (row_tile == 2) {
       __tile_dpbssd<TMM2, TMM5, TMM6>();
       _tile_stored(TMM2, c_[1][col_idx * 2], 64);
-      _tile_stored(TMM2, &com_c_[16][col_idx * 32], ldc * 4);
 
       if (!tail) {
         __tile_dpbssd<TMM3, TMM5, TMM7>();
         _tile_stored(TMM3, c_[1][col_idx * 2 + 1], 64);
-        _tile_stored(TMM3, &com_c_[16][col_idx * 32 + 16], ldc * 4);
       }
     }
   }
@@ -208,13 +203,13 @@ template <int row_tile, int col_tile> struct qk_gemm_impl {
     for (; i < col_loop; ++i) {
       tile_loadb<false>(b, i);
       zero_accum();
-      dot_prod<false>(c, com_c, i);
+      dot_prod<false>(c, i);
     }
 
     if (col_tail) {
       tile_loadb<true>(b, i);
       zero_accum();
-      dot_prod<true>(c, com_c, i);
+      dot_prod<true>(c, i);
     }
   }
 
