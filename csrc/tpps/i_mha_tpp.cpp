@@ -26,64 +26,6 @@ template <typename T> T to_next(T x, int pad) {
   return (x + pad -1) / pad * pad;
 }
 
-class Tilecfg {
-public:
-  void set_config(bool reconfig) const {
-    if (reconfig) {
-      _tile_release();
-      _tile_loadconfig(&cfg);
-    }
-  }
-
-  void set_config() const {
-    _tile_release();
-    _tile_loadconfig(&cfg);
-  }
-
-  Tilecfg() {
-    memset(&cfg, 0, sizeof(cfg));
-
-    for (int i = 0; i < num_valid; i++) {
-      cfg.tile_rows[i] = 16;
-      cfg.tile_colsb[i] = 64;
-    }
-    cfg.palette = 1;
-  }
-
-  Tilecfg(int k) {
-    memset(&cfg, 0, sizeof(cfg));
-
-    // static allocation
-    // A: 16 x k
-    cfg.tile_rows[4] = 16;
-    cfg.tile_colsb[4] = k * sizeof(int);
-    cfg.tile_rows[5] = 16;
-    cfg.tile_colsb[5] = k * sizeof(int);
-    // B: k x 16
-    cfg.tile_rows[6] = k;
-    cfg.tile_colsb[6] = 16 * sizeof(int);
-    cfg.tile_rows[7] = k;
-    cfg.tile_colsb[7] = 16 * sizeof(int);
-    // C: 16 x 16
-    for (int i = 0; i < 4; i++) {
-      cfg.tile_rows[i] = 16;
-      cfg.tile_colsb[i] = 16 * sizeof(int);
-    }
-    cfg.palette = 1;
-  }
-
-  static constexpr int num_valid = 8;
-  struct cfg {
-    uint8_t palette;        /* byte 0 */
-    uint8_t start_row;      /* byte 1 */
-    char rsvd1[14];         /* bytes 2-15 */
-    uint16_t tile_colsb[8]; /* bytes 16-31 */
-    char rsvd2[16];         /* bytes 32-47 */
-    uint8_t tile_rows[8];   /* bytes 48-55 */
-    char rsvd3[8];          /* bytes 56-63 */
-  } __attribute__((packed)) cfg;
-};
-
 static void tr_vnni_x16(int8_t *scratch, const int8_t *src, int row,
                                 int stride) {
   // src format int8_t (*)[16][stride]
@@ -181,23 +123,23 @@ template <int row_tile, int col_tile> struct qk_gemm_impl {
   }
 
   template <bool tail> inline static void dot_prod(void *c, int col_idx) {
-    auto c_ = reinterpret_cast<int(*)[ldc]>(c);
+    auto c_ = reinterpret_cast<int(*)[col_tile][16][16]>(c);
 
     __tile_dpbssd<TMM0, TMM4, TMM6>();
-    _tile_stored(TMM0, &c_[0][col_idx * 32], ldc * 4);
+    _tile_stored(TMM0, c_[0][col_idx * 2], 64);
 
     if (!tail) {
       __tile_dpbssd<TMM1, TMM4, TMM7>();
-      _tile_stored(TMM1, &c_[0][col_idx * 32 + 16], ldc * 4);
+      _tile_stored(TMM1, &c_[0][col_idx * 2 + 1], 64);
     }
 
     if (row_tile == 2) {
       __tile_dpbssd<TMM2, TMM5, TMM6>();
-      _tile_stored(TMM2, &c_[16][col_idx * 32], ldc * 4);
+      _tile_stored(TMM2, c_[1][2*col_idx], 64);
 
       if (!tail) {
         __tile_dpbssd<TMM3, TMM5, TMM7>();
-        _tile_stored(TMM3, &c_[16][col_idx * 32 + 16], ldc * 4);
+        _tile_stored(TMM3, c_[1][2*col_idx+1], 64);
       }
     }
   }
@@ -245,7 +187,7 @@ template <int row_tile, int col_tile> struct qk_gemm_impl {
 // n_tile: 1 or 2
 //
 template <int n_tile, int k_step> struct av_gemm_impl {
-  inline static void loada(const void *a, size_t overlap) {
+  inline static void loada(const void *a) {
     auto a_ = reinterpret_cast<const int8_t(*)[k_step][16][64]>(a);
 
     _tile_loadd(TMM4, a_[0], 64);
@@ -259,6 +201,16 @@ template <int n_tile, int k_step> struct av_gemm_impl {
     _tile_loadd(TMM7, b_[1], 64);
   }
 
+  inline static void dot_prod() {
+    __tile_dpbssd<TMM0, TMM4, TMM6>();
+    __tile_dpbssd<TMM1, TMM4, TMM7>();
+
+    if (n_tile == 2) {
+      __tile_dpbssd<TMM2, TMM5, TMM6>();
+      __tile_dpbssd<TMM3, TMM5, TMM7>();
+    }
+  }
+
   inline static void zero_accum() {
     _tile_zero(TMM0);
     _tile_zero(TMM1);
@@ -266,10 +218,18 @@ template <int n_tile, int k_step> struct av_gemm_impl {
     _tile_zero(TMM3);
   }
 
-  inline static void dot_prod() {
+  inline static void dot_prod(const void *a, const void *b) {
+    auto a_ = reinterpret_cast<const int8_t(*)[k_step][16][64]>(a);
+    auto b_ = reinterpret_cast<const int8_t(*)[16][64]>(b);
+
+    _tile_loadd(TMM4, a_[0], 64);
+    _tile_loadd(TMM6, b_[0], 64);
     __tile_dpbssd<TMM0, TMM4, TMM6>();
+    _tile_loadd(TMM7, b_[1], 64);
     __tile_dpbssd<TMM1, TMM4, TMM7>();
+
     if (n_tile == 2) {
+      _tile_loadd(TMM5, a_[1], 64);
       __tile_dpbssd<TMM2, TMM5, TMM6>();
       __tile_dpbssd<TMM3, TMM5, TMM7>();
     }
@@ -290,10 +250,10 @@ template <int n_tile, int k_step> struct av_gemm_impl {
 
     // [2][n_tile][2][16][16]
     auto c_tmp = reinterpret_cast<int (*)[n_tile][2][16][16]>(scratch);
-    auto vscale = _mm512_set1_ps(m2);
     // quant out to c [n_tile][16][ldc]
     auto c_out = reinterpret_cast<int8_t(*)[16][ldc/16][16]>(c);
 
+    auto vscale = _mm512_set1_ps(m2);
 #pragma unroll (n_tile)
     for (int i = 0; i < n_tile; ++ i) {
 #pragma unroll(16)
@@ -335,20 +295,15 @@ template <int n_tile, int k_step> struct av_gemm_impl {
   inline static void compute(void *c, const void *a, const void *b, int ldc,
       size_t overlap, float m2) {
     zero_accum();
-
     // a shape is int8_t [2][k_step][16][64]
     auto a_ = reinterpret_cast<const int8_t(*)[16][64]>(a);
     // b shape is int8_t [2][k_step][32][64]
     auto b_ = reinterpret_cast<const int8_t(*)[k_step][32][64]>(b);
-    // c shape is int8_t [seq_len][ldc/64][2][32];
-    auto c_ = reinterpret_cast<int8_t*>(c);
 
     int scratch[2][n_tile][2][16][16];
 #pragma unroll(k_step)
     for (int i = 0; i < k_step; ++i) {
-      loada(a_[i], overlap);
-      loadb(b_[0][i]);
-      dot_prod();
+      dot_prod(a_[i], b_[0][i]);
     }
 
     store(scratch[0]);
@@ -356,9 +311,7 @@ template <int n_tile, int k_step> struct av_gemm_impl {
 
 #pragma unroll(k_step)
     for (int i = 0; i < k_step; ++i) {
-      loada(a_[i], overlap);
-      loadb(b_[1][i]);
-      dot_prod();
+      dot_prod(a_[i], b_[1][i]);
     }
     store(scratch[1]);
 
@@ -437,16 +390,14 @@ void i_amx_mha_tpp::compute_head(void *C, const void *ATT, int ld_att, float M,
   tr_vnni_x16(k_scratch, q[K_], seq_len_, ld_att);
   tr_vnni_4x(v_scratch, q[V_], seq_len_, ld_att);
 
-  Tilecfg __cfg;
-  _tile_release();
-  _tile_loadconfig(&__cfg.cfg);
-  
+ 
   auto attention = reinterpret_cast<const int8_t(*)[32][ld_att]>(ATT);
   auto context = reinterpret_cast<int8_t(*)[32][1024]>(C);
 
   for (int i = 0; i < loop_block_; i++) {
     (this->*compute_block_)(
-        context[i], attention[i], k_scratch, v_scratch, ld_att, M, oscale, M2, 0);
+        context[i], attention[i], k_scratch, v_scratch, ld_att, M, oscale,
+        M2, 0);
   }
 
   if (loop_tail_ > 0) {

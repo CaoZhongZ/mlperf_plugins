@@ -146,8 +146,12 @@ int main(int argc, char **argv) {
   auto b_att = reinterpret_cast<int8_t (*)[seq_len * 3072]>(attention);
   auto b_res = reinterpret_cast<int8_t (*)[seq_len * 1024]>(result);
   intel_mlperf::i_amx_mha_tpp mha(seq_len, 64);
-
   auto start = Time::now();
+
+  intel_mlperf::Tilecfg __cfg;
+  _tile_release();
+  _tile_loadconfig(&__cfg.cfg);
+
   for (int t = 0; t < times; ++t)
   for (int b = 0; b < batch; ++b) {
     auto att = reinterpret_cast<int8_t (*)[64]>(b_att[b]);
