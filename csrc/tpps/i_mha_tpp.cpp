@@ -607,7 +607,7 @@ void amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       qk_gemm_impl<1, 11>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 11>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_tilecfg.set_config(recfg_tile);
-      av_gemm_impl<1, 4>::compute(a[cur_r_pos], apro_scrach,
+      av_gemm_impl<1, 3>::compute(a[cur_r_pos], apro_scrach,
                                   v_scrach_p64, 0, M2);
       break;
     case (13):
@@ -631,7 +631,7 @@ void amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       qk_gemm_impl<1, 17>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 17>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_tilecfg.set_config(recfg_tile);
-      av_gemm_impl<1, 17>::compute(a[cur_r_pos], apro_scrach,
+      av_gemm_impl<1, 5>::compute(a[cur_r_pos], apro_scrach,
                                    v_scrach_p64, 0, M2);
       break;
     case (19):
@@ -639,7 +639,7 @@ void amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       qk_gemm_impl<1, 19>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 19>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_tilecfg.set_config(recfg_tile);
-      av_gemm_impl<1, 19>::compute(a[cur_r_pos], apro_scrach,
+      av_gemm_impl<1, 5>::compute(a[cur_r_pos], apro_scrach,
                                    v_scrach_p64, 0, M2);
       break;
     case (21):
@@ -655,7 +655,7 @@ void amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       qk_gemm_impl<1, 23>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 23>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_tilecfg.set_config(recfg_tile);
-      av_gemm_impl<1, 23>::compute(a[cur_r_pos], apro_scrach,
+      av_gemm_impl<1, 6>::compute(a[cur_r_pos], apro_scrach,
                                    v_scrach_p64, 0, M2);
       break;
     default:
