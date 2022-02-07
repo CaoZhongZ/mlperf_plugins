@@ -265,7 +265,7 @@ template <int n_tile, int k_step> struct av_gemm_impl {
     }
   }
 
-  inline static void store_quant(void *c, int overlap, float m2) {
+  inline static void store_quant(void *c, size_t ldc, size_t overlap, float m2) {
     alignas(64) int scratch[n_tile * 16 * 32];
     auto scratch_ = reinterpret_cast<int(*)[16][16]>(scratch);
     _tile_stored(TMM0, scratch_[0], 64);
@@ -278,7 +278,7 @@ template <int n_tile, int k_step> struct av_gemm_impl {
 
     // quant out to c
     auto vscale = _mm512_set1_ps(m2);
-    auto c_out = reinterpret_cast<int8_t (*)[64]>(c);
+    auto c_out = reinterpret_cast<int8_t (*)[ldc]>(c);
 
 #pragma unroll(n_tile)
     for (int i = 0; i < n_tile; i++) {
@@ -297,12 +297,12 @@ template <int n_tile, int k_step> struct av_gemm_impl {
     }
   }
 
-  inline static void compute(void *c, void *a, void *b_scratch, size_t overlap, float m2) {
+  inline static void compute(void *c, void *a, void *b_scratch, size_t ldc, size_t overlap, float m2) {
 
     zero_accum();
 
     auto b_ = reinterpret_cast<int8_t (*)[k_step][16][64]>(b_scratch);
-    auto c_ = reinterpret_cast<int8_t (*)[64]>(c);
+    auto c_ = reinterpret_cast<int8_t (*)[ldc]>(c);
 
     size_t ldb = k_step * 16 * 64;
 
@@ -312,7 +312,7 @@ template <int n_tile, int k_step> struct av_gemm_impl {
       loadb(b_[0][i], ldb);
       dot_prod();
     }
-    store_quant(&c_[0][0], overlap, m2);
+    store_quant(&c_[0][0], ldc, overlap, m2);
     zero_accum();
 
 #pragma unroll(k_step)
@@ -321,11 +321,11 @@ template <int n_tile, int k_step> struct av_gemm_impl {
       loadb(b_[2][i], ldb);
       dot_prod();
     }
-    store_quant(&c_[0][32], overlap, m2);
+    store_quant(&c_[0][32], ldc, overlap, m2);
   }
 };
 
-void amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
+void amx_per_head(const void *qkv_ptr, size_t ldqkv, void *a_ptr, size_t ldatt, size_t sl,
                       float M, float oscale, int32_t att_mask, float M2) {
 
   int sl_pad = (sl + 15) / 16 * 16;
@@ -347,7 +347,7 @@ void amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
   bool is_even = (col_tile % 2 == 0);
   alignas(64) int a_scrach[32 * sl_pad];
   alignas(64) int8_t apro_scrach[32 * sl_pad64];
-  auto a = reinterpret_cast<int8_t(*)[64]>(a_ptr);
+  auto a = reinterpret_cast<int8_t(*)[ldatt]>(a_ptr);
   auto tile_config = Tilecfg();
   tile_config.set_config();
   for (int i = 0; i < row_loop; i++) {
@@ -359,154 +359,154 @@ void amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
                                   overlap);
       qk_gemm_impl<2, 3>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<2, 1>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, overlap, M2);
+                                  v_scrach_p64, ldatt, overlap, M2);
       break;
     case (4):
       qk_gemm_impl<2, 4>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv,
                                   overlap);
       qk_gemm_impl<2, 4>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<2, 1>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, overlap, M2);
+                                  v_scrach_p64, ldatt, overlap, M2);
       break;
     case (5):
       qk_gemm_impl<2, 5>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv,
                                   overlap);
       qk_gemm_impl<2, 5>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<2, 2>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, overlap, M2);
+                                  v_scrach_p64, ldatt, overlap, M2);
       break;
     case (6):
       qk_gemm_impl<2, 6>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv,
                                   overlap);
       qk_gemm_impl<2, 6>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<2, 2>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, overlap, M2);
+                                  v_scrach_p64, ldatt, overlap, M2);
       break;
     case (7):
       qk_gemm_impl<2, 7>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv,
                                   overlap);
       qk_gemm_impl<2, 7>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<2, 2>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, overlap, M2);
+                                  v_scrach_p64, ldatt, overlap, M2);
       break;
     case (8):
       qk_gemm_impl<2, 8>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv,
                                   overlap);
       qk_gemm_impl<2, 8>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<2, 2>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, overlap, M2);
+                                  v_scrach_p64, ldatt, overlap, M2);
       break;
     case (9):
       qk_gemm_impl<2, 9>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv,
                                   overlap);
       qk_gemm_impl<2, 9>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<2, 3>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, overlap, M2);
+                                  v_scrach_p64, ldatt, overlap, M2);
       break;
     case (10):
       qk_gemm_impl<2, 10>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv,
                                    overlap);
       qk_gemm_impl<2, 10>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<2, 3>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, overlap, M2);
+                                  v_scrach_p64, ldatt, overlap, M2);
       break;
     case (11):
       qk_gemm_impl<2, 11>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv,
                                    overlap);
       qk_gemm_impl<2, 11>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<2, 3>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, overlap, M2);
+                                  v_scrach_p64, ldatt, overlap, M2);
       break;
     case (12):
       qk_gemm_impl<2, 12>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv,
                                    overlap);
       qk_gemm_impl<2, 12>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<2, 3>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, overlap, M2);
+                                  v_scrach_p64, ldatt, overlap, M2);
       break;
     case (13):
       qk_gemm_impl<2, 13>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv,
                                    overlap);
       qk_gemm_impl<2, 13>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<2, 4>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, overlap, M2);
+                                  v_scrach_p64, ldatt, overlap, M2);
       break;
     case (14):
       qk_gemm_impl<2, 14>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv,
                                    overlap);
       qk_gemm_impl<2, 14>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<2, 4>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, overlap, M2);
+                                  v_scrach_p64, ldatt, overlap, M2);
       break;
     case (15):
       qk_gemm_impl<2, 15>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv,
                                    overlap);
       qk_gemm_impl<2, 15>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<2, 4>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, overlap, M2);
+                                  v_scrach_p64, ldatt, overlap, M2);
       break;
     case (16):
       qk_gemm_impl<2, 16>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv,
                                    overlap);
       qk_gemm_impl<2, 16>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<2, 4>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, overlap, M2);
+                                  v_scrach_p64, ldatt, overlap, M2);
       break;
     case (17):
       qk_gemm_impl<2, 17>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv,
                                    overlap);
       qk_gemm_impl<2, 17>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<2, 5>::compute(a[cur_r_pos], apro_scrach,
-                                   v_scrach_p64, overlap, M2);
+                                   v_scrach_p64, ldatt, overlap, M2);
       break;
     case (18):
       qk_gemm_impl<2, 18>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv,
                                    overlap);
       qk_gemm_impl<2, 18>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<2, 5>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, overlap, M2);
+                                  v_scrach_p64, ldatt, overlap, M2);
       break;
     case (19):
       qk_gemm_impl<2, 19>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv,
                                    overlap);
       qk_gemm_impl<2, 19>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<2, 5>::compute(a[cur_r_pos], apro_scrach,
-                                   v_scrach_p64, overlap, M2);
+                                   v_scrach_p64, ldatt, overlap, M2);
       break;
     case (20):
       qk_gemm_impl<2, 20>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv,
                                    overlap);
       qk_gemm_impl<2, 20>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<2, 5>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, overlap, M2);
+                                  v_scrach_p64, ldatt, overlap, M2);
       break;
     case (21):
       qk_gemm_impl<2, 21>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv,
                                    overlap);
       qk_gemm_impl<2, 21>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<2, 6>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, overlap, M2);
+                                  v_scrach_p64, ldatt, overlap, M2);
       break;
     case (22):
       qk_gemm_impl<2, 22>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv,
                                    overlap);
       qk_gemm_impl<2, 22>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<2, 6>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, overlap, M2);
+                                  v_scrach_p64, ldatt, overlap, M2);
       break;
     case (23):
       qk_gemm_impl<2, 23>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv,
                                    overlap);
       qk_gemm_impl<2, 23>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<2, 6>::compute(a[cur_r_pos], apro_scrach,
-                                   v_scrach_p64, overlap, M2);
+                                   v_scrach_p64, ldatt, overlap, M2);
       break;
     case (24):
       qk_gemm_impl<2, 24>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv,
                                    overlap);
       qk_gemm_impl<2, 24>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<2, 6>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, overlap, M2);
+                                  v_scrach_p64, ldatt, overlap, M2);
       break;
     }
   }
@@ -517,67 +517,67 @@ void amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
       qk_gemm_impl<1, 3>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 3>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<1, 1>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, 0, M2);
+                                  v_scrach_p64, ldatt, 0, M2);
       break;
     case (5):
       qk_gemm_impl<1, 5>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 5>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<1, 2>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, 0, M2);
+                                  v_scrach_p64, ldatt, 0, M2);
       break;
     case (7):
       qk_gemm_impl<1, 7>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 7>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<1, 2>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, 0, M2);
+                                  v_scrach_p64, ldatt, 0, M2);
       break;
     case (9):
       qk_gemm_impl<1, 9>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 9>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<1, 3>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, 0, M2);
+                                  v_scrach_p64, ldatt, 0, M2);
       break;
     case (11):
       qk_gemm_impl<1, 11>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 11>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<1, 3>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, 0, M2);
+                                  v_scrach_p64, ldatt, 0, M2);
       break;
     case (13):
       qk_gemm_impl<1, 13>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 13>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<1, 4>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, 0, M2);
+                                  v_scrach_p64, ldatt, 0, M2);
       break;
     case (15):
       qk_gemm_impl<1, 15>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 15>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<1, 4>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, 0, M2);
+                                  v_scrach_p64, ldatt, 0, M2);
       break;
     case (17):
       qk_gemm_impl<1, 17>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 17>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<1, 5>::compute(a[cur_r_pos], apro_scrach,
-                                   v_scrach_p64, 0, M2);
+                                   v_scrach_p64, ldatt, 0, M2);
       break;
     case (19):
       qk_gemm_impl<1, 19>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 19>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<1, 5>::compute(a[cur_r_pos], apro_scrach,
-                                   v_scrach_p64, 0, M2);
+                                   v_scrach_p64, ldatt, 0, M2);
       break;
     case (21):
       qk_gemm_impl<1, 21>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 21>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<1, 6>::compute(a[cur_r_pos], apro_scrach,
-                                  v_scrach_p64, 0, M2);
+                                  v_scrach_p64, ldatt, 0, M2);
       break;
     case (23):
       qk_gemm_impl<1, 23>::compute(a_scrach, q[cur_r_pos], k_scrach, ldqkv, 0);
       qk_gemm_impl<1, 23>::softmax(apro_scrach, a_scrach, att_mask, M, oscale);
       av_gemm_impl<1, 6>::compute(a[cur_r_pos], apro_scrach,
-                                   v_scrach_p64, 0, M2);
+                                   v_scrach_p64, ldatt, 0, M2);
       break;
     default:
       break;

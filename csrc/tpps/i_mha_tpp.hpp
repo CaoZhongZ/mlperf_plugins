@@ -7,7 +7,7 @@
 
 namespace intel_mlperf {
 
-void amx_per_head(const void *qkv_ptr, int ldqkv, void *a_ptr, size_t sl,
+void amx_per_head(const void *qkv_ptr, size_t ldqkv, void *a_ptr, size_t ldatt, size_t sl,
                       float M, float oscale, int32_t att_mask, float M2);
 
 } // namespace intel_mlperf

@@ -59,7 +59,7 @@ at::Tensor amx_mha(const at::Tensor &qkv, const at::Tensor &att_mask,
   int head_size = 64;
   int head_num = qkv_block / head_size;
 
-  auto attention = at::empty({bs, head_num, sl, head_size},
+  auto attention = at::empty({bs, sl, qkv_block},
                              at::TensorOptions().dtype<int8_t>().memory_format(
                                  c10::MemoryFormat::Contiguous));
 
@@ -71,7 +71,7 @@ at::Tensor amx_mha(const at::Tensor &qkv, const at::Tensor &att_mask,
   }
 
   // create attention tensor
-  auto att_ptr = reinterpret_cast<int8_t(*)[head_num][sl][head_size]>(
+  auto att_ptr = reinterpret_cast<int8_t(*)[sl][head_num][head_size]>(
       attention.data_ptr());
   auto origin_ptr =
       reinterpret_cast<int8_t(*)[sl][3][head_num][head_size]>(qkv.data_ptr());
@@ -81,9 +81,9 @@ at::Tensor amx_mha(const at::Tensor &qkv, const at::Tensor &att_mask,
   for (int i = 0; i < bs; i++) {         // batch size
     for (int j = 0; j < head_num; j++) { // head num
       auto cur_q_ptr = &origin_ptr[i][0][0][j][0];
-      auto cur_a_ptr = &att_ptr[i][j][0][0];
+      auto cur_a_ptr = &att_ptr[i][0][j][0];
 
-      amx_per_head(cur_q_ptr, stride, cur_a_ptr, sl, m1.toFloat(),
+      amx_per_head(cur_q_ptr, stride, cur_a_ptr, qkv_block, sl, m1.toFloat(),
                    oscale.toFloat(), att_mask_p[i], m2.toFloat());
     }
   }
