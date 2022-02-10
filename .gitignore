@@ -4,4 +4,5 @@ csrc/*.bk
 csrc/tpps/*.bk
 csrc/tpps/*.a
 csrc/tpps/main
+csrc/tpps/*.o
 

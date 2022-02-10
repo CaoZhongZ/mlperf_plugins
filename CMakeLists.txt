@@ -42,6 +42,7 @@ set(plugin_src csrc/init.cpp csrc/linear.cpp csrc/cpu.cpp csrc/softmax.cpp
   csrc/amx_mha.cpp csrc/activation.cpp csrc/normalization.cpp)
 
 if (BUILD_TPPS_INTREE)
+  message("+++++++++++++++++++++++BUILD_TPPS_INTREE++++++++++++++++++++++++++++")
   list(APPEND plugin_src ${tpps_src})
 endif(BUILD_TPPS_INTREE)
 
@@ -64,11 +65,11 @@ endif()
 
 target_compile_options(mlperf_plugins BEFORE PUBLIC ${TORCH_CXX_FLAGS} ${OpenMP_CXX_OPTIONS})
 target_include_directories(mlperf_plugins SYSTEM PUBLIC include ${TORCH_INCLUDE_DIRS})
-target_include_directories(mlperf_plugins PRIVATE onednn/include libxsmm/include csrc/tpps)
-target_link_directories(mlperf_plugins PRIVATE ${PROJECT_SOURCE_DIR}/libxsmm/lib csrc/tpps)
+target_include_directories(mlperf_plugins PRIVATE onednn/include csrc/tpps)
+target_link_directories(mlperf_plugins PRIVATE ${PROJECT_SOURCE_DIR}/csrc/tpps)
 target_link_libraries(dnnl PUBLIC ${OpenMP_CXX_LIBRARIES})
-target_link_libraries(mlperf_plugins "${TORCH_LIBRARIES}" dnnl ${OpenMP_CXX_LIBRARIES})
+target_link_libraries(mlperf_plugins PUBLIC "${TORCH_LIBRARIES}" dnnl ${OpenMP_CXX_LIBRARIES})
 
 if(NOT BUILD_TPPS_INTREE)
-  target_link_libraries(mlperf_plugins tpps)
+    target_link_libraries(mlperf_plugins PRIVATE tpps)
 endif(NOT BUILD_TPPS_INTREE)

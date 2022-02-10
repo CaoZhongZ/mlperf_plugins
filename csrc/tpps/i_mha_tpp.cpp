@@ -348,8 +348,28 @@ void amx_per_head(const void *qkv_ptr, size_t ldqkv, void *a_ptr, size_t ldatt, 
   alignas(64) int a_scrach[32 * sl_pad];
   alignas(64) int8_t apro_scrach[32 * sl_pad64];
   auto a = reinterpret_cast<int8_t(*)[ldatt]>(a_ptr);
-  auto tile_config = Tilecfg();
-  tile_config.set_config();
+
+  struct cfg {
+    uint8_t palette;        /* byte 0 */
+    uint8_t start_row;      /* byte 1 */
+    char rsvd1[14];         /* bytes 2-15 */
+    uint16_t tile_colsb[8]; /* bytes 16-31 */
+    char rsvd2[16];         /* bytes 32-47 */
+    uint8_t tile_rows[8];   /* bytes 48-55 */
+    char rsvd3[8];          /* bytes 56-63 */
+  } __attribute__((packed)) cfg;
+  
+  memset(&cfg, 0, sizeof(cfg));
+
+  for (int i = 0; i < 8; i++) {
+    cfg.tile_rows[i] = 16;
+    cfg.tile_colsb[i] = 64;
+  }
+  cfg.palette = 1;
+
+  _tile_release();
+  _tile_loadconfig(&cfg);
+
   for (int i = 0; i < row_loop; i++) {
     int overlap = (is_even && i == row_loop - 1) ? rollback : 0;
     cur_r_pos = i * 32;
