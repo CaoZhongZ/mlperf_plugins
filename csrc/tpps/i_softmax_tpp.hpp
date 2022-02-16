@@ -104,8 +104,8 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_i8_amx_tile_vnni {
 #endif
     }
 
-    auto att_tile16_in_tile64 = att_tile / 4;
-    auto att_tile16_in_tile64_tail = att_tile % 4;
+    auto att_tile16_in_tile64 = (att_tile + (att_tail > 0)) / 4;
+    auto att_tile16_in_tile64_tail = (att_tile + (att_tail > 0)) % 4;
 
     auto dout_ = reinterpret_cast<int(*)[4][N][i_tile_w]>(dout);
     auto pout = reinterpret_cast<int8_t(*)[i_tile_h][4][i_tile_w]>(out);

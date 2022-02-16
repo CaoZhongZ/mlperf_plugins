@@ -302,7 +302,7 @@ template <int n_tile, int k_step> struct av_gemm_impl {
     // b shape is int8_t [2][k_step][32][64]
     auto b_ = reinterpret_cast<const int8_t(*)[k_step][32][64]>(b);
 
-    int scratch[2][n_tile][2][16][16];
+    alignas(64) int scratch[2][n_tile][2][16][16];
 #pragma unroll(k_step)
     for (int i = 0; i < k_step; ++i) {
       dot_prod(a_[i], b_[0][i]);
@@ -391,7 +391,6 @@ void i_amx_mha_tpp::compute_head(void *C, const void *ATT, int ld_att, float M,
 
   tr_vnni_x16(k_scratch, q[K_], seq_len_, ld_att);
   tr_vnni_4x(v_scratch, q[V_], seq_len_, ld_att);
-
  
   auto attention = reinterpret_cast<const int8_t(*)[32][ld_att]>(ATT);
   auto context = reinterpret_cast<int8_t(*)[32][1024]>(C);
