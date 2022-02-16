@@ -59,7 +59,7 @@ at::Tensor amx_mha(const at::Tensor &qkv, const at::Tensor &att_mask,
   int head_size = 64;
   int head_num = qkv_block / head_size;
 
-  auto attention = at::empty({bs, head_num, sl, head_size},
+  auto attention = at::empty({bs, sl, qkv_block},
                              at::TensorOptions().dtype<int8_t>().memory_format(
                                  c10::MemoryFormat::Contiguous));
 
@@ -70,23 +70,21 @@ at::Tensor amx_mha(const at::Tensor &qkv, const at::Tensor &att_mask,
     return attention;
   }
 
-  // create attention tensor
-  auto att_ptr = reinterpret_cast<int8_t(*)[head_num][sl][head_size]>(
+  auto in_prt =
+      reinterpret_cast<int8_t(*)[sl * stride]>(qkv.data_ptr());
+  auto out_ptr = reinterpret_cast<int8_t(*)[sl * qkv_block]>(
       attention.data_ptr());
-  auto origin_ptr =
-      reinterpret_cast<int8_t(*)[sl][3][head_num][head_size]>(qkv.data_ptr());
   auto att_mask_p = reinterpret_cast<int32_t *>(att_mask.data_ptr());
+  i_amx_mha_tpp compute(sl, head_size);
 
-  int64_t amx_time = 0;
+#pragma omp parallel for collapse(2)
+  for (int b = 0; b < bs; b++) {         // batch size
+    for (int h = 0; h < head_num; h++) { // head num
+      auto att = reinterpret_cast<int8_t (*)[64]>(in_ptr[b]);
+      auto res = reinterpret_cast<int8_t (*)[64]>(out_ptr[b]);
 
-  // # pragma omp parallel for collapse(2)
-  for (int i = 0; i < bs; i++) {         // batch size
-    for (int j = 0; j < head_num; j++) { // head num
-      auto cur_q_ptr = &origin_ptr[i][0][0][j][0];
-      auto cur_a_ptr = &att_ptr[i][j][0][0];
-
-      amx_per_head(cur_q_ptr, stride, cur_a_ptr, sl, m1.toFloat(),
-                   oscale.toFloat(), att_mask_p[i], m2.toFloat());
+      compute.compute_head(
+          res[h], att[h], sl, m1.toFloat(), oscale.toFloat(), m2.toFloat());
     }
   }
   return attention;
