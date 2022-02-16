@@ -7,6 +7,8 @@
 #include "i_softmax_tpp.hpp"
 #include "transpose.hpp"
 
+#include "helper.hpp"
+
 #define TMM0 0
 #define TMM1 1
 #define TMM2 2
@@ -109,7 +111,7 @@ template <int row_tile, int col_tile> struct qk_gemm_impl {
 
   template <bool tail>
   inline static void tile_loadb(const void *b, int col_idx) {
-    auto b_ = reinterpret_cast<const int8_t(*)[16*64]>(b);
+    auto b_ = reinterpret_cast<const int8_t(*)[1024]>(b);
     _tile_loadd(TMM6, b_[col_idx * 2], 64);
     if (!tail)
       _tile_loadd(TMM7, b_[col_idx * 2 + 1], 64);
@@ -123,23 +125,23 @@ template <int row_tile, int col_tile> struct qk_gemm_impl {
   }
 
   template <bool tail> inline static void dot_prod(void *c, int col_idx) {
-    auto c_ = reinterpret_cast<int(*)[col_tile][16][16]>(c);
+    auto c_ = reinterpret_cast<int (*)[col_tile][16][16]>(c);
 
     __tile_dpbssd<TMM0, TMM4, TMM6>();
     _tile_stored(TMM0, c_[0][col_idx * 2], 64);
 
     if (!tail) {
       __tile_dpbssd<TMM1, TMM4, TMM7>();
-      _tile_stored(TMM1, &c_[0][col_idx * 2 + 1], 64);
+      _tile_stored(TMM1, c_[0][col_idx * 2 + 1], 64);
     }
 
     if (row_tile == 2) {
       __tile_dpbssd<TMM2, TMM5, TMM6>();
-      _tile_stored(TMM2, c_[1][2*col_idx], 64);
+      _tile_stored(TMM2, c_[1][col_idx * 2], 64);
 
       if (!tail) {
         __tile_dpbssd<TMM3, TMM5, TMM7>();
-        _tile_stored(TMM3, c_[1][2*col_idx+1], 64);
+        _tile_stored(TMM3, c_[1][col_idx * 2 + 1], 64);
       }
     }
   }
