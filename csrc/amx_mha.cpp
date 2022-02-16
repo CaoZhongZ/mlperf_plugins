@@ -70,7 +70,7 @@ at::Tensor amx_mha(const at::Tensor &qkv, const at::Tensor &att_mask,
     return attention;
   }
 
-  auto in_prt =
+  auto in_ptr =
       reinterpret_cast<int8_t(*)[sl * stride]>(qkv.data_ptr());
   auto out_ptr = reinterpret_cast<int8_t(*)[sl * qkv_block]>(
       attention.data_ptr());
