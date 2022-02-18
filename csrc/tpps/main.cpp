@@ -1,4 +1,4 @@
-// #include "helper.hpp"
+#include "helper.hpp"
 #include "i_softmax_tpp.hpp"
 #include "transpose.hpp"
 #include <chrono>
@@ -7,6 +7,7 @@
 #include <iostream>
 
 #include "i_softmax_tpp.hpp"
+#include "i_linear_tpp.hpp"
 
 using Time = std::chrono::high_resolution_clock;
 
@@ -74,6 +75,16 @@ int main() {
           .count();
   std::cout << "100000 times tile softmax time : "
             << (float)during / 1000 / 1000 << " ms " << std::endl;
+
+  alignas(64) int8_t act[32 * 1024];
+  alignas(64) int8_t wei[256 * 256];
+  alignas(64) float bias[256];
+  alignas(64) int8_t out[32][64];
+  float scale = 2;
+  intel_mlperf::set_data_act((void*)act, 2);
+  intel_mlperf::set_data_wei((void*)wei, (void*)bias);
+
+  intel_mlperf::_tile_dot_product_16x256<2, 16>::compute((void*)out, (void*)act, (void*)wei, (float*)bias, scale, 0);
 
   return 0;
 }

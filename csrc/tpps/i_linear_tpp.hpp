@@ -29,10 +29,10 @@ struct _tile_dot_product_16x256 {
 
   inline static void dot_prod() {
     __tile_dpbssd<TMM0, TMM4, TMM6>();
-    if (n_tile == 2)
+    if (row_tile == 2)
       __tile_dpbssd<TMM2, TMM5, TMM6>();
     __tile_dpbssd<TMM1, TMM4, TMM7>();
-    if (n_tile == 2)
+    if (row_tile == 2)
       __tile_dpbssd<TMM3, TMM5, TMM7>();
   }
 
@@ -40,7 +40,7 @@ struct _tile_dot_product_16x256 {
     auto S_ = reinterpret_cast<int (*)[16][16]>(S);
     _tile_stored(TMM0, S_[0], 64);
     _tile_stored(TMM1, S_[1], 64);
-    if (n_tile == 2) {
+    if (row_tile == 2) {
       _tile_stored(TMM2, S_[2], 64);
       _tile_stored(TMM3, S_[3], 64);
     }
@@ -66,13 +66,13 @@ struct _tile_dot_product_16x256 {
     auto b2 = _mm512_loadu_ps(bias_[2]);
     auto b3 = _mm512_loadu_ps(bias_[3]);
 
-#   pragma unroll (n_tile)
-    for (int t = 0; t < n_tile; ++ t) {
+#   pragma unroll (row_tile)
+    for (int t = 0; t < row_tile; ++ t) {
       auto C_ = reinterpret_cast<int8_t (*)[4][16]>((int8_t *)C + c_block * t);
 
 #     pragma unroll (16)
       for (int i = 0; i < 16; ++ i) {
-        if (t == n_tile - 1 && i > 16 - rollback)
+        if (t == row_tile - 1 && i > 16 - rollback)
           break;
 
         auto i0 = _mm512_load_epi32(s_0[t][0][i]);
@@ -100,8 +100,8 @@ struct _tile_dot_product_16x256 {
 
   // Pure tile format
   inline static void compute(void *C, void *A, void *B, float *bias, float scale, size_t rollback = 0) {
-    alignas (64) int scratch_0[n_tile][2][16][16];
-    alignas (64) int scratch_1[n_tile][2][16][16];
+    alignas (64) int scratch_0[row_tile][2][16][16];
+    alignas (64) int scratch_1[row_tile][2][16][16];
 
     auto A_ = reinterpret_cast<int8_t (*)[16][64]>(A);
     auto B_ = reinterpret_cast<int8_t (*)[32][64]>(B);

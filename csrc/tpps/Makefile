@@ -12,4 +12,4 @@ libtpps.a : $(kernels:.cpp=.o)
 main : main.cpp
 
 clean :
-	rm -f *.a *.o
+	rm -f *.a *.o main

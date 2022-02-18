@@ -1,65 +1,92 @@
 #include "helper.hpp"
+#include <stdlib.h>
 
-namespace intel_mlperf {
-
-void print_int8_2Dmatrix(const int8_t* ptr, int row, int col, int stride)
+namespace intel_mlperf
 {
-    auto p = reinterpret_cast<const int8_t (*)[stride]>(ptr);
-    printf("---------------print int8 2D matrix------------------\n");
-    for (int i = 0; i < row; i++)
+
+void print_int8_2Dmatrix(const int8_t *ptr, int row, int col, int stride)
+{
+  auto p = reinterpret_cast<const int8_t(*)[stride]>(ptr);
+  printf("---------------print int8 2D matrix------------------\n");
+  for (int i = 0; i < row; i++)
+  {
+    for (int j = 0; j < col; j++)
     {
-        for (int j = 0; j < col; j++)
-        {
-            printf("%d\t", static_cast<int>(p[i][j]));
-        }
-        printf("\n");
+      printf("%d\t", static_cast<int>(p[i][j]));
     }
-    printf("---------------print int8 2D matrix------------------\n");
+    printf("\n");
+  }
+  printf("---------------print int8 2D matrix------------------\n");
 }
 
-void print_int32_2Dmatrix(const int* ptr, int row, int col, int stride)
+void print_int32_2Dmatrix(const int *ptr, int row, int col, int stride)
 {
-    auto p = reinterpret_cast<const int (*)[stride]>(ptr);
-    printf("---------------print int32 2D matrix------------------\n");
-    for (int i = 0; i < row; i++)
+  auto p = reinterpret_cast<const int(*)[stride]>(ptr);
+  printf("---------------print int32 2D matrix------------------\n");
+  for (int i = 0; i < row; i++)
+  {
+    for (int j = 0; j < col; j++)
     {
-        for (int j = 0; j < col; j++)
-        {
-            printf("%d\t", p[i][j]);
-        }
-        printf("\n");
+      printf("%d\t", p[i][j]);
     }
-    printf("---------------print int32 2D matrix------------------\n");
+    printf("\n");
+  }
+  printf("---------------print int32 2D matrix------------------\n");
 }
 
-void print_zero_pos_int32(const int* ptr, int row, int col, int stride)
+void print_zero_pos_int32(const int *ptr, int row, int col, int stride)
 {
-    printf("---------------print int32 zero pos------------------\n");
-    for (int i = 0; i < row; i++)
+  printf("---------------print int32 zero pos------------------\n");
+  for (int i = 0; i < row; i++)
+  {
+    for (int j = 0; j < col; j++)
     {
-        for (int j = 0; j < col; j++)
-        {
-            if (static_cast<int>(ptr[i*stride+j]) == 0) {
-                printf("[%d, %d]\n", i, j);
-            }
-        }
+      if (static_cast<int>(ptr[i * stride + j]) == 0)
+      {
+        printf("[%d, %d]\n", i, j);
+      }
     }
-    printf("---------------print int32 zero pos end------------------\n");
+  }
+  printf("---------------print int32 zero pos end------------------\n");
 }
 
-void print_zero_pos_int8(const int8_t* ptr, int row, int col, int stride)
+void print_zero_pos_int8(const int8_t *ptr, int row, int col, int stride)
 {
-    printf("---------------print int8 zero pos------------------\n");
-    for (int i = 0; i < row; i++)
+  printf("---------------print int8 zero pos------------------\n");
+  for (int i = 0; i < row; i++)
+  {
+    for (int j = 0; j < col; j++)
     {
-        for (int j = 0; j < col; j++)
-        {
-            if (ptr[i*stride+j] == 0) {
-                printf("[%d, %d]\n", i, j);
-            }
-        }
+      if (ptr[i * stride + j] == 0)
+      {
+        printf("[%d, %d]\n", i, j);
+      }
     }
-    printf("---------------print int8 zero pos end------------------\n");
+  }
+  printf("---------------print int8 zero pos end------------------\n");
+}
+
+void set_data_act(void *a, size_t n_tile)
+{
+  srand(1);
+  auto a_ = reinterpret_cast<int8_t (*)>(a);
+  size_t elenum = n_tile * 16 * 1024;
+  for (int i = 0; i < elenum; i++) {
+    a_[i] = (rand() % 0xff);
+  }
+}
+
+void set_data_wei(void *w, void* b) {
+  srand(2);
+  auto w_ = reinterpret_cast<int8_t (*)>(w);
+  size_t elenum = 256 * 256;
+  for (int i = 0; i < elenum; i++) {
+    w_[i] = (rand() % 0xff);
+  }
+  auto b_ = reinterpret_cast<float (*)>(b);
+  for (int i = 0; i < 256; i++) {
+    b_[i] = rand();
+  }
 }
 
 }
