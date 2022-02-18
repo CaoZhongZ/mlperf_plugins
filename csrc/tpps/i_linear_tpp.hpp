@@ -3,6 +3,8 @@
 #include <cstdlib>
 #include <immintrin.h>
 #include "amx_tdpbssd.hpp"
+#include "amx_config.hpp"
+#include "el_common_intrin.hpp"
 
 namespace intel_mlperf {
 
@@ -18,7 +20,7 @@ struct _tile_dot_product_16x256 {
     const size_t A_block = 16 * col_tile * 64;
 
     _tile_loadd(TMM4, A_, 64);
-    if (row_tile == 2) _tile_loadd(TMM5, A_ + A_block, 64);
+    if (row_tile == 2) _tile_loadd(TMM5, (int8_t*)A_ + A_block, 64);
   }
 
   inline static void load_B(void *B) {
@@ -75,25 +77,25 @@ struct _tile_dot_product_16x256 {
         if (t == row_tile - 1 && i > 16 - rollback)
           break;
 
-        auto i0 = _mm512_load_epi32(s_0[t][0][i]);
-        auto i1 = _mm512_load_epi32(s_0[t][1][i]);
-        auto i2 = _mm512_load_epi32(s_1[t][0][i]);
-        auto i3 = _mm512_load_epi32(s_1[t][1][i]);
+        auto i0 = _mm512_load_epi32(s_0_[t][0][i]);
+        auto i1 = _mm512_load_epi32(s_0_[t][1][i]);
+        auto i2 = _mm512_load_epi32(s_1_[t][0][i]);
+        auto i3 = _mm512_load_epi32(s_1_[t][1][i]);
 
         auto f0 = _mm512_cvtepi32_ps(i0) + b0;
         auto f1 = _mm512_cvtepi32_ps(i1) + b1;
         auto f2 = _mm512_cvtepi32_ps(i2) + b2;
         auto f3 = _mm512_cvtepi32_ps(i3) + b3;
 
-        auto o0 = _m512_scale_minmax_i8_ps(scale_, f0);
-        auto o1 = _m512_scale_minmax_i8_ps(scale_, f1);
-        auto o2 = _m512_scale_minmax_i8_ps(scale_, f2);
-        auto o3 = _m512_scale_minmax_i8_ps(scale_, f3);
+        auto o0 = _mm512_scale_minmax_i8_ps(scale_, f0);
+        auto o1 = _mm512_scale_minmax_i8_ps(scale_, f1);
+        auto o2 = _mm512_scale_minmax_i8_ps(scale_, f2);
+        auto o3 = _mm512_scale_minmax_i8_ps(scale_, f3);
 
-        _mm512_mask_cvtepi32_storeu_epi8(C_[i][0], o0);
-        _mm512_mask_cvtepi32_storeu_epi8(C_[i][1], o1);
-        _mm512_mask_cvtepi32_storeu_epi8(C_[i][2], o2);
-        _mm512_mask_cvtepi32_storeu_epi8(C_[i][3], o3);
+        _mm512_mask_cvtepi32_storeu_epi8(C_[i][0], 0xffff, o0);
+        _mm512_mask_cvtepi32_storeu_epi8(C_[i][1], 0xffff, o1);
+        _mm512_mask_cvtepi32_storeu_epi8(C_[i][2], 0xffff, o2);
+        _mm512_mask_cvtepi32_storeu_epi8(C_[i][3], 0xffff, o3);
       }
     }
   }

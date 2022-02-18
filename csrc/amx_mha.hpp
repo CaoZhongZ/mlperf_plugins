@@ -1,8 +1,4 @@
 #pragma once
-#include <asm/prctl.h>        /* Definition of ARCH_* constants */
-#include <sys/syscall.h>      /* Definition of SYS_* constants */
-#include <unistd.h>
-
 #include <torch/torch.h>
 
 namespace intel_mlperf {

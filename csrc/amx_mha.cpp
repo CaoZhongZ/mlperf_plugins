@@ -7,44 +7,9 @@
 
 #include "amx_mha.hpp"
 #include "i_mha_tpp.hpp"
-
-#define XFEATURE_XTILECFG 17
-#define XFEATURE_XTILEDATA 18
-#define XFEATURE_MASK_XTILECFG (1 << XFEATURE_XTILECFG)
-#define XFEATURE_MASK_XTILEDATA (1 << XFEATURE_XTILEDATA)
-#define XFEATURE_MASK_XTILE (XFEATURE_MASK_XTILECFG | XFEATURE_MASK_XTILEDATA)
-
-#define ARCH_GET_XCOMP_SUPP 0x1021
-#define ARCH_GET_XCOMP_PERM 0x1022
-#define ARCH_REQ_XCOMP_PERM 0x1023
-
-#define ARCH_MAP_VDSO_X32 0x2001
-#define ARCH_MAP_VDSO_32 0x2002
-#define ARCH_MAP_VDSO_64 0x2003
+#include "amx_config.hpp"
 
 namespace intel_mlperf {
-
-inline bool amx_init() {
-  unsigned long bitmask = 0;
-  long status = syscall(SYS_arch_prctl, ARCH_GET_XCOMP_PERM, &bitmask);
-  if (0 != status)
-    return false;
-  if (bitmask & XFEATURE_MASK_XTILEDATA)
-    return true;
-
-  status = syscall(SYS_arch_prctl, ARCH_REQ_XCOMP_PERM, XFEATURE_XTILEDATA);
-  if (0 != status)
-    return false; // XFEATURE_XTILEDATA setup is failed, TMUL usage is not
-                  // allowed
-  status = syscall(SYS_arch_prctl, ARCH_GET_XCOMP_PERM, &bitmask);
-
-  // XFEATURE_XTILEDATA setup is failed, can't use TMUL
-  if (0 != status || !(bitmask & XFEATURE_MASK_XTILEDATA))
-    return false;
-
-  // XFEATURE_XTILEDATA set successfully, TMUL usage is allowed
-  return true;
-}
 
 at::Tensor amx_mha(const at::Tensor &qkv, const at::Tensor &att_mask,
                    const at::Scalar &m1, const at::Scalar &oscale,
