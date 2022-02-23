@@ -23,7 +23,7 @@ struct _tile_dot_product_16x256 {
   }
 
   inline static void load_B(void *B) {
-    auto B_ = reinterpret_cast<int8_t (*)[16][64]>(B);
+    auto B_ = reinterpret_cast<int8_t (*)[16][16][64]>(B);
     _tile_loadd(TMM6, B_[0], 64);
     _tile_loadd(TMM7, B_[1], 64);
   }
@@ -105,7 +105,7 @@ struct _tile_dot_product_16x256 {
     alignas (64) int scratch_1[row_tile][2][16][16];
 
     auto A_ = reinterpret_cast<int8_t (*)[16][64]>(A);
-    auto B_ = reinterpret_cast<int8_t (*)[16][2][16][64]>(B);
+    auto B_ = reinterpret_cast<int8_t (*)[16][16][64]>(B);
 
     zero_accum();
 
@@ -122,7 +122,7 @@ struct _tile_dot_product_16x256 {
 #   pragma unroll (col_tile)
     for (int i = 0; i < col_tile; ++i) {
       load_A(A_[i]);
-      load_B(B_[1][i]);
+      load_B(B_[2][i]);
       dot_prod();
     }
 
@@ -245,13 +245,13 @@ struct _tile_dot_product_16x256 <3, col_tile> {
     alignas (64) int scratch_1[2][row_tile][16][16];
 
     auto A_ = reinterpret_cast<int8_t (*)[16][64]>(A);
-    auto B_ = reinterpret_cast<int8_t (*)[16][2][16][64]>(B);
+    auto B_ = reinterpret_cast<int8_t (*)[16][16][64]>(B);
 
     zero_accum();
 
 #   pragma unroll (col_tile)
     for (int i = 0; i < col_tile; ++i) {
-      dot_prod(A_[i], B_[0][i][0], i);
+      dot_prod(A_[i], B_[0][i], i);
     }
 
     store(scratch_0[0]);
@@ -259,7 +259,7 @@ struct _tile_dot_product_16x256 <3, col_tile> {
 
 #   pragma unroll (col_tile)
     for (int i = 0; i < col_tile; ++i) {
-      dot_prod(A_[i], B_[0][i][1], i);
+      dot_prod(A_[i], B_[1][i], i);
     }
 
     store(scratch_0[1]);
@@ -267,7 +267,7 @@ struct _tile_dot_product_16x256 <3, col_tile> {
 
 #   pragma unroll (col_tile)
     for (int i = 0; i < col_tile; ++i) {
-      dot_prod(A_[i], B_[1][i][0], i);
+      dot_prod(A_[i], B_[2][i], i);
     }
 
     store(scratch_1[0]);
@@ -275,7 +275,7 @@ struct _tile_dot_product_16x256 <3, col_tile> {
 
 #   pragma unroll (col_tile)
     for (int i = 0; i < col_tile; ++i) {
-      dot_prod(A_[i], B_[1][i][1], i);
+      dot_prod(A_[i], B_[3][i], i);
     }
 
     store(scratch_1[1]);

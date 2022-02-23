@@ -119,18 +119,16 @@ void send_data2naive(void* a, void* b, void* na, void* nb, int row_tile) {
     }
   }
 
-  auto b_ = reinterpret_cast<int8_t (*)[16][2][16][64]>(b);
+  auto b_ = reinterpret_cast<int8_t (*)[16][16][64]>(b);
   auto nb_ = reinterpret_cast<int (*)[64]>(nb);
 
-  for (int i = 0; i < 2; i++) {
+  for (int i = 0; i < 4; i++) {
     for (int j = 0; j < 16; j++) {
-      for (int k = 0; k < 2; k++) {
-        for (int m = 0; m < 16; m++) {
-          for (int n = 0; n < 64; n++) {
-            auto row_offset = n % 4;
-            auto col_offset = n / 4;
-            nb_[j * 64 + m * 4 + row_offset][i * 32 + k * 16 + col_offset] = static_cast<int>(b_[i][j][k][m][n]);
-          }
+      for (int k = 0; k < 16; k++) {
+        for (int m = 0; m < 64; m++) {
+          auto row_offset = m % 4;
+          auto col_offset = m / 4;
+          nb_[j * 64 + k * 4 + row_offset][i * 16 + col_offset] = static_cast<int>(b_[i][j][k][m]);
         }
       }
     }
@@ -153,7 +151,7 @@ void test_accuracy_linear(int row_tile) {
   send_data2naive(act, wei, nact, nwei, row_tile);
   auto act_ = reinterpret_cast<int8_t (*)[16][16][64]>(act);
   auto nact_ = reinterpret_cast<int (*)[1024]>(nact);
-  auto wei_ = reinterpret_cast<int8_t (*)[16][2][16][64]>(wei);
+  auto wei_ = reinterpret_cast<int8_t (*)[16][16][64]>(wei);
   auto nwei_ = reinterpret_cast<int (*)[64]>(nwei);
 
   // for (int i = 0; i < row_tile; i++) {
@@ -171,18 +169,16 @@ void test_accuracy_linear(int row_tile) {
   // printf("compare act done!\n");
   // getchar();
 
-  // for (int i = 0; i < 2; i++) {
+  // for (int i = 0; i < 4; i++) {
   //   for (int j = 0; j < 16; j++) {
-  //     for (int k = 0; k < 2; k++) {
-  //       intel_mlperf::compare_naive_weight(&nwei_[j * 64][i * 32 + k * 16], (int8_t*)wei_[i][j][k], 16, 64, 64, 64);
-  //       getchar();
-  //       std::cout << "weight show: int8_t" << std::endl;
-  //       intel_mlperf::print_2d_matrix<int8_t>((int8_t*)wei_[i][j][k], 16, 64, 64);
-  //       getchar();
-  //       std::cout << "weight show int" << std::endl;
-  //       intel_mlperf::print_2d_matrix<int>((int*)&nwei_[j * 64][i * 32 + k * 16], 64, 16, 64);
-  //       getchar();
-  //     }
+  //     intel_mlperf::compare_naive_weight(&nwei_[j * 64][i * 16], (int8_t*)wei_[i][j], 16, 64, 64, 64);
+  //     getchar();
+  //     std::cout << "weight show: int8_t" << std::endl;
+  //     intel_mlperf::print_2d_matrix<int8_t>((int8_t*)wei_[i][j], 16, 64, 64);
+  //     getchar();
+  //     std::cout << "weight show int" << std::endl;
+  //     intel_mlperf::print_2d_matrix<int>((int*)&nwei_[j * 64][i * 16], 64, 16, 64);
+  //     getchar();
   //   }
   // }
   // printf("compare wei done!\n");
@@ -206,7 +202,6 @@ void test_accuracy_linear(int row_tile) {
   auto nout_ = reinterpret_cast<int (*)[64]>(nout);
   for (int i = 0; i < row_tile; i++) {
     intel_mlperf::compare_naive_output(&nout_[i * 16][0], (int8_t*)out_[i], 16, 64, 64, 64);
-    getchar();
   } 
 
   // start performance test
