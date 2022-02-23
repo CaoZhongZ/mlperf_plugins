@@ -23,7 +23,7 @@ inline void print_2d_matrix(const T *ptr, int row, int col, int stride)
   {
     for (int j = 0; j < col; j++)
     {
-      printf("%d\t", static_cast<int>(p[i][j]));
+      printf("%d\t", static_cast<const int>(p[i][j]));
     }
     printf("\n");
   }
@@ -46,6 +46,22 @@ inline void print_2d_matrix(const uint8_t *ptr, int row, int col, int stride)
   printf("---------------print 2d matrix------------------\n");
 }
 
+template <>
+inline void print_2d_matrix(const float *ptr, int row, int col, int stride)
+{
+  auto p = reinterpret_cast<const float(*)[stride]>(ptr);
+  printf("---------------print 2d matrix------------------\n");
+  for (int i = 0; i < row; i++)
+  {
+    for (int j = 0; j < col; j++)
+    {
+      printf("%.0f\t", (p[i][j]));
+    }
+    printf("\n");
+  }
+  printf("---------------print 2d matrix------------------\n");
+}
+
 template <class T>
 inline void compare_matrix(const T *a, const T *b, int row, int col, int lda, int ldb)
 {
@@ -57,6 +73,60 @@ inline void compare_matrix(const T *a, const T *b, int row, int col, int lda, in
     for (int j = 0; j < col; j++)
     {
       auto re = a_[i][j] - b_[i][j];
+      if (re != 0)
+      {
+        printf("(%d, %d) %d <--> %d\n", i, j, a_[i][j], b_[i][j]);
+      }
+    }
+  }
+  printf("---------------compare 2d matrix end------------------\n");
+}
+
+void compare_naive_input(int* a, int8_t* b, int row, int col, int lda, int ldb) {
+  auto a_ = reinterpret_cast<int (*)[lda]>(a);
+  auto b_ = reinterpret_cast<int8_t (*)[ldb]>(b);
+  printf("---------------compare 2d matrix------------------\n");
+  for (int i = 0; i < row; i++)
+  {
+    for (int j = 0; j < col; j++)
+    {
+      auto re = static_cast<int8_t>(a_[i][j]) - b_[i][j];
+      if (re != 0)
+      {
+        printf("(%d, %d) %d <--> %d\n", i, j, a_[i][j], b_[i][j]);
+      }
+    }
+  }
+  printf("---------------compare 2d matrix end------------------\n");
+}
+
+void compare_naive_weight(int* a, int8_t* b, int row, int col, int lda, int ldb) {
+  auto a_ = reinterpret_cast<int (*)[lda]>(a);
+  auto b_ = reinterpret_cast<int8_t (*)[ldb]>(b);
+  printf("---------------compare 2d matrix------------------\n");
+  for (int i = 0; i < row; i++)
+  {
+    for (int j = 0; j < col; j++)
+    {
+      auto re = b_[i][j] - static_cast<int8_t>(a_[i * 4 + j % 4][j / 4]);
+      if (re != 0)
+      {
+        printf("(%d, %d) %d <--> %d\n", i, j, a_[i][j], b_[i][j]);
+      }
+    }
+  }
+  printf("---------------compare 2d matrix end------------------\n");
+}
+
+void compare_naive_output(int* a, int8_t* b, int row, int col, int lda, int ldb) {
+  auto a_ = reinterpret_cast<int (*)[lda]>(a);
+  auto b_ = reinterpret_cast<int8_t (*)[ldb]>(b);
+  printf("---------------compare 2d matrix------------------\n");
+  for (int i = 0; i < row; i++)
+  {
+    for (int j = 0; j < col; j++)
+    {
+      auto re = b_[i][j] - static_cast<int8_t>(a_[i][j]);
       if (re != 0)
       {
         printf("(%d, %d) %d <--> %d\n", i, j, a_[i][j], b_[i][j]);
