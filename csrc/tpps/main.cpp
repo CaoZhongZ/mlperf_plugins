@@ -53,16 +53,21 @@ void set_data_wei(void *w, void* b) {
   }
 }
 
-void test_accuracy_linear();
+void test_accuracy_linear(int row_tile);
 
 static constexpr size_t cols = 384;
 static constexpr size_t rows = 16;
 static constexpr int qmax = 127.0;
 static constexpr int qmin = -127.0;
 
-int main() {
-  std::cout << "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++" << std::endl;
-  test_accuracy_linear();
+int main(int argc, char* argv[]) {
+  int row_tile = 2;
+  if (argc == 2) {
+    row_tile = std::atoi(argv[1]);
+  }
+  std::cout << "++++++++++++++++++++++++++ row_tile = "<< row_tile << " ++++++++++++++++++++++++++++++++++++" << std::endl;
+  
+  test_accuracy_linear(row_tile);
   return 0;
 }
 
@@ -132,26 +137,26 @@ void send_data2naive(void* a, void* b, void* na, void* nb, int row_tile) {
   }
 }
 
-void test_accuracy_linear() {
-  alignas(64) int8_t act[32 * 1024];
+void test_accuracy_linear(int row_tile) {
+  alignas(64) int8_t act[row_tile * 16 * 1024];
   alignas(64) int8_t wei[256 * 256];
-  alignas(64) int nact[32 * 1024];
+  alignas(64) int nact[row_tile * 16 * 1024];
   alignas(64) int nwei[1024 * 64];
   
   alignas(64) float bias[64];
-  alignas(64) int8_t out[32][64];
-  alignas(64) int nout[32 * 64];
+  alignas(64) int8_t out[row_tile * 16][64];
+  alignas(64) int nout[row_tile * 16 * 64];
   float scale = 0.0018;
-  set_data_act(act, 2);
+  set_data_act(act, row_tile);
   set_data_wei(wei, bias);
 
-  send_data2naive(act, wei, nact, nwei, 2);
+  send_data2naive(act, wei, nact, nwei, row_tile);
   auto act_ = reinterpret_cast<int8_t (*)[16][16][64]>(act);
   auto nact_ = reinterpret_cast<int (*)[1024]>(nact);
   auto wei_ = reinterpret_cast<int8_t (*)[16][2][16][64]>(wei);
   auto nwei_ = reinterpret_cast<int (*)[64]>(nwei);
 
-  // for (int i = 0; i < 2; i++) {
+  // for (int i = 0; i < row_tile; i++) {
   //   for (int j = 0; j < 16; j++) {
   //     intel_mlperf::compare_naive_input(&nact_[i * 16][j * 64], (int8_t*)act_[i][j], 16, 64, 1024, 64);
   //     getchar();
@@ -186,20 +191,47 @@ void test_accuracy_linear() {
   intel_mlperf::amx_init();
   intel_mlperf::Tilecfg().set_config();
 
-  naive_linear(nact, nwei, nout, bias, scale, 2);
-  intel_mlperf::_tile_dot_product_16x256<2, 16>::compute(out, act, wei, bias, scale, 0);
+  naive_linear(nact, nwei, nout, bias, scale, row_tile);
+  switch (row_tile) {
+  case (2):
+    intel_mlperf::_tile_dot_product_16x256<2, 16>::compute(out, act, wei, bias, scale, 0);
+    break;
+  case (3):
+    intel_mlperf::_tile_dot_product_16x256<3, 16>::compute(out, act, wei, bias, scale, 0);
+    break;
+  }
 
   printf("++++++++++++++++compare out and nout : +++++++++++++++++++++\n");
   auto out_ = reinterpret_cast<int8_t (*)[16][64]>(out);
   auto nout_ = reinterpret_cast<int (*)[64]>(nout);
-  for (int i = 0; i < 2; i++) {
+  for (int i = 0; i < row_tile; i++) {
     intel_mlperf::compare_naive_output(&nout_[i * 16][0], (int8_t*)out_[i], 16, 64, 64, 64);
     getchar();
   } 
 
+  // start performance test
+  for (int i = 0; i < 100; i++) {
+    switch (row_tile) {
+    case (2):
+      intel_mlperf::_tile_dot_product_16x256<2, 16>::compute(out, act, wei, bias, scale, 0);
+      break;
+    case (3):
+      intel_mlperf::_tile_dot_product_16x256<3, 16>::compute(out, act, wei, bias, scale, 0);
+      break;
+    }
+  }
+  
+
   auto lstart = Time::now();
   for (int i = 0; i < 100000; i++) {
-    intel_mlperf::_tile_dot_product_16x256<2, 16>::compute(out, act, wei, bias, scale, 0);
+    switch (row_tile) {
+    case (2):
+      intel_mlperf::_tile_dot_product_16x256<2, 16>::compute(out, act, wei, bias, scale, 0);
+      break;
+    case (3):
+      intel_mlperf::_tile_dot_product_16x256<3, 16>::compute(out, act, wei, bias, scale, 0);
+      break;
+    }
   }
   auto lduring =
       std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - lstart)
