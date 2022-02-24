@@ -16,14 +16,14 @@ struct _tile_dot_product_16x256 {
   static constexpr size_t cache_footprint = A_footprint + B_footprint;
 
   inline static void load_A(void *A) {
-    auto A_ = reinterpret_cast<int8_t (*)[16][16][64]>(A);
+    auto A_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(A);
 
     _tile_loadd(TMM4, A_[0], 64);
     if (row_tile == 2) _tile_loadd(TMM5, A_[1], 64);
   }
 
   inline static void load_B(void *B) {
-    auto B_ = reinterpret_cast<int8_t (*)[16][16][64]>(B);
+    auto B_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(B);
     _tile_loadd(TMM6, B_[0], 64);
     _tile_loadd(TMM7, B_[1], 64);
   }
@@ -54,7 +54,7 @@ struct _tile_dot_product_16x256 {
     _tile_zero(TMM3);
   }
 
-  inline static void quant_out(void *C, void *s_0, void *s_1, float *bias, float scale, size_t rollback) {
+  inline static void quant_out(void *C, void *s_0, void *s_1, float *bias, float scale) {
     auto s_0_ = reinterpret_cast<int (*)[2][16][16]>(s_0);
     auto s_1_ = reinterpret_cast<int (*)[2][16][16]>(s_1);
 
@@ -73,9 +73,6 @@ struct _tile_dot_product_16x256 {
 
       #pragma unroll (16)
       for (int i = 0; i < 16; ++ i) {
-        if (t == row_tile - 1 && i > 16 - rollback)
-          break;
-
         auto i0 = _mm512_load_epi32(s_0_[t][0][i]);
         auto i1 = _mm512_load_epi32(s_0_[t][1][i]);
         auto i2 = _mm512_load_epi32(s_1_[t][0][i]);
@@ -100,12 +97,12 @@ struct _tile_dot_product_16x256 {
   }
 
   // Pure tile format
-  inline static void compute(void *C, void *A, void *B, float *bias, float scale, size_t rollback = 0) {
+  inline static void compute(void *C, void *A, void *B, float *bias, float scale) {
     alignas (64) int scratch_0[row_tile][2][16][16];
     alignas (64) int scratch_1[row_tile][2][16][16];
 
     auto A_ = reinterpret_cast<int8_t (*)[16][64]>(A);
-    auto B_ = reinterpret_cast<int8_t (*)[16][16][64]>(B);
+    auto B_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(B);
 
     zero_accum();
 
@@ -127,7 +124,7 @@ struct _tile_dot_product_16x256 {
     }
 
     store(scratch_1);
-    quant_out(C, scratch_0, scratch_1, bias, scale, rollback);
+    quant_out(C, scratch_0, scratch_1, bias, scale);
   }
 };
 
@@ -139,7 +136,7 @@ struct _tile_dot_product_16x256 <3, col_tile> {
   static constexpr size_t cache_footprint = A_footprint + B_footprint;
 
   inline static void load_A(void *A) {
-    auto A_ = reinterpret_cast<int8_t (*)[16][16][64]>(A);
+    auto A_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(A);
 
     _tile_loadd(TMM4, A_[0], 64);
     _tile_loadd(TMM5, A_[1], 64);
@@ -158,7 +155,7 @@ struct _tile_dot_product_16x256 <3, col_tile> {
 
   // This version is with A/B tile interleaving
   inline static void dot_prod(void *A, void *B, int index) {
-    auto A_ = reinterpret_cast<int8_t (*)[16][16][64]>(A);
+    auto A_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(A);
 
     if (index % 2 == 0) {
       _tile_loadd(TMM7, B, 64);
@@ -195,7 +192,7 @@ struct _tile_dot_product_16x256 <3, col_tile> {
     _tile_zero(TMM2);
   }
 
-  inline static void quant_out(void *C, void *s_0, void *s_1, float *bias, float scale, size_t rollback) {
+  inline static void quant_out(void *C, void *s_0, void *s_1, float *bias, float scale) {
     auto s_0_ = reinterpret_cast<int (*)[row_tile][16][16]>(s_0);
     auto s_1_ = reinterpret_cast<int (*)[row_tile][16][16]>(s_1);
 
@@ -213,9 +210,6 @@ struct _tile_dot_product_16x256 <3, col_tile> {
     for (int t = 0; t < row_tile; ++ t) {
 #     pragma unroll (16)
       for (int i = 0; i < 16; ++ i) {
-        if (t == row_tile - 1 && i > 16 - rollback)
-          break;
-
         auto i0 = _mm512_load_epi32(s_0_[0][t][i]);
         auto i1 = _mm512_load_epi32(s_0_[1][t][i]);
         auto i2 = _mm512_load_epi32(s_1_[0][t][i]);
@@ -240,12 +234,12 @@ struct _tile_dot_product_16x256 <3, col_tile> {
   }
 
   // Pure tile format
-  inline static void compute(void *C, void *A, void *B, float *bias, float scale, size_t rollback = 0) {
+  inline static void compute(void *C, void *A, void *B, float *bias, float scale) {
     alignas (64) int scratch_0[2][row_tile][16][16];
     alignas (64) int scratch_1[2][row_tile][16][16];
 
     auto A_ = reinterpret_cast<int8_t (*)[16][64]>(A);
-    auto B_ = reinterpret_cast<int8_t (*)[16][16][64]>(B);
+    auto B_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(B);
 
     zero_accum();
 
@@ -279,8 +273,18 @@ struct _tile_dot_product_16x256 <3, col_tile> {
     }
 
     store(scratch_1[1]);
-    quant_out(C, scratch_0, scratch_1, bias, scale, rollback);
+    quant_out(C, scratch_0, scratch_1, bias, scale);
   }
+};
+
+class block_gemm224 {
+public:
+  block_gemm224(size_t dim0, size_t dim1, size_t dim2)
+      : dim0(dim0), dim1(dim1), dim2(dim2) {};
+
+  void ref(void* output, void* input, void* weight, void* bias, float scale);
+protected:
+  size_t dim0, dim1, dim2;
 };
 
 }

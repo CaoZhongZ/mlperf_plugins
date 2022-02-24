@@ -36,10 +36,10 @@ add_subdirectory(onednn)
 # Intel OpenMP denpendency
 
 # Bert Torch inference SUT
-set(tpps_src csrc/tpps/i_softmax_tpp.cpp csrc/tpps/i_gelu_tpp.cpp
-  csrc/tpps/i_layernorm_tpp.cpp csrc/tpps/i_mha_tpp.cpp)
+set(tpps_src csrc/tpps/i_softmax_tpp.cpp csrc/tpps/i_gelu_tpp.cpp csrc/tpps/i_linear_tpp.cpp
+  csrc/tpps/i_layernorm_tpp.cpp csrc/tpps/i_mha_tpp.cpp csrc/tpps/amx_config.cpp)
 set(plugin_src csrc/init.cpp csrc/linear.cpp csrc/cpu.cpp csrc/softmax.cpp
-  csrc/amx_mha.cpp csrc/activation.cpp csrc/normalization.cpp)
+  csrc/amx_mha.cpp csrc/amx_linear.cpp csrc/activation.cpp csrc/normalization.cpp)
 
 if (BUILD_TPPS_INTREE)
   list(APPEND plugin_src ${tpps_src})

@@ -215,10 +215,10 @@ void test_accuracy_linear(int row_tile) {
       break;
     }
   }
-  
-
+   
+  int count = row_tile == 2 ? 300000 : 200000;
   auto lstart = Time::now();
-  for (int i = 0; i < 100000; i++) {
+  for (int i = 0; i < count; i++) {
     switch (row_tile) {
     case (2):
       intel_mlperf::_tile_dot_product_16x256<2, 16>::compute(out, act, wei, bias, scale, 0);
@@ -231,7 +231,7 @@ void test_accuracy_linear(int row_tile) {
   auto lduring =
       std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - lstart)
           .count();
-  std::cout << "100000 times tile linear time : "
+  std::cout << count  << " times tile linear time : "
             << (float)lduring / 1000 / 1000 << " ms " << std::endl;
-  std::cout << "single linear time : " << (float)lduring / 100000 << " ns" << std::endl;
+  std::cout << "single linear time : " << (float)lduring / count << " ns" << std::endl;
 }
