@@ -3,5 +3,6 @@ __pycache__
 csrc/*.bk
 csrc/tpps/*.bk
 csrc/tpps/*.a
-csrc/tpps/main
+csrc/tpps/xxx.exe
+csrc/tpps/*.o
 

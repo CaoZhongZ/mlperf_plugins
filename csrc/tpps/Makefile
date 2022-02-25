@@ -1,18 +1,30 @@
 # CXX=icpc
 # CXXFLAGS=-fPIC -fopenmp -xHOST -fma -O3 -std=c++14 -Wall -Dusercp
 
-CXX=g++
-CXXFLAGS=-fPIC -fopenmp -march=native -mfma -O3 -std=c++14 -Wall -Dusercp
+CXX = g++
+CXXFLAGS = -fPIC -fopenmp -march=native -mfma -O3 -std=c++14 -Wall -Dusercp
 
-kernels=i_gelu_tpp.cpp i_layernorm_tpp.cpp i_mha_tpp.cpp i_softmax_tpp.cpp i_gelu_tpp.hpp \
-				i_layernorm_tpp.hpp i_mha_tpp.hpp  i_softmax_tpp.hpp i_linear_tpp.hpp
+SRCS = main.cpp i_gelu_tpp.cpp i_layernorm_tpp.cpp i_mha_tpp.cpp i_softmax_tpp.cpp helper.cpp amx_config.cpp i_linear_tpp.cpp
 
-all : libtpps.a
+OBJS = $(SRCS:.cpp=.o)
 
-libtpps.a : $(kernels:.cpp=.o)
-	ar rcs $@ $^
+MAIN = xxx.exe
 
-main : main.cpp
+.PHONY: depend clean
+
+all: $(MAIN)
+	@echo Simple compiler name xxx.exe has benn compiled
+$(MAIN): $(OBJS)
+	$(CXX) $(CXXFLAGS) -o $(MAIN) $(OBJS)
+
+# libtpps.a : $(kernels:.cpp=.o)
+# 	ar rcs $@ $^
+
+.cpp.o:
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean :
-	rm -f *.a *.o main
+	$(RM) *.o *~ $(MAIN)
+
+# depend: $(SRCS)
+# 	makedepend $(INCLUDES) $^

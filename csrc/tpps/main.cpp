@@ -190,10 +190,10 @@ void test_accuracy_linear(int row_tile) {
   naive_linear(nact, nwei, nout, bias, scale, row_tile);
   switch (row_tile) {
   case (2):
-    intel_mlperf::_tile_dot_product_16x256<2, 16>::compute(out, act, wei, bias, scale, 0);
+    intel_mlperf::_tile_dot_product_16x256<2, 16>::compute(out, act, wei, bias, scale);
     break;
   case (3):
-    intel_mlperf::_tile_dot_product_16x256<3, 16>::compute(out, act, wei, bias, scale, 0);
+    intel_mlperf::_tile_dot_product_16x256<3, 16>::compute(out, act, wei, bias, scale);
     break;
   }
 
@@ -208,10 +208,10 @@ void test_accuracy_linear(int row_tile) {
   for (int i = 0; i < 100; i++) {
     switch (row_tile) {
     case (2):
-      intel_mlperf::_tile_dot_product_16x256<2, 16>::compute(out, act, wei, bias, scale, 0);
+      intel_mlperf::_tile_dot_product_16x256<2, 16>::compute(out, act, wei, bias, scale);
       break;
     case (3):
-      intel_mlperf::_tile_dot_product_16x256<3, 16>::compute(out, act, wei, bias, scale, 0);
+      intel_mlperf::_tile_dot_product_16x256<3, 16>::compute(out, act, wei, bias, scale);
       break;
     }
   }
@@ -221,10 +221,10 @@ void test_accuracy_linear(int row_tile) {
   for (int i = 0; i < count; i++) {
     switch (row_tile) {
     case (2):
-      intel_mlperf::_tile_dot_product_16x256<2, 16>::compute(out, act, wei, bias, scale, 0);
+      intel_mlperf::_tile_dot_product_16x256<2, 16>::compute(out, act, wei, bias, scale);
       break;
     case (3):
-      intel_mlperf::_tile_dot_product_16x256<3, 16>::compute(out, act, wei, bias, scale, 0);
+      intel_mlperf::_tile_dot_product_16x256<3, 16>::compute(out, act, wei, bias, scale);
       break;
     }
   }
