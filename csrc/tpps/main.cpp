@@ -195,6 +195,9 @@ void test_accuracy_linear(int row_tile) {
   case (3):
     intel_mlperf::_tile_dot_product_16x256<3, 16>::compute(out, act, wei, bias, scale);
     break;
+  case (4):
+    intel_mlperf::_tile_dot_product_16x256<4, 16>::compute(out, act, wei, bias, scale);
+    break;
   }
 
   printf("++++++++++++++++compare out and nout : +++++++++++++++++++++\n");
@@ -213,10 +216,13 @@ void test_accuracy_linear(int row_tile) {
     case (3):
       intel_mlperf::_tile_dot_product_16x256<3, 16>::compute(out, act, wei, bias, scale);
       break;
+    case (4):
+      intel_mlperf::_tile_dot_product_16x256<4, 16>::compute(out, act, wei, bias, scale);
+      break;
     }
   }
    
-  int count = row_tile == 2 ? 300000 : 200000;
+  int count = 100000;
   auto lstart = Time::now();
   for (int i = 0; i < count; i++) {
     switch (row_tile) {
@@ -225,6 +231,9 @@ void test_accuracy_linear(int row_tile) {
       break;
     case (3):
       intel_mlperf::_tile_dot_product_16x256<3, 16>::compute(out, act, wei, bias, scale);
+      break;
+    case (4):
+      intel_mlperf::_tile_dot_product_16x256<4, 16>::compute(out, act, wei, bias, scale);
       break;
     }
   }

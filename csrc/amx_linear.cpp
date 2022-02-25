@@ -45,7 +45,7 @@ at::Tensor amx_linear(
   size_t dim0 = i_row_bn * 16;
   size_t dim1 = i_col_bn * 64;
   size_t dim2 = w_col_bn * 64;
-  block_gemm224 gemm_compute(dim0, dim1, dim2);
+  block_gemm<4> gemm_compute(dim0, dim1, dim2);
 
   for (size_t i = 0; i < bs; i++) {
     gemm_compute.ref(output_[i], input_[i], weight_, bias_, scale_);

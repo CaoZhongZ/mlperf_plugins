@@ -2,12 +2,13 @@
 
 namespace intel_mlperf {
 
-void block_gemm224::ref(void* output, void* input, void* weight, void* bias, float scale) {
+template<int row_tile>
+void block_gemm<row_tile>::ref(void* output, void* input, void* weight, void* bias, float scale) {
   // suppose input is padding to 16x and have tile formate
   size_t row_block = 16;
   size_t block_num = (dim0 + 15) / 16;
-  size_t remainder = block_num % 2;
-  size_t row_step = block_num / 2 - remainder;
+  size_t remainder = block_num % row_tile;
+  size_t row_step = block_num / row_tile;
 
   size_t col_tile = dim1 / 64;
   size_t col_step = dim2 * 16 / dim1;
@@ -18,8 +19,32 @@ void block_gemm224::ref(void* output, void* input, void* weight, void* bias, flo
   size_t i = 0;
   for (i; i < row_step; i++) {
     for (size_t j = 0; j < col_step; j++) {
-      _tile_dot_product_16x256<2, 16>::compute(output_[i * 2][j], input_[i * 2], weight_[j], bias_[j], scale);
+      _tile_dot_product_16x256<row_tile, 16>::compute(
+        output_[i * row_tile][j], input_[i * row_tile], weight_[j], bias_[j], scale);
     }
+  }
+  i++;
+  switch (remainder) {
+  case (1):
+    for (size_t j = 0; j < col_step; j++) {
+      _tile_dot_product_16x256<1, 16>::compute(
+        output_[i * row_tile][j], input_[i * row_tile], weight_[j], bias_[j], scale);
+    }
+    break;
+  case (2):
+    for (size_t j = 0; j < col_step; j++) {
+      _tile_dot_product_16x256<2, 16>::compute(
+        output_[i * row_tile][j], input_[i * row_tile], weight_[j], bias_[j], scale);
+    }
+    break;
+  case (3):
+    for (size_t j = 0; j < col_step; j++) {
+      _tile_dot_product_16x256<3, 16>::compute(
+        output_[i * row_tile][j], input_[i * row_tile], weight_[j], bias_[j], scale);
+    }
+    break;
+  default:
+    break;
   }
   if (remainder == 1) {
     for (size_t j = 0; j < col_step; j++) {
@@ -27,5 +52,9 @@ void block_gemm224::ref(void* output, void* input, void* weight, void* bias, flo
     }
   }
 }
+
+template void block_gemm<2>::ref(void* output, void* input, void* weight, void* bias, float scale);
+template void block_gemm<3>::ref(void* output, void* input, void* weight, void* bias, float scale);
+template void block_gemm<4>::ref(void* output, void* input, void* weight, void* bias, float scale);
 
 }
