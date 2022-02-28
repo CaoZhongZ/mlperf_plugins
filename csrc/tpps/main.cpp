@@ -154,36 +154,6 @@ void test_accuracy_linear(int row_tile) {
   auto wei_ = reinterpret_cast<int8_t (*)[16][16][64]>(wei);
   auto nwei_ = reinterpret_cast<int (*)[64]>(nwei);
 
-  // for (int i = 0; i < row_tile; i++) {
-  //   for (int j = 0; j < 16; j++) {
-  //     intel_mlperf::compare_naive_input(&nact_[i * 16][j * 64], (int8_t*)act_[i][j], 16, 64, 1024, 64);
-  //     getchar();
-  //     std::cout << "input show: int8" << std::endl;
-  //     intel_mlperf::print_2d_matrix<int8_t>((int8_t*)act_[i][j], 16, 16, 64);
-  //     getchar();
-  //     std::cout << "input show: int" << std::endl;
-  //     intel_mlperf::print_2d_matrix<int>(&nact_[i * 16][j * 64], 16, 16, 1024);
-  //     getchar();
-  //   }
-  // }
-  // printf("compare act done!\n");
-  // getchar();
-
-  // for (int i = 0; i < 4; i++) {
-  //   for (int j = 0; j < 16; j++) {
-  //     intel_mlperf::compare_naive_weight(&nwei_[j * 64][i * 16], (int8_t*)wei_[i][j], 16, 64, 64, 64);
-  //     getchar();
-  //     std::cout << "weight show: int8_t" << std::endl;
-  //     intel_mlperf::print_2d_matrix<int8_t>((int8_t*)wei_[i][j], 16, 64, 64);
-  //     getchar();
-  //     std::cout << "weight show int" << std::endl;
-  //     intel_mlperf::print_2d_matrix<int>((int*)&nwei_[j * 64][i * 16], 64, 16, 64);
-  //     getchar();
-  //   }
-  // }
-  // printf("compare wei done!\n");
-  // getchar();
-
   intel_mlperf::amx_init();
   intel_mlperf::Tilecfg().set_config();
 
@@ -197,6 +167,12 @@ void test_accuracy_linear(int row_tile) {
     break;
   case (4):
     intel_mlperf::_tile_dot_product_16x256<4, 16>::compute(out, act, wei, bias, scale);
+    break;
+  case (5):
+    intel_mlperf::_tile_dot_product_16x256<5, 16>::compute(out, act, wei, bias, scale);
+    break;
+  case (6):
+    intel_mlperf::_tile_dot_product_16x256<6, 16>::compute(out, act, wei, bias, scale);
     break;
   }
 
@@ -219,6 +195,12 @@ void test_accuracy_linear(int row_tile) {
     case (4):
       intel_mlperf::_tile_dot_product_16x256<4, 16>::compute(out, act, wei, bias, scale);
       break;
+    case (5):
+      intel_mlperf::_tile_dot_product_16x256<5, 16>::compute(out, act, wei, bias, scale);
+      break;
+    case (6):
+      intel_mlperf::_tile_dot_product_16x256<6, 16>::compute(out, act, wei, bias, scale);
+      break;
     }
   }
    
@@ -235,6 +217,12 @@ void test_accuracy_linear(int row_tile) {
     case (4):
       intel_mlperf::_tile_dot_product_16x256<4, 16>::compute(out, act, wei, bias, scale);
       break;
+    case (5):
+      intel_mlperf::_tile_dot_product_16x256<5, 16>::compute(out, act, wei, bias, scale);
+      break;
+    case (6):
+      intel_mlperf::_tile_dot_product_16x256<6, 16>::compute(out, act, wei, bias, scale);
+      break;
     }
   }
   auto lduring =
@@ -243,4 +231,57 @@ void test_accuracy_linear(int row_tile) {
   std::cout << count  << " times tile linear time : "
             << (float)lduring / 1000 / 1000 << " ms " << std::endl;
   std::cout << "single linear time : " << (float)lduring / count << " ns" << std::endl;
+
+  alignas(64) int8_t whole_weight[16][256][256];
+  alignas(64) float whole_bias[16][64];
+  for (int i = 0; i < 16; i++) {
+    set_data_wei(whole_weight[i], whole_bias[i]);
+  }
+
+  const int total_tile = 24;
+  alignas(64) int8_t tile_input[total_tile][16][1024];
+  set_data_act(tile_input, total_tile);
+
+  alignas(64) int8_t tile_output[total_tile][16][16][64];
+
+  int total_count = 100;
+  auto whole_start = Time::now();
+  for (int c = 0; c < total_count; c++) {
+    for (int i = 0; i < 16; i++) {
+      for (int j = 0; j < total_tile / 2; j++) {
+        intel_mlperf::_tile_dot_product_16x256<2, 16>::compute(tile_output[j * 2][i], tile_input[j * 2], whole_weight[i],
+                                                              whole_bias[i], scale);
+      }
+    }
+  }
+  auto whole_during = 
+    std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - whole_start)
+          .count();
+  printf("whole block gemm(384x1024 1024x1024) all 2 row tile during : %.4f ns\n", (float)whole_during / total_count);
+
+  alignas(64) int8_t whole_weight_2[16][256][256];
+  alignas(64) float whole_bias_2[16][64];
+  for (int i = 0; i < 16; i++) {
+    set_data_wei(whole_weight_2[i], whole_bias_2[i]);
+  }
+  alignas(64) int8_t tile_input_2[total_tile][16][1024];
+  set_data_act(tile_input_2, total_tile);
+  alignas(64) int8_t tile_output_2[total_tile][16][16][64];
+
+  whole_start = Time::now();
+  for (int c = 0; c < total_count; c++) {
+    for (int i = 0; i < 16; i++) {
+      intel_mlperf::_tile_dot_product_16x256<4, 16>::compute(tile_output_2[0][i], tile_input_2, whole_weight_2[i],
+                                                            whole_bias_2[i], scale);
+      for (int j = 0; j < (total_tile - 4) / 2; j++) {
+        intel_mlperf::_tile_dot_product_16x256<2, 16>::compute(tile_output_2[j * 2 + 4][i], tile_input_2[j * 2 + 4], 
+                      whole_weight_2[i], whole_bias_2[i], scale);
+      }
+    }
+  }
+  
+  whole_during = 
+    std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - whole_start)
+          .count();
+  printf("whole block gemm(384x1024 1024x1024) with first 4 row tile during : %.4f ns\n", (float)whole_during / total_count);
 }
