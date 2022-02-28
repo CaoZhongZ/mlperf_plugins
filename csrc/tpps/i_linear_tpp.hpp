@@ -726,12 +726,9 @@ struct _tile_dot_product_16x256 <7, col_tile> {
     __tile_dpbssd<TMM5, TMM6, TMM7>();
   }
 
-  inline static void store(void *S, void* scrach_) {
+  inline static void store(void *S) {
     auto S_ = reinterpret_cast<int (*)[16][16]>(S);
-    auto scratch_pad = reinterpret_cast<int (*)[16][16]>(scrach_);
     // _tile_stored(TMM0, S_[0], 64);
-    memcpy(S_[0], scratch_pad[0], sizeof(scratch_pad[0]));
-    memcpy(S_[1], scratch_pad[1], sizeof(scratch_pad[1]));
     _tile_stored(TMM1, S_[2], 64);
     _tile_stored(TMM2, S_[3], 64);
     _tile_stored(TMM3, S_[4], 64);
@@ -742,13 +739,14 @@ struct _tile_dot_product_16x256 <7, col_tile> {
   inline static void zero_accum(void* scrach_) {
     // _tile_zero(TMM0);
     auto scratch_pad = reinterpret_cast<int (*)[16][16]>(scrach_);
-    memset(scratch_pad[0], 0, sizeof(scratch_pad[0]));
-    memset(scratch_pad[1], 0, sizeof(scratch_pad[1]));
     _tile_zero(TMM1);
     _tile_zero(TMM2);
     _tile_zero(TMM3);
     _tile_zero(TMM4);
     _tile_zero(TMM5);
+
+    _tile_stored(TMM1, scratch_pad[0], 64);
+    _tile_stored(TMM2, scratch_pad[1], 64);
   }
 
   inline static void quant_out(void *C, void *s_0, void *s_1, float *bias, float scale) {
@@ -800,40 +798,38 @@ struct _tile_dot_product_16x256 <7, col_tile> {
     auto A_ = reinterpret_cast<int8_t (*)[16][64]>(A);
     auto B_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(B);
 
-    alignas(64) int scrach_[2][16][16];
-
-    zero_accum(scrach_);
+    zero_accum(scratch_0[0]);
 
 #   pragma unroll (col_tile)
     for (int i = 0; i < col_tile; ++i) {
-      dot_prod(A_[i], B_[0][i], scrach_);
+      dot_prod(A_[i], B_[0][i], scratch_0[0]);
     }
 
-    store(scratch_0[0], scrach_);
-    zero_accum(scrach_);
+    store(scratch_0[0]);
+    zero_accum(scratch_0[1]);
 
 #   pragma unroll (col_tile)
     for (int i = 0; i < col_tile; ++i) {
-      dot_prod(A_[i], B_[1][i], scrach_);
+      dot_prod(A_[i], B_[1][i], scratch_0[1]);
     }
 
-    store(scratch_0[1], scrach_);
-    zero_accum(scrach_);
+    store(scratch_0[1]);
+    zero_accum(scratch_1[0]);
 
 #   pragma unroll (col_tile)
     for (int i = 0; i < col_tile; ++i) {
-      dot_prod(A_[i], B_[2][i], scrach_);
+      dot_prod(A_[i], B_[2][i], scratch_1[0]);
     }
 
-    store(scratch_1[0], scrach_);
-    zero_accum(scrach_);
+    store(scratch_1[0]);
+    zero_accum(scratch_1[1]);
 
 #   pragma unroll (col_tile)
     for (int i = 0; i < col_tile; ++i) {
-      dot_prod(A_[i], B_[3][i], scrach_);
+      dot_prod(A_[i], B_[3][i], scratch_1[1]);
     }
 
-    store(scratch_1[1], scrach_);
+    store(scratch_1[1]);
     quant_out(C, scratch_0, scratch_1, bias, scale);
   }
 };
@@ -880,13 +876,9 @@ struct _tile_dot_product_16x256 <8, col_tile> {
     __tile_dpbssd<TMM5, TMM6, TMM7>();
   }
 
-  inline static void store(void *S, void* scrach_) {
+  inline static void store(void *S) {
     auto S_ = reinterpret_cast<int (*)[16][16]>(S);
-    auto scratch_pad = reinterpret_cast<int (*)[16][16]>(scrach_);
     // _tile_stored(TMM0, S_[0], 64);
-    memcpy(S_[0], scratch_pad[0], sizeof(scratch_pad[0]));
-    memcpy(S_[1], scratch_pad[1], sizeof(scratch_pad[1]));
-    memcpy(S_[2], scratch_pad[2], sizeof(scratch_pad[2]));
     _tile_stored(TMM1, S_[3], 64);
     _tile_stored(TMM2, S_[4], 64);
     _tile_stored(TMM3, S_[5], 64);
@@ -897,14 +889,16 @@ struct _tile_dot_product_16x256 <8, col_tile> {
   inline static void zero_accum(void* scrach_) {
     // _tile_zero(TMM0);
     auto scratch_pad = reinterpret_cast<int (*)[16][16]>(scrach_);
-    memset(scratch_pad[0], 0, sizeof(scratch_pad[0]));
-    memset(scratch_pad[1], 0, sizeof(scratch_pad[1]));
-    memset(scratch_pad[2], 0, sizeof(scratch_pad[2]));
+    
     _tile_zero(TMM1);
     _tile_zero(TMM2);
     _tile_zero(TMM3);
     _tile_zero(TMM4);
     _tile_zero(TMM5);
+
+    _tile_stored(TMM1, scratch_pad[0], 64);
+    _tile_stored(TMM2, scratch_pad[1], 64);
+    _tile_stored(TMM3, scratch_pad[2], 64);
   }
 
   inline static void quant_out(void *C, void *s_0, void *s_1, float *bias, float scale) {
@@ -956,40 +950,38 @@ struct _tile_dot_product_16x256 <8, col_tile> {
     auto A_ = reinterpret_cast<int8_t (*)[16][64]>(A);
     auto B_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(B);
 
-    alignas(64) int scrach_[3][16][16];
-
-    zero_accum(scrach_);
+    zero_accum(scratch_0[0]);
 
 #   pragma unroll (col_tile)
     for (int i = 0; i < col_tile; ++i) {
-      dot_prod(A_[i], B_[0][i], scrach_);
+      dot_prod(A_[i], B_[0][i], scratch_0[0]);
     }
 
-    store(scratch_0[0], scrach_);
-    zero_accum(scrach_);
+    store(scratch_0[0]);
+    zero_accum(scratch_0[1]);
 
 #   pragma unroll (col_tile)
     for (int i = 0; i < col_tile; ++i) {
-      dot_prod(A_[i], B_[1][i], scrach_);
+      dot_prod(A_[i], B_[1][i], scratch_0[1]);
     }
 
-    store(scratch_0[1], scrach_);
-    zero_accum(scrach_);
+    store(scratch_0[1]);
+    zero_accum(scratch_1[0]);
 
 #   pragma unroll (col_tile)
     for (int i = 0; i < col_tile; ++i) {
-      dot_prod(A_[i], B_[2][i], scrach_);
+      dot_prod(A_[i], B_[2][i], scratch_1[0]);
     }
 
-    store(scratch_1[0], scrach_);
-    zero_accum(scrach_);
+    store(scratch_1[0]);
+    zero_accum(scratch_1[1]);
 
 #   pragma unroll (col_tile)
     for (int i = 0; i < col_tile; ++i) {
-      dot_prod(A_[i], B_[3][i], scrach_);
+      dot_prod(A_[i], B_[3][i], scratch_1[1]);
     }
 
-    store(scratch_1[1], scrach_);
+    store(scratch_1[1]);
     quant_out(C, scratch_0, scratch_1, bias, scale);
   }
 };
