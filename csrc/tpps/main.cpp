@@ -174,6 +174,12 @@ void test_accuracy_linear(int row_tile) {
   case (6):
     intel_mlperf::_tile_dot_product_16x256<6, 16>::compute(out, act, wei, bias, scale);
     break;
+  case (7):
+    intel_mlperf::_tile_dot_product_16x256<7, 16>::compute(out, act, wei, bias, scale);
+    break;
+  case (8):
+    intel_mlperf::_tile_dot_product_16x256<8, 16>::compute(out, act, wei, bias, scale);
+    break;
   }
 
   printf("++++++++++++++++compare out and nout : +++++++++++++++++++++\n");
@@ -201,6 +207,12 @@ void test_accuracy_linear(int row_tile) {
     case (6):
       intel_mlperf::_tile_dot_product_16x256<6, 16>::compute(out, act, wei, bias, scale);
       break;
+    case (7):
+      intel_mlperf::_tile_dot_product_16x256<7, 16>::compute(out, act, wei, bias, scale);
+      break;
+    case (8):
+      intel_mlperf::_tile_dot_product_16x256<8, 16>::compute(out, act, wei, bias, scale);
+      break;
     }
   }
    
@@ -222,6 +234,12 @@ void test_accuracy_linear(int row_tile) {
       break;
     case (6):
       intel_mlperf::_tile_dot_product_16x256<6, 16>::compute(out, act, wei, bias, scale);
+      break;
+    case (7):
+      intel_mlperf::_tile_dot_product_16x256<7, 16>::compute(out, act, wei, bias, scale);
+      break;
+    case (8):
+      intel_mlperf::_tile_dot_product_16x256<8, 16>::compute(out, act, wei, bias, scale);
       break;
     }
   }
