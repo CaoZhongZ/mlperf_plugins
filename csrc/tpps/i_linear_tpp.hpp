@@ -17,6 +17,7 @@ struct _tile_dot_product_16x256 {
   static constexpr size_t A_footprint = row_tile * col_tile * 16 * 64;
   static constexpr size_t B_footprint = col_tile * 16 * 256;
   static constexpr size_t cache_footprint = A_footprint + B_footprint;
+  static constexpr size_t lda = col_tile * 64;
 
   inline static void load_A(void *A) {
     auto A_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(A);
@@ -27,7 +28,6 @@ struct _tile_dot_product_16x256 {
 
   inline static void load_plain_A(void *A) {
     auto A_ = reinterpret_cast<int8_t (*)[16][col_tile][64]>(A);
-    size_t lda = col_tile * 64;
 
     _tile_loadd(TMM4, A_[0], lda);
     if (row_tile == 2) _tile_loadd(TMM5, A_[1], lda);
@@ -218,24 +218,7 @@ struct _tile_dot_product_16x256 <3, col_tile> {
   static constexpr size_t A_footprint = row_tile * col_tile * 16 * 64;
   static constexpr size_t B_footprint = col_tile * 16 * 256;
   static constexpr size_t cache_footprint = A_footprint + B_footprint;
-
-  inline static void load_A(void *A) {
-    auto A_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(A);
-
-    _tile_loadd(TMM4, A_[0], 64);
-    _tile_loadd(TMM5, A_[1], 64);
-    _tile_loadd(TMM6, A_[2], 64);
-  }
-
-  inline static void load_B(void *B, size_t index) {
-    _tile_loadd(TMM7, B, 64);
-  }
-
-  inline static void dot_prod() {
-    __tile_dpbssd<TMM0, TMM4, TMM7>();
-    __tile_dpbssd<TMM1, TMM5, TMM7>();
-    __tile_dpbssd<TMM2, TMM6, TMM7>();
-  }
+  static constexpr size_t lda = col_tile * 64;
 
   // This version is with A/B tile interleaving
   inline static void dot_prod(void *A, void *B, int index) {
@@ -259,6 +242,31 @@ struct _tile_dot_product_16x256 <3, col_tile> {
       _tile_loadd(TMM5, A_[1], 64);
       __tile_dpbssd<TMM1, TMM5, TMM3>();
       _tile_loadd(TMM6, A_[2], 64);
+      __tile_dpbssd<TMM2, TMM6, TMM3>();
+    }
+  }
+
+  inline static void plain_dot_prod(void *A, void *B, int index) {
+    auto A_ = reinterpret_cast<int8_t (*)[16][lda]>(A);
+
+    if (index % 2 == 0) {
+      _tile_loadd(TMM7, B, 64);
+
+      _tile_loadd(TMM4, A_[0], lda);
+      __tile_dpbssd<TMM0, TMM4, TMM7>();
+      _tile_loadd(TMM5, A_[1], lda);
+      __tile_dpbssd<TMM1, TMM5, TMM7>();
+      _tile_loadd(TMM6, A_[2], lda);
+      __tile_dpbssd<TMM2, TMM6, TMM7>();
+    } else {
+      // Change to tile 3 because TMM7 is not available
+      _tile_loadd(TMM3, B, 64);
+
+      _tile_loadd(TMM4, A_[0], lda);
+      __tile_dpbssd<TMM0, TMM4, TMM3>();
+      _tile_loadd(TMM5, A_[1], lda);
+      __tile_dpbssd<TMM1, TMM5, TMM3>();
+      _tile_loadd(TMM6, A_[2], lda);
       __tile_dpbssd<TMM2, TMM6, TMM3>();
     }
   }
@@ -317,6 +325,48 @@ struct _tile_dot_product_16x256 <3, col_tile> {
     }
   }
 
+  inline static void plain_quant_out(void *C, void *s_0, void *s_1, 
+                                     float *bias, float scale, size_t ldc) {
+    auto s_0_ = reinterpret_cast<int (*)[row_tile][16][16]>(s_0);
+    auto s_1_ = reinterpret_cast<int (*)[row_tile][16][16]>(s_1);
+
+    auto scale_ = _mm512_set1_ps(scale);
+    constexpr size_t c_block = 16 * col_tile * 64;
+    auto bias_ = reinterpret_cast<float (*)[16]>(bias);
+
+    auto b0 = _mm512_loadu_ps(bias_[0]);
+    auto b1 = _mm512_loadu_ps(bias_[1]);
+    auto b2 = _mm512_loadu_ps(bias_[2]);
+    auto b3 = _mm512_loadu_ps(bias_[3]);
+
+    auto C_ = reinterpret_cast<int8_t (*)[16][ldc]>(C);
+#   pragma unroll (row_tile)
+    for (int t = 0; t < row_tile; ++ t) {
+#     pragma unroll (16)
+      for (int i = 0; i < 16; ++ i) {
+        auto i0 = _mm512_load_epi32(s_0_[0][t][i]);
+        auto i1 = _mm512_load_epi32(s_0_[1][t][i]);
+        auto i2 = _mm512_load_epi32(s_1_[0][t][i]);
+        auto i3 = _mm512_load_epi32(s_1_[1][t][i]);
+
+        auto f0 = _mm512_cvtepi32_ps(i0) + b0;
+        auto f1 = _mm512_cvtepi32_ps(i1) + b1;
+        auto f2 = _mm512_cvtepi32_ps(i2) + b2;
+        auto f3 = _mm512_cvtepi32_ps(i3) + b3;
+
+        auto o0 = _mm512_scale_minmax_i8_ps(scale_, f0);
+        auto o1 = _mm512_scale_minmax_i8_ps(scale_, f1);
+        auto o2 = _mm512_scale_minmax_i8_ps(scale_, f2);
+        auto o3 = _mm512_scale_minmax_i8_ps(scale_, f3);
+
+        _mm512_mask_cvtepi32_storeu_epi8(&C_[t][i][0], 0xffff, o0);
+        _mm512_mask_cvtepi32_storeu_epi8(&C_[t][i][16], 0xffff, o1);
+        _mm512_mask_cvtepi32_storeu_epi8(&C_[t][i][32], 0xffff, o2);
+        _mm512_mask_cvtepi32_storeu_epi8(&C_[t][i][48], 0xffff, o3);
+      }
+    }
+  }
+
   // Pure tile format
   inline static void compute(void *C, void *A, void *B, float *bias, float scale) {
     alignas (64) int scratch_0[2][row_tile][16][16];
@@ -359,6 +409,48 @@ struct _tile_dot_product_16x256 <3, col_tile> {
     store(scratch_1[1]);
     quant_out(C, scratch_0, scratch_1, bias, scale);
   }
+
+  inline static void plain_compute(void *C, void *A, void *B, float *bias, float scale, size_t ldc) {
+    alignas (64) int scratch_0[2][row_tile][16][16];
+    alignas (64) int scratch_1[2][row_tile][16][16];
+
+    auto A_ = reinterpret_cast<int8_t (*)[col_tile][64]>(A);
+    auto B_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(B);
+
+    zero_accum();
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      plain_dot_prod(A_[0][i], B_[0][i], i);
+    }
+
+    store(scratch_0[0]);
+    zero_accum();
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      plain_dot_prod(A_[0][i], B_[1][i], i);
+    }
+
+    store(scratch_0[1]);
+    zero_accum();
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      plain_dot_prod(A_[0][i], B_[2][i], i);
+    }
+
+    store(scratch_1[0]);
+    zero_accum();
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      plain_dot_prod(A_[0][i], B_[3][i], i);
+    }
+
+    store(scratch_1[1]);
+    plain_quant_out(C, scratch_0, scratch_1, bias, scale, ldc);
+  }
 };
 
 template <int col_tile>
@@ -367,6 +459,7 @@ struct _tile_dot_product_16x256 <4, col_tile> {
   static constexpr size_t A_footprint = row_tile * col_tile * 16 * 64;
   static constexpr size_t B_footprint = col_tile * 16 * 256;
   static constexpr size_t cache_footprint = A_footprint + B_footprint;
+  static constexpr size_t lda = col_tile * 64;
 
   // This version is with A/B tile interleaving
   inline static void dot_prod(void *A, void *B, int index) {
@@ -394,6 +487,35 @@ struct _tile_dot_product_16x256 <4, col_tile> {
       _tile_loadd(TMM4, A_[2], 64);
       __tile_dpbssd<TMM2, TMM4, TMM6>();
       _tile_loadd(TMM5, A_[3], 64);
+      __tile_dpbssd<TMM3, TMM5, TMM6>();
+    }
+  }
+
+  inline static void plain_dot_prod(void *A, void *B, int index) {
+    auto A_ = reinterpret_cast<int8_t (*)[16][lda]>(A);
+
+    if (index % 2 == 0) {
+      _tile_loadd(TMM7, B, 64);
+
+      _tile_loadd(TMM4, A_[0], lda);
+      __tile_dpbssd<TMM0, TMM4, TMM7>();
+      _tile_loadd(TMM5, A_[1], lda);
+      __tile_dpbssd<TMM1, TMM5, TMM7>();
+      _tile_loadd(TMM4, A_[2], lda);
+      __tile_dpbssd<TMM2, TMM4, TMM7>();
+      _tile_loadd(TMM5, A_[3], lda);
+      __tile_dpbssd<TMM3, TMM5, TMM7>();
+    } else {
+      // Change to tile 3 because TMM7 is not available. unroll to overlap
+      _tile_loadd(TMM6, B, 64);
+
+      _tile_loadd(TMM4, A_[0], lda);
+      __tile_dpbssd<TMM0, TMM4, TMM6>();
+      _tile_loadd(TMM5, A_[1], lda);
+      __tile_dpbssd<TMM1, TMM5, TMM6>();
+      _tile_loadd(TMM4, A_[2], lda);
+      __tile_dpbssd<TMM2, TMM4, TMM6>();
+      _tile_loadd(TMM5, A_[3], lda);
       __tile_dpbssd<TMM3, TMM5, TMM6>();
     }
   }
@@ -454,6 +576,48 @@ struct _tile_dot_product_16x256 <4, col_tile> {
     }
   }
 
+  inline static void plain_quant_out(void *C, void *s_0, void *s_1, float *bias, 
+                                     float scale, size_t ldc) {
+    auto s_0_ = reinterpret_cast<int (*)[row_tile][16][16]>(s_0);
+    auto s_1_ = reinterpret_cast<int (*)[row_tile][16][16]>(s_1);
+
+    auto scale_ = _mm512_set1_ps(scale);
+    constexpr size_t c_block = 16 * col_tile * 64;
+    auto bias_ = reinterpret_cast<float (*)[16]>(bias);
+
+    auto b0 = _mm512_loadu_ps(bias_[0]);
+    auto b1 = _mm512_loadu_ps(bias_[1]);
+    auto b2 = _mm512_loadu_ps(bias_[2]);
+    auto b3 = _mm512_loadu_ps(bias_[3]);
+
+    auto C_ = reinterpret_cast<int8_t (*)[16][ldc]>(C);
+#   pragma unroll (row_tile)
+    for (int t = 0; t < row_tile; ++ t) {
+#     pragma unroll (16)
+      for (int i = 0; i < 16; ++ i) {
+        auto i0 = _mm512_load_epi32(s_0_[0][t][i]);
+        auto i1 = _mm512_load_epi32(s_0_[1][t][i]);
+        auto i2 = _mm512_load_epi32(s_1_[0][t][i]);
+        auto i3 = _mm512_load_epi32(s_1_[1][t][i]);
+
+        auto f0 = _mm512_cvtepi32_ps(i0) + b0;
+        auto f1 = _mm512_cvtepi32_ps(i1) + b1;
+        auto f2 = _mm512_cvtepi32_ps(i2) + b2;
+        auto f3 = _mm512_cvtepi32_ps(i3) + b3;
+
+        auto o0 = _mm512_scale_minmax_i8_ps(scale_, f0);
+        auto o1 = _mm512_scale_minmax_i8_ps(scale_, f1);
+        auto o2 = _mm512_scale_minmax_i8_ps(scale_, f2);
+        auto o3 = _mm512_scale_minmax_i8_ps(scale_, f3);
+
+        _mm512_mask_cvtepi32_storeu_epi8(&C_[t][i][0], 0xffff, o0);
+        _mm512_mask_cvtepi32_storeu_epi8(&C_[t][i][16], 0xffff, o1);
+        _mm512_mask_cvtepi32_storeu_epi8(&C_[t][i][32], 0xffff, o2);
+        _mm512_mask_cvtepi32_storeu_epi8(&C_[t][i][48], 0xffff, o3);
+      }
+    }
+  }
+
   // Pure tile format
   inline static void compute(void *C, void *A, void *B, float *bias, float scale) {
     alignas (64) int scratch_0[2][row_tile][16][16];
@@ -496,6 +660,48 @@ struct _tile_dot_product_16x256 <4, col_tile> {
     store(scratch_1[1]);
     quant_out(C, scratch_0, scratch_1, bias, scale);
   }
+
+  inline static void plain_compute(void *C, void *A, void *B, float *bias, float scale, size_t ldc) {
+    alignas (64) int scratch_0[2][row_tile][16][16];
+    alignas (64) int scratch_1[2][row_tile][16][16];
+
+    auto A_ = reinterpret_cast<int8_t (*)[col_tile][64]>(A);
+    auto B_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(B);
+
+    zero_accum();
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      plain_dot_prod(A_[0][i], B_[0][i], i);
+    }
+
+    store(scratch_0[0]);
+    zero_accum();
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      plain_dot_prod(A_[0][i], B_[1][i], i);
+    }
+
+    store(scratch_0[1]);
+    zero_accum();
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      plain_dot_prod(A_[0][i], B_[2][i], i);
+    }
+
+    store(scratch_1[0]);
+    zero_accum();
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      plain_dot_prod(A_[0][i], B_[3][i], i);
+    }
+
+    store(scratch_1[1]);
+    plain_quant_out(C, scratch_0, scratch_1, bias, scale, ldc);
+  }
 };
 
 template <int col_tile>
@@ -504,6 +710,7 @@ struct _tile_dot_product_16x256 <5, col_tile> {
   static constexpr size_t A_footprint = row_tile * col_tile * 16 * 64;
   static constexpr size_t B_footprint = col_tile * 16 * 256;
   static constexpr size_t cache_footprint = A_footprint + B_footprint;
+  static constexpr size_t lda = col_tile * 64;
 
   // This version is with A/B tile interleaving
   inline static void dot_prod(void *A, void *B, int index) {
@@ -535,6 +742,39 @@ struct _tile_dot_product_16x256 <5, col_tile> {
       _tile_loadd(TMM5, A_[3], 64);
       __tile_dpbssd<TMM3, TMM5, TMM6>();
       _tile_loadd(TMM5, A_[4], 64);
+      __tile_dpbssd<TMM4, TMM5, TMM6>();
+    }
+  }
+
+  inline static void plain_dot_prod(void *A, void *B, int index) {
+    auto A_ = reinterpret_cast<int8_t (*)[16][lda]>(A);
+
+    if (index % 2 == 0) {
+      _tile_loadd(TMM7, B, 64);
+
+      _tile_loadd(TMM5, A_[0], lda);
+      __tile_dpbssd<TMM0, TMM5, TMM7>();
+      _tile_loadd(TMM5, A_[1], lda);
+      __tile_dpbssd<TMM1, TMM5, TMM7>();
+      _tile_loadd(TMM5, A_[2], lda);
+      __tile_dpbssd<TMM2, TMM5, TMM7>();
+      _tile_loadd(TMM5, A_[3], lda);
+      __tile_dpbssd<TMM3, TMM5, TMM7>();
+      _tile_loadd(TMM5, A_[4], lda);
+      __tile_dpbssd<TMM4, TMM5, TMM7>();
+    } else {
+      // Change to tile 3 because TMM7 is not available. unroll to overlap
+      _tile_loadd(TMM6, B, 64);
+
+      _tile_loadd(TMM5, A_[0], lda);
+      __tile_dpbssd<TMM0, TMM5, TMM6>();
+      _tile_loadd(TMM5, A_[1], lda);
+      __tile_dpbssd<TMM1, TMM5, TMM6>();
+      _tile_loadd(TMM5, A_[2], lda);
+      __tile_dpbssd<TMM2, TMM5, TMM6>();
+      _tile_loadd(TMM5, A_[3], lda);
+      __tile_dpbssd<TMM3, TMM5, TMM6>();
+      _tile_loadd(TMM5, A_[4], lda);
       __tile_dpbssd<TMM4, TMM5, TMM6>();
     }
   }
@@ -597,6 +837,47 @@ struct _tile_dot_product_16x256 <5, col_tile> {
     }
   }
 
+  inline static void plain_quant_out(void *C, void *s_0, void *s_1, float *bias, float scale, size_t ldc) {
+    auto s_0_ = reinterpret_cast<int (*)[row_tile][16][16]>(s_0);
+    auto s_1_ = reinterpret_cast<int (*)[row_tile][16][16]>(s_1);
+
+    auto scale_ = _mm512_set1_ps(scale);
+    constexpr size_t c_block = 16 * col_tile * 64;
+    auto bias_ = reinterpret_cast<float (*)[16]>(bias);
+
+    auto b0 = _mm512_loadu_ps(bias_[0]);
+    auto b1 = _mm512_loadu_ps(bias_[1]);
+    auto b2 = _mm512_loadu_ps(bias_[2]);
+    auto b3 = _mm512_loadu_ps(bias_[3]);
+
+    auto C_ = reinterpret_cast<int8_t (*)[16][ldc]>(C);
+#   pragma unroll (row_tile)
+    for (int t = 0; t < row_tile; ++ t) {
+#     pragma unroll (16)
+      for (int i = 0; i < 16; ++ i) {
+        auto i0 = _mm512_load_epi32(s_0_[0][t][i]);
+        auto i1 = _mm512_load_epi32(s_0_[1][t][i]);
+        auto i2 = _mm512_load_epi32(s_1_[0][t][i]);
+        auto i3 = _mm512_load_epi32(s_1_[1][t][i]);
+
+        auto f0 = _mm512_cvtepi32_ps(i0) + b0;
+        auto f1 = _mm512_cvtepi32_ps(i1) + b1;
+        auto f2 = _mm512_cvtepi32_ps(i2) + b2;
+        auto f3 = _mm512_cvtepi32_ps(i3) + b3;
+
+        auto o0 = _mm512_scale_minmax_i8_ps(scale_, f0);
+        auto o1 = _mm512_scale_minmax_i8_ps(scale_, f1);
+        auto o2 = _mm512_scale_minmax_i8_ps(scale_, f2);
+        auto o3 = _mm512_scale_minmax_i8_ps(scale_, f3);
+
+        _mm512_mask_cvtepi32_storeu_epi8(&C_[t][i][0], 0xffff, o0);
+        _mm512_mask_cvtepi32_storeu_epi8(&C_[t][i][16], 0xffff, o1);
+        _mm512_mask_cvtepi32_storeu_epi8(&C_[t][i][32], 0xffff, o2);
+        _mm512_mask_cvtepi32_storeu_epi8(&C_[t][i][48], 0xffff, o3);
+      }
+    }
+  }
+
   // Pure tile format
   inline static void compute(void *C, void *A, void *B, float *bias, float scale) {
     alignas (64) int scratch_0[2][row_tile][16][16];
@@ -639,6 +920,48 @@ struct _tile_dot_product_16x256 <5, col_tile> {
     store(scratch_1[1]);
     quant_out(C, scratch_0, scratch_1, bias, scale);
   }
+
+  inline static void plain_compute(void *C, void *A, void *B, float *bias, float scale, size_t ldc) {
+    alignas (64) int scratch_0[2][row_tile][16][16];
+    alignas (64) int scratch_1[2][row_tile][16][16];
+
+    auto A_ = reinterpret_cast<int8_t (*)[col_tile][64]>(A);
+    auto B_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(B);
+
+    zero_accum();
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      plain_dot_prod(A_[0][i], B_[0][i], i);
+    }
+
+    store(scratch_0[0]);
+    zero_accum();
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      plain_dot_prod(A_[0][i], B_[1][i], i);
+    }
+
+    store(scratch_0[1]);
+    zero_accum();
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      plain_dot_prod(A_[0][i], B_[2][i], i);
+    }
+
+    store(scratch_1[0]);
+    zero_accum();
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      plain_dot_prod(A_[0][i], B_[3][i], i);
+    }
+
+    store(scratch_1[1]);
+    plain_quant_out(C, scratch_0, scratch_1, bias, scale, ldc);
+  }
 };
 
 template <int col_tile>
@@ -647,6 +970,7 @@ struct _tile_dot_product_16x256 <6, col_tile> {
   static constexpr size_t A_footprint = row_tile * col_tile * 16 * 64;
   static constexpr size_t B_footprint = col_tile * 16 * 256;
   static constexpr size_t cache_footprint = A_footprint + B_footprint;
+  static constexpr size_t lda = col_tile * 64;
 
   // This version is with A/B tile interleaving
   inline static void dot_prod(void *A, void *B) {
@@ -665,6 +989,25 @@ struct _tile_dot_product_16x256 <6, col_tile> {
     _tile_loadd(TMM6, A_[4], 64);
     __tile_dpbssd<TMM4, TMM6, TMM7>();
     _tile_loadd(TMM6, A_[5], 64);
+    __tile_dpbssd<TMM5, TMM6, TMM7>();
+  }
+
+  inline static void plain_dot_prod(void *A, void *B) {
+    auto A_ = reinterpret_cast<int8_t (*)[16][lda]>(A);
+
+    _tile_loadd(TMM7, B, 64);
+
+    _tile_loadd(TMM6, A_[0], lda);
+    __tile_dpbssd<TMM0, TMM6, TMM7>();
+    _tile_loadd(TMM6, A_[1], lda);
+    __tile_dpbssd<TMM1, TMM6, TMM7>();
+    _tile_loadd(TMM6, A_[2], lda);
+    __tile_dpbssd<TMM2, TMM6, TMM7>();
+    _tile_loadd(TMM6, A_[3], lda);
+    __tile_dpbssd<TMM3, TMM6, TMM7>();
+    _tile_loadd(TMM6, A_[4], lda);
+    __tile_dpbssd<TMM4, TMM6, TMM7>();
+    _tile_loadd(TMM6, A_[5], lda);
     __tile_dpbssd<TMM5, TMM6, TMM7>();
   }
 
@@ -728,6 +1071,47 @@ struct _tile_dot_product_16x256 <6, col_tile> {
     }
   }
 
+  inline static void plain_quant_out(void *C, void *s_0, void *s_1, float *bias, float scale, size_t ldc) {
+    auto s_0_ = reinterpret_cast<int (*)[row_tile][16][16]>(s_0);
+    auto s_1_ = reinterpret_cast<int (*)[row_tile][16][16]>(s_1);
+
+    auto scale_ = _mm512_set1_ps(scale);
+    constexpr size_t c_block = 16 * col_tile * 64;
+    auto bias_ = reinterpret_cast<float (*)[16]>(bias);
+
+    auto b0 = _mm512_loadu_ps(bias_[0]);
+    auto b1 = _mm512_loadu_ps(bias_[1]);
+    auto b2 = _mm512_loadu_ps(bias_[2]);
+    auto b3 = _mm512_loadu_ps(bias_[3]);
+
+    auto C_ = reinterpret_cast<int8_t (*)[16][ldc]>(C);
+#   pragma unroll (row_tile)
+    for (int t = 0; t < row_tile; ++ t) {
+#     pragma unroll (16)
+      for (int i = 0; i < 16; ++ i) {
+        auto i0 = _mm512_load_epi32(s_0_[0][t][i]);
+        auto i1 = _mm512_load_epi32(s_0_[1][t][i]);
+        auto i2 = _mm512_load_epi32(s_1_[0][t][i]);
+        auto i3 = _mm512_load_epi32(s_1_[1][t][i]);
+
+        auto f0 = _mm512_cvtepi32_ps(i0) + b0;
+        auto f1 = _mm512_cvtepi32_ps(i1) + b1;
+        auto f2 = _mm512_cvtepi32_ps(i2) + b2;
+        auto f3 = _mm512_cvtepi32_ps(i3) + b3;
+
+        auto o0 = _mm512_scale_minmax_i8_ps(scale_, f0);
+        auto o1 = _mm512_scale_minmax_i8_ps(scale_, f1);
+        auto o2 = _mm512_scale_minmax_i8_ps(scale_, f2);
+        auto o3 = _mm512_scale_minmax_i8_ps(scale_, f3);
+
+        _mm512_mask_cvtepi32_storeu_epi8(&C_[t][i][0], 0xffff, o0);
+        _mm512_mask_cvtepi32_storeu_epi8(&C_[t][i][16], 0xffff, o1);
+        _mm512_mask_cvtepi32_storeu_epi8(&C_[t][i][32], 0xffff, o2);
+        _mm512_mask_cvtepi32_storeu_epi8(&C_[t][i][48], 0xffff, o3);
+      }
+    }
+  }
+
   // Pure tile format
   inline static void compute(void *C, void *A, void *B, float *bias, float scale) {
     alignas (64) int scratch_0[2][row_tile][16][16];
@@ -770,6 +1154,48 @@ struct _tile_dot_product_16x256 <6, col_tile> {
     store(scratch_1[1]);
     quant_out(C, scratch_0, scratch_1, bias, scale);
   }
+
+  inline static void plain_compute(void *C, void *A, void *B, float *bias, float scale, size_t ldc) {
+    alignas (64) int scratch_0[2][row_tile][16][16];
+    alignas (64) int scratch_1[2][row_tile][16][16];
+
+    auto A_ = reinterpret_cast<int8_t (*)[col_tile][64]>(A);
+    auto B_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(B);
+
+    zero_accum();
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      plain_dot_prod(A_[0][i], B_[0][i]);
+    }
+
+    store(scratch_0[0]);
+    zero_accum();
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      plain_dot_prod(A_[0][i], B_[1][i]);
+    }
+
+    store(scratch_0[1]);
+    zero_accum();
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      plain_dot_prod(A_[0][i], B_[2][i]);
+    }
+
+    store(scratch_1[0]);
+    zero_accum();
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      plain_dot_prod(A_[0][i], B_[3][i]);
+    }
+
+    store(scratch_1[1]);
+    plain_quant_out(C, scratch_0, scratch_1, bias, scale, ldc);
+  }
 };
 
 template <int col_tile>
@@ -778,6 +1204,7 @@ struct _tile_dot_product_16x256 <7, col_tile> {
   static constexpr size_t A_footprint = row_tile * col_tile * 16 * 64;
   static constexpr size_t B_footprint = col_tile * 16 * 256;
   static constexpr size_t cache_footprint = A_footprint + B_footprint;
+  static constexpr size_t lda = col_tile * 64;
 
   // This version is with A/B tile interleaving
   inline static void dot_prod(void *A, void *B, void* scrach_) {
@@ -806,6 +1233,35 @@ struct _tile_dot_product_16x256 <7, col_tile> {
     _tile_loadd(TMM6, A_[5], 64);
     __tile_dpbssd<TMM4, TMM6, TMM7>();
     _tile_loadd(TMM6, A_[6], 64);
+    __tile_dpbssd<TMM5, TMM6, TMM7>();
+  }
+
+  inline static void plain_dot_prod(void *A, void *B, void* scrach_) {
+    auto A_ = reinterpret_cast<int8_t (*)[16][lda]>(A);
+    auto scratch_pad = reinterpret_cast<int (*)[16][16]>(scrach_);
+
+    _tile_loadd(TMM7, B, 64);
+
+    _tile_loadd(TMM6, A_[0], lda);
+    // TMM0 is the tile used twice
+    _tile_loadd(TMM0, scratch_pad[0], 64);
+    __tile_dpbssd<TMM0, TMM6, TMM7>();
+    _tile_stored(TMM0, scratch_pad[0], 64);
+
+    _tile_loadd(TMM6, A_[1], lda);
+    _tile_loadd(TMM0, scratch_pad[1], 64);
+    __tile_dpbssd<TMM0, TMM6, TMM7>();
+    _tile_stored(TMM0, scratch_pad[1], 64);
+
+    _tile_loadd(TMM6, A_[2], lda);
+    __tile_dpbssd<TMM1, TMM6, TMM7>();
+    _tile_loadd(TMM6, A_[3], lda);
+    __tile_dpbssd<TMM2, TMM6, TMM7>();
+    _tile_loadd(TMM6, A_[4], lda);
+    __tile_dpbssd<TMM3, TMM6, TMM7>();
+    _tile_loadd(TMM6, A_[5], lda);
+    __tile_dpbssd<TMM4, TMM6, TMM7>();
+    _tile_loadd(TMM6, A_[6], lda);
     __tile_dpbssd<TMM5, TMM6, TMM7>();
   }
 
@@ -873,6 +1329,47 @@ struct _tile_dot_product_16x256 <7, col_tile> {
     }
   }
 
+  inline static void plain_quant_out(void *C, void *s_0, void *s_1, float *bias, float scale, size_t ldc) {
+    auto s_0_ = reinterpret_cast<int (*)[row_tile][16][16]>(s_0);
+    auto s_1_ = reinterpret_cast<int (*)[row_tile][16][16]>(s_1);
+
+    auto scale_ = _mm512_set1_ps(scale);
+    constexpr size_t c_block = 16 * col_tile * 64;
+    auto bias_ = reinterpret_cast<float (*)[16]>(bias);
+
+    auto b0 = _mm512_loadu_ps(bias_[0]);
+    auto b1 = _mm512_loadu_ps(bias_[1]);
+    auto b2 = _mm512_loadu_ps(bias_[2]);
+    auto b3 = _mm512_loadu_ps(bias_[3]);
+
+    auto C_ = reinterpret_cast<int8_t (*)[16][ldc]>(C);
+#   pragma unroll (row_tile)
+    for (int t = 0; t < row_tile; ++ t) {
+#     pragma unroll (16)
+      for (int i = 0; i < 16; ++ i) {
+        auto i0 = _mm512_load_epi32(s_0_[0][t][i]);
+        auto i1 = _mm512_load_epi32(s_0_[1][t][i]);
+        auto i2 = _mm512_load_epi32(s_1_[0][t][i]);
+        auto i3 = _mm512_load_epi32(s_1_[1][t][i]);
+
+        auto f0 = _mm512_cvtepi32_ps(i0) + b0;
+        auto f1 = _mm512_cvtepi32_ps(i1) + b1;
+        auto f2 = _mm512_cvtepi32_ps(i2) + b2;
+        auto f3 = _mm512_cvtepi32_ps(i3) + b3;
+
+        auto o0 = _mm512_scale_minmax_i8_ps(scale_, f0);
+        auto o1 = _mm512_scale_minmax_i8_ps(scale_, f1);
+        auto o2 = _mm512_scale_minmax_i8_ps(scale_, f2);
+        auto o3 = _mm512_scale_minmax_i8_ps(scale_, f3);
+
+        _mm512_mask_cvtepi32_storeu_epi8(&C_[t][i][0], 0xffff, o0);
+        _mm512_mask_cvtepi32_storeu_epi8(&C_[t][i][16], 0xffff, o1);
+        _mm512_mask_cvtepi32_storeu_epi8(&C_[t][i][32], 0xffff, o2);
+        _mm512_mask_cvtepi32_storeu_epi8(&C_[t][i][48], 0xffff, o3);
+      }
+    }
+  }
+
   // Pure tile format
   inline static void compute(void *C, void *A, void *B, float *bias, float scale) {
     alignas (64) int scratch_0[2][row_tile][16][16];
@@ -915,6 +1412,48 @@ struct _tile_dot_product_16x256 <7, col_tile> {
     store(scratch_1[1]);
     quant_out(C, scratch_0, scratch_1, bias, scale);
   }
+
+  inline static void plain_compute(void *C, void *A, void *B, float *bias, float scale, size_t ldc) {
+    alignas (64) int scratch_0[2][row_tile][16][16];
+    alignas (64) int scratch_1[2][row_tile][16][16];
+
+    auto A_ = reinterpret_cast<int8_t (*)[col_tile][64]>(A);
+    auto B_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(B);
+
+    zero_accum(scratch_0[0]);
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      plain_dot_prod(A_[0][i], B_[0][i], scratch_0[0]);
+    }
+
+    store(scratch_0[0]);
+    zero_accum(scratch_0[1]);
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      plain_dot_prod(A_[0][i], B_[1][i], scratch_0[1]);
+    }
+
+    store(scratch_0[1]);
+    zero_accum(scratch_1[0]);
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      plain_dot_prod(A_[0][i], B_[2][i], scratch_1[0]);
+    }
+
+    store(scratch_1[0]);
+    zero_accum(scratch_1[1]);
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      plain_dot_prod(A_[0][i], B_[3][i], scratch_1[1]);
+    }
+
+    store(scratch_1[1]);
+    plain_quant_out(C, scratch_0, scratch_1, bias, scale, ldc);
+  }
 };
 
 template <int col_tile>
@@ -923,6 +1462,7 @@ struct _tile_dot_product_16x256 <8, col_tile> {
   static constexpr size_t A_footprint = row_tile * col_tile * 16 * 64;
   static constexpr size_t B_footprint = col_tile * 16 * 256;
   static constexpr size_t cache_footprint = A_footprint + B_footprint;
+  static constexpr size_t lda = col_tile * 64;
 
   // This version is with A/B tile interleaving
   inline static void dot_prod(void *A, void *B, void* scrach_) {
@@ -956,6 +1496,40 @@ struct _tile_dot_product_16x256 <8, col_tile> {
     _tile_loadd(TMM6, A_[6], 64);
     __tile_dpbssd<TMM4, TMM6, TMM7>();
     _tile_loadd(TMM6, A_[7], 64);
+    __tile_dpbssd<TMM5, TMM6, TMM7>();
+  }
+
+  inline static void plain_dot_prod(void *A, void *B, void* scrach_) {
+    auto A_ = reinterpret_cast<int8_t (*)[16][lda]>(A);
+    auto scratch_pad = reinterpret_cast<int (*)[16][16]>(scrach_);
+
+    _tile_loadd(TMM7, B, 64);
+
+    _tile_loadd(TMM6, A_[0], lda);
+    // TMM0 is the tile used three times
+    _tile_loadd(TMM0, scratch_pad[0], 64);
+    __tile_dpbssd<TMM0, TMM6, TMM7>();
+    _tile_stored(TMM0, scratch_pad[0], 64);
+
+    _tile_loadd(TMM6, A_[1], lda);
+    _tile_loadd(TMM0, scratch_pad[1], 64);
+    __tile_dpbssd<TMM0, TMM6, TMM7>();
+    _tile_stored(TMM0, scratch_pad[1], 64);
+
+    _tile_loadd(TMM6, A_[2], lda);
+    _tile_loadd(TMM0, scratch_pad[2], 64);
+    __tile_dpbssd<TMM0, TMM6, TMM7>();
+    _tile_stored(TMM0, scratch_pad[2], 64);
+
+    _tile_loadd(TMM6, A_[3], lda);
+    __tile_dpbssd<TMM1, TMM6, TMM7>();
+    _tile_loadd(TMM6, A_[4], lda);
+    __tile_dpbssd<TMM2, TMM6, TMM7>();
+    _tile_loadd(TMM6, A_[5], lda);
+    __tile_dpbssd<TMM3, TMM6, TMM7>();
+    _tile_loadd(TMM6, A_[6], lda);
+    __tile_dpbssd<TMM4, TMM6, TMM7>();
+    _tile_loadd(TMM6, A_[7], lda);
     __tile_dpbssd<TMM5, TMM6, TMM7>();
   }
 
@@ -1025,6 +1599,47 @@ struct _tile_dot_product_16x256 <8, col_tile> {
     }
   }
 
+  inline static void plain_quant_out(void *C, void *s_0, void *s_1, float *bias, float scale, size_t ldc) {
+    auto s_0_ = reinterpret_cast<int (*)[row_tile][16][16]>(s_0);
+    auto s_1_ = reinterpret_cast<int (*)[row_tile][16][16]>(s_1);
+
+    auto scale_ = _mm512_set1_ps(scale);
+    constexpr size_t c_block = 16 * col_tile * 64;
+    auto bias_ = reinterpret_cast<float (*)[16]>(bias);
+
+    auto b0 = _mm512_loadu_ps(bias_[0]);
+    auto b1 = _mm512_loadu_ps(bias_[1]);
+    auto b2 = _mm512_loadu_ps(bias_[2]);
+    auto b3 = _mm512_loadu_ps(bias_[3]);
+
+    auto C_ = reinterpret_cast<int8_t (*)[16][ldc]>(C);
+#   pragma unroll (row_tile)
+    for (int t = 0; t < row_tile; ++ t) {
+#     pragma unroll (16)
+      for (int i = 0; i < 16; ++ i) {
+        auto i0 = _mm512_load_epi32(s_0_[0][t][i]);
+        auto i1 = _mm512_load_epi32(s_0_[1][t][i]);
+        auto i2 = _mm512_load_epi32(s_1_[0][t][i]);
+        auto i3 = _mm512_load_epi32(s_1_[1][t][i]);
+
+        auto f0 = _mm512_cvtepi32_ps(i0) + b0;
+        auto f1 = _mm512_cvtepi32_ps(i1) + b1;
+        auto f2 = _mm512_cvtepi32_ps(i2) + b2;
+        auto f3 = _mm512_cvtepi32_ps(i3) + b3;
+
+        auto o0 = _mm512_scale_minmax_i8_ps(scale_, f0);
+        auto o1 = _mm512_scale_minmax_i8_ps(scale_, f1);
+        auto o2 = _mm512_scale_minmax_i8_ps(scale_, f2);
+        auto o3 = _mm512_scale_minmax_i8_ps(scale_, f3);
+
+        _mm512_mask_cvtepi32_storeu_epi8(&C_[t][i][0], 0xffff, o0);
+        _mm512_mask_cvtepi32_storeu_epi8(&C_[t][i][16], 0xffff, o1);
+        _mm512_mask_cvtepi32_storeu_epi8(&C_[t][i][32], 0xffff, o2);
+        _mm512_mask_cvtepi32_storeu_epi8(&C_[t][i][48], 0xffff, o3);
+      }
+    }
+  }
+
   // Pure tile format
   inline static void compute(void *C, void *A, void *B, float *bias, float scale) {
     alignas (64) int scratch_0[2][row_tile][16][16];
@@ -1066,6 +1681,48 @@ struct _tile_dot_product_16x256 <8, col_tile> {
 
     store(scratch_1[1]);
     quant_out(C, scratch_0, scratch_1, bias, scale);
+  }
+
+  inline static void plain_compute(void *C, void *A, void *B, float *bias, float scale, size_t ldc) {
+    alignas (64) int scratch_0[2][row_tile][16][16];
+    alignas (64) int scratch_1[2][row_tile][16][16];
+
+    auto A_ = reinterpret_cast<int8_t (*)[col_tile][64]>(A);
+    auto B_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(B);
+
+    zero_accum(scratch_0[0]);
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      plain_dot_prod(A_[0][i], B_[0][i], scratch_0[0]);
+    }
+
+    store(scratch_0[0]);
+    zero_accum(scratch_0[1]);
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      plain_dot_prod(A_[0][i], B_[1][i], scratch_0[1]);
+    }
+
+    store(scratch_0[1]);
+    zero_accum(scratch_1[0]);
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      plain_dot_prod(A_[0][i], B_[2][i], scratch_1[0]);
+    }
+
+    store(scratch_1[0]);
+    zero_accum(scratch_1[1]);
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      plain_dot_prod(A_[0][i], B_[3][i], scratch_1[1]);
+    }
+
+    store(scratch_1[1]);
+    plain_quant_out(C, scratch_0, scratch_1, bias, scale, ldc);
   }
 };
 

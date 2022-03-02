@@ -62,12 +62,17 @@ static constexpr int qmin = -127.0;
 
 int main(int argc, char* argv[]) {
   int row_tile = 2;
+  int is_block = 1;
   if (argc == 2) {
     row_tile = std::atoi(argv[1]);
   }
+  else if (argc == 3) {
+    row_tile = std::atoi(argv[1]);
+    is_block = std::atoi(argv[2]);
+  }
   std::cout << "++++++++++++++++++++++++++ row_tile = "<< row_tile << " ++++++++++++++++++++++++++++++++++++" << std::endl;
   
-  test_accuracy_linear(row_tile, false);
+  test_accuracy_linear(row_tile, (is_block > 0));
   return 0;
 }
 
@@ -159,6 +164,8 @@ void test_accuracy_linear(int row_tile, bool is_block) {
   set_data_wei(wei, bias);
 
   send_data2naive(act, wei, nact, nwei, row_tile, is_block);
+  // intel_mlperf::print_2d_matrix<int8_t>((int8_t*)act, 16, 16, 1024);
+  // getchar();
   auto act_ = reinterpret_cast<int8_t (*)[16][16][64]>(act);
   auto nact_ = reinterpret_cast<int (*)[1024]>(nact);
   auto wei_ = reinterpret_cast<int8_t (*)[16][16][64]>(wei);
@@ -171,65 +178,77 @@ void test_accuracy_linear(int row_tile, bool is_block) {
   switch (row_tile) {
   case (2):
     if (is_block) {
+      std::cout << "block computing" << std::endl;
       intel_mlperf::_tile_dot_product_16x256<2, 16>::compute(out, act, wei, bias, scale);
     } else {
+      std::cout << "plain computing" << std::endl;
       intel_mlperf::_tile_dot_product_16x256<2, 16>::plain_compute(out, act, wei, bias, scale, 64);
     }
     break;
   case (3):
-    intel_mlperf::_tile_dot_product_16x256<3, 16>::compute(out, act, wei, bias, scale);
+    if (is_block) {
+      std::cout << "block computing" << std::endl;
+      intel_mlperf::_tile_dot_product_16x256<3, 16>::compute(out, act, wei, bias, scale);
+    } else {
+      std::cout << "plain computing" << std::endl;
+      intel_mlperf::_tile_dot_product_16x256<3, 16>::plain_compute(out, act, wei, bias, scale, 64);
+    }
     break;
   case (4):
-    intel_mlperf::_tile_dot_product_16x256<4, 16>::compute(out, act, wei, bias, scale);
+    if (is_block) {
+      std::cout << "block computing" << std::endl;
+      intel_mlperf::_tile_dot_product_16x256<4, 16>::compute(out, act, wei, bias, scale);
+    } else {
+      std::cout << "plain computing" << std::endl;
+      intel_mlperf::_tile_dot_product_16x256<4, 16>::plain_compute(out, act, wei, bias, scale, 64);
+    }
     break;
   case (5):
-    intel_mlperf::_tile_dot_product_16x256<5, 16>::compute(out, act, wei, bias, scale);
+    if (is_block) {
+      std::cout << "block computing" << std::endl;
+      intel_mlperf::_tile_dot_product_16x256<5, 16>::compute(out, act, wei, bias, scale);
+    } else {
+      std::cout << "plain computing" << std::endl;
+      intel_mlperf::_tile_dot_product_16x256<5, 16>::plain_compute(out, act, wei, bias, scale, 64);
+    }
     break;
   case (6):
-    intel_mlperf::_tile_dot_product_16x256<6, 16>::compute(out, act, wei, bias, scale);
+    if (is_block) {
+      std::cout << "block computing" << std::endl;
+      intel_mlperf::_tile_dot_product_16x256<6, 16>::compute(out, act, wei, bias, scale);
+    } else {
+      std::cout << "plain computing" << std::endl;
+      intel_mlperf::_tile_dot_product_16x256<6, 16>::plain_compute(out, act, wei, bias, scale, 64);
+    }
     break;
   case (7):
-    intel_mlperf::_tile_dot_product_16x256<7, 16>::compute(out, act, wei, bias, scale);
+    if (is_block) {
+      std::cout << "block computing" << std::endl;
+      intel_mlperf::_tile_dot_product_16x256<7, 16>::compute(out, act, wei, bias, scale);
+    } else {
+      std::cout << "plain computing" << std::endl;
+      intel_mlperf::_tile_dot_product_16x256<7, 16>::plain_compute(out, act, wei, bias, scale, 64);
+    }
     break;
   case (8):
-    intel_mlperf::_tile_dot_product_16x256<8, 16>::compute(out, act, wei, bias, scale);
+    if (is_block) {
+      std::cout << "block computing" << std::endl;
+      intel_mlperf::_tile_dot_product_16x256<8, 16>::compute(out, act, wei, bias, scale);
+    } else {
+      std::cout << "plain computing" << std::endl;
+      intel_mlperf::_tile_dot_product_16x256<8, 16>::plain_compute(out, act, wei, bias, scale, 64);
+    }
     break;
   }
 
-  printf("++++++++++++++++compare out and nout : +++++++++++++++++++++\n");
+  printf("++++++++++++++++compare out and nout (block : %d): +++++++++++++++++++++\n", is_block);
   auto out_ = reinterpret_cast<int8_t (*)[16][64]>(out);
   auto nout_ = reinterpret_cast<int (*)[64]>(nout);
   for (int i = 0; i < row_tile; i++) {
     intel_mlperf::compare_naive_output(&nout_[i * 16][0], (int8_t*)out_[i], 16, 64, 64, 64);
   } 
 
-  // start performance test
-  for (int i = 0; i < 100; i++) {
-    switch (row_tile) {
-    case (2):
-      intel_mlperf::_tile_dot_product_16x256<2, 16>::compute(out, act, wei, bias, scale);
-      break;
-    case (3):
-      intel_mlperf::_tile_dot_product_16x256<3, 16>::compute(out, act, wei, bias, scale);
-      break;
-    case (4):
-      intel_mlperf::_tile_dot_product_16x256<4, 16>::compute(out, act, wei, bias, scale);
-      break;
-    case (5):
-      intel_mlperf::_tile_dot_product_16x256<5, 16>::compute(out, act, wei, bias, scale);
-      break;
-    case (6):
-      intel_mlperf::_tile_dot_product_16x256<6, 16>::compute(out, act, wei, bias, scale);
-      break;
-    case (7):
-      intel_mlperf::_tile_dot_product_16x256<7, 16>::compute(out, act, wei, bias, scale);
-      break;
-    case (8):
-      intel_mlperf::_tile_dot_product_16x256<8, 16>::compute(out, act, wei, bias, scale);
-      break;
-    }
-  }
-   
+  // start performance test   
   int count = 100000;
   auto lstart = Time::now();
   for (int i = 0; i < count; i++) {
@@ -260,7 +279,40 @@ void test_accuracy_linear(int row_tile, bool is_block) {
   auto lduring =
       std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - lstart)
           .count();
-  std::cout << count  << " times tile linear time : "
+  std::cout << count  << " times block tile linear time : "
+            << (float)lduring / 1000 / 1000 << " ms " << std::endl;
+  std::cout << "single linear time : " << (float)lduring / count << " ns" << std::endl;
+
+  lstart = Time::now();
+  for (int i = 0; i < count; i++) {
+    switch (row_tile) {
+    case (2):
+      intel_mlperf::_tile_dot_product_16x256<2, 16>::plain_compute(out, act, wei, bias, scale, 64);
+      break;
+    case (3):
+      intel_mlperf::_tile_dot_product_16x256<3, 16>::plain_compute(out, act, wei, bias, scale, 64);
+      break;
+    case (4):
+      intel_mlperf::_tile_dot_product_16x256<4, 16>::plain_compute(out, act, wei, bias, scale, 64);
+      break;
+    case (5):
+      intel_mlperf::_tile_dot_product_16x256<5, 16>::plain_compute(out, act, wei, bias, scale, 64);
+      break;
+    case (6):
+      intel_mlperf::_tile_dot_product_16x256<6, 16>::plain_compute(out, act, wei, bias, scale, 64);
+      break;
+    case (7):
+      intel_mlperf::_tile_dot_product_16x256<7, 16>::plain_compute(out, act, wei, bias, scale, 64);
+      break;
+    case (8):
+      intel_mlperf::_tile_dot_product_16x256<8, 16>::plain_compute(out, act, wei, bias, scale, 64);
+      break;
+    }
+  }
+  lduring =
+      std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - lstart)
+          .count();
+  std::cout << count  << " times plain tile linear time : "
             << (float)lduring / 1000 / 1000 << " ms " << std::endl;
   std::cout << "single linear time : " << (float)lduring / count << " ns" << std::endl;
 
