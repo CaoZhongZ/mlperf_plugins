@@ -17,40 +17,41 @@ void block_gemm<row_tile>::ref(void* output, void* input, void* weight, void* bi
   auto output_ = reinterpret_cast<int8_t (*)[col_step][16][64]>(output);
   auto bias_ = reinterpret_cast<float (*)[64]>(bias);
   size_t i = 0;
-  for (i; i < row_step; i++) {
-    for (size_t j = 0; j < col_step; j++) {
-      _tile_dot_product_16x256<row_tile, 16>::compute(
-        output_[i * row_tile][j], input_[i * row_tile], weight_[j], bias_[j], scale);
-    }
-  }
-  i++;
-  switch (remainder) {
-  case (1):
-    for (size_t j = 0; j < col_step; j++) {
-      _tile_dot_product_16x256<1, 16>::compute(
-        output_[i * row_tile][j], input_[i * row_tile], weight_[j], bias_[j], scale);
-    }
-    break;
-  case (2):
-    for (size_t j = 0; j < col_step; j++) {
-      _tile_dot_product_16x256<2, 16>::compute(
-        output_[i * row_tile][j], input_[i * row_tile], weight_[j], bias_[j], scale);
-    }
-    break;
-  case (3):
-    for (size_t j = 0; j < col_step; j++) {
-      _tile_dot_product_16x256<3, 16>::compute(
-        output_[i * row_tile][j], input_[i * row_tile], weight_[j], bias_[j], scale);
-    }
-    break;
-  default:
-    break;
-  }
-  if (remainder == 1) {
-    for (size_t j = 0; j < col_step; j++) {
-      _tile_dot_product_16x256<1, 16>::compute(output_[i * 2][j], input_[i * 2], weight_[j], bias_[j], scale);
-    }
-  }
+  // TODO: fix new interface
+  // for (i; i < row_step; i++) {
+  //   for (size_t j = 0; j < col_step; j++) {
+  //     _tile_dot_product_16x256<row_tile, 16>::compute(
+  //       output_[i * row_tile][j], input_[i * row_tile], weight_[j], bias_[j], scale);
+  //   }
+  // }
+  // i++;
+  // switch (remainder) {
+  // case (1):
+  //   for (size_t j = 0; j < col_step; j++) {
+  //     _tile_dot_product_16x256<1, 16>::compute(
+  //       output_[i * row_tile][j], input_[i * row_tile], weight_[j], bias_[j], scale);
+  //   }
+  //   break;
+  // case (2):
+  //   for (size_t j = 0; j < col_step; j++) {
+  //     _tile_dot_product_16x256<2, 16>::compute(
+  //       output_[i * row_tile][j], input_[i * row_tile], weight_[j], bias_[j], scale);
+  //   }
+  //   break;
+  // case (3):
+  //   for (size_t j = 0; j < col_step; j++) {
+  //     _tile_dot_product_16x256<3, 16>::compute(
+  //       output_[i * row_tile][j], input_[i * row_tile], weight_[j], bias_[j], scale);
+  //   }
+  //   break;
+  // default:
+  //   break;
+  // }
+  // if (remainder == 1) {
+  //   for (size_t j = 0; j < col_step; j++) {
+  //     _tile_dot_product_16x256<1, 16>::compute(output_[i * 2][j], input_[i * 2], weight_[j], bias_[j], scale);
+  //   }
+  // }
 }
 
 template void block_gemm<2>::ref(void* output, void* input, void* weight, void* bias, float scale);
