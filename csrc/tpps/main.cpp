@@ -64,14 +64,15 @@ int main(int argc, char* argv[]) {
   return 0;
 }
 
-void naive_linear(void* a, void* b, void* c, void* bias, float scale, int row_tile) {
+void naive_linear(void* a, void* b, void* c, const size_t ldc, void* bias, float scale, int row_tile) {
+  // this function is to test _tile_gemm output 64 of ldc
   auto a_ = reinterpret_cast<int (*)[1024]>(a);
   auto b_ = reinterpret_cast<int (*)[64]>(b);
-  auto c_ = reinterpret_cast<int (*)[64]>(c);
+  auto c_ = reinterpret_cast<int (*)[ldc]>(c);
   auto bias_ = reinterpret_cast<float (*)>(bias);
 
   for (int i = 0; i < 16 * row_tile; i++) {
-    for (int j = 0; j < 64; j++) {
+    for (int j = 0; j < ldc; j++) {
       c_[i][j] = 0;
     }
   }
@@ -145,12 +146,13 @@ void test_accuracy_linear(int row_tile) {
   alignas(64) int nwei[1024 * 64];
   
   alignas(64) float bias[64];
-  alignas(64) int8_t out[row_tile * 16][64];
-  alignas(64) int nout[row_tile * 16 * 64];
+
+  size_t ldc = 1024;
+  
+  alignas(64) int nout[row_tile * 16 * ldc];
   float scale = 0.0018;
   set_data_act(act, row_tile);
   set_data_wei(wei, bias);
-  size_t ldc = 64;
 
   using tile_io  = intel_mlperf::io_policy<16, intel_mlperf::i_format::tile>;
 
@@ -160,37 +162,38 @@ void test_accuracy_linear(int row_tile) {
   intel_mlperf::amx_init();
   intel_mlperf::Tilecfg().set_config();
 
-  naive_linear(nact, nwei, nout, bias, scale, row_tile);
+  naive_linear(nact, nwei, nout, ldc, bias, scale, row_tile);
   printf("****************** start block test... *********************\n");
   printf("****************** accuracy...*********************\n");
+  alignas(64) int8_t out[row_tile * 16][64];
   switch (row_tile) {
   case (2):
-    intel_mlperf::_tile_dot_product_16x256<2, 16, tile_io>::compute(out, ldc, act, wei, bias, scale);
+    intel_mlperf::_tile_dot_product_16x256<2, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
     break;
   case (3):
-    intel_mlperf::_tile_dot_product_16x256<3, 16, tile_io>::compute(out, ldc, act, wei, bias, scale);
+    intel_mlperf::_tile_dot_product_16x256<3, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
     break;
   case (4):
-    intel_mlperf::_tile_dot_product_16x256<4, 16, tile_io>::compute(out, ldc, act, wei, bias, scale);
+    intel_mlperf::_tile_dot_product_16x256<4, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
     break;
   case (5):
-    intel_mlperf::_tile_dot_product_16x256<5, 16, tile_io>::compute(out, ldc, act, wei, bias, scale);
+    intel_mlperf::_tile_dot_product_16x256<5, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
     break;
   case (6):
-    intel_mlperf::_tile_dot_product_16x256<6, 16, tile_io>::compute(out, ldc, act, wei, bias, scale);
+    intel_mlperf::_tile_dot_product_16x256<6, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
     break;
   case (7):
-    intel_mlperf::_tile_dot_product_16x256<7, 16, tile_io>::compute(out, ldc, act, wei, bias, scale);
+    intel_mlperf::_tile_dot_product_16x256<7, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
     break;
   case (8):
-    intel_mlperf::_tile_dot_product_16x256<8, 16, tile_io>::compute(out, ldc, act, wei, bias, scale);
+    intel_mlperf::_tile_dot_product_16x256<8, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
     break;
   }
 
   auto out_ = reinterpret_cast<int8_t (*)[16][64]>(out);
-  auto nout_ = reinterpret_cast<int (*)[64]>(nout);
+  auto nout_ = reinterpret_cast<int (*)[ldc]>(nout);
   for (int i = 0; i < row_tile; i++) {
-    intel_mlperf::compare_naive_output(&nout_[i * 16][0], (int8_t*)out_[i], 16, 64, 64, 64);
+    intel_mlperf::compare_naive_output(&nout_[i * 16][0], (int8_t*)out_[i], 16, 64, ldc, 64);
   } 
 
   printf("************************ start performance test... **************************\n");
@@ -199,25 +202,25 @@ void test_accuracy_linear(int row_tile) {
   for (int i = 0; i < count; i++) {
     switch (row_tile) {
     case (2):
-      intel_mlperf::_tile_dot_product_16x256<2, 16, tile_io>::compute(out, ldc, act, wei, bias, scale);
+      intel_mlperf::_tile_dot_product_16x256<2, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
       break;
     case (3):
-      intel_mlperf::_tile_dot_product_16x256<3, 16, tile_io>::compute(out, ldc, act, wei, bias, scale);
+      intel_mlperf::_tile_dot_product_16x256<3, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
       break;
     case (4):
-      intel_mlperf::_tile_dot_product_16x256<4, 16, tile_io>::compute(out, ldc, act, wei, bias, scale);
+      intel_mlperf::_tile_dot_product_16x256<4, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
       break;
     case (5):
-      intel_mlperf::_tile_dot_product_16x256<5, 16, tile_io>::compute(out, ldc, act, wei, bias, scale);
+      intel_mlperf::_tile_dot_product_16x256<5, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
       break;
     case (6):
-      intel_mlperf::_tile_dot_product_16x256<6, 16, tile_io>::compute(out, ldc, act, wei, bias, scale);
+      intel_mlperf::_tile_dot_product_16x256<6, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
       break;
     case (7):
-      intel_mlperf::_tile_dot_product_16x256<7, 16, tile_io>::compute(out, ldc, act, wei, bias, scale);
+      intel_mlperf::_tile_dot_product_16x256<7, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
       break;
     case (8):
-      intel_mlperf::_tile_dot_product_16x256<8, 16, tile_io>::compute(out, ldc, act, wei, bias, scale);
+      intel_mlperf::_tile_dot_product_16x256<8, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
       break;
     }
   }
@@ -228,41 +231,43 @@ void test_accuracy_linear(int row_tile) {
             << (float)lduring / 1000 / 1000 << " ms " << std::endl;
   std::cout << "single linear time : " << (float)lduring / count << " ns" << std::endl;
 
+  // getchar();
   printf("****************** start plain test... *********************\n");
 
   using plain_io = intel_mlperf::io_policy<16, intel_mlperf::i_format::plain>;
 
   send_data2naive(act, wei, nact, nwei, row_tile, false);
-  naive_linear(nact, nwei, nout, bias, scale, row_tile);
+  naive_linear(nact, nwei, nout, ldc, bias, scale, row_tile);
+  int8_t p_out[row_tile * 16][ldc];
   printf("****************** accuracy...*********************\n");
   switch (row_tile) {
   case (2):
-    intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(out, ldc, act, wei, bias, scale);
+    intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
     break;
   case (3):
-    intel_mlperf::_tile_dot_product_16x256<3, 16, plain_io>::compute(out, ldc, act, wei, bias, scale);
+    intel_mlperf::_tile_dot_product_16x256<3, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
     break;
   case (4):
-    intel_mlperf::_tile_dot_product_16x256<4, 16, plain_io>::compute(out, ldc, act, wei, bias, scale);
+    intel_mlperf::_tile_dot_product_16x256<4, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
     break;
   case (5):
-    intel_mlperf::_tile_dot_product_16x256<5, 16, plain_io>::compute(out, ldc, act, wei, bias, scale);
+    intel_mlperf::_tile_dot_product_16x256<5, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
     break;
   case (6):
-    intel_mlperf::_tile_dot_product_16x256<6, 16, plain_io>::compute(out, ldc, act, wei, bias, scale);
+    intel_mlperf::_tile_dot_product_16x256<6, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
     break;
   case (7):
-    intel_mlperf::_tile_dot_product_16x256<7, 16, plain_io>::compute(out, ldc, act, wei, bias, scale);
+    intel_mlperf::_tile_dot_product_16x256<7, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
     break;
   case (8):
-    intel_mlperf::_tile_dot_product_16x256<8, 16, plain_io>::compute(out, ldc, act, wei, bias, scale);
+    intel_mlperf::_tile_dot_product_16x256<8, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
     break;
   }
 
-  out_ = reinterpret_cast<int8_t (*)[16][64]>(out);
-  nout_ = reinterpret_cast<int (*)[64]>(nout);
+  auto p_out_ = reinterpret_cast<int8_t (*)[16][ldc]>(p_out);
+  nout_ = reinterpret_cast<int (*)[ldc]>(nout);
   for (int i = 0; i < row_tile; i++) {
-    intel_mlperf::compare_naive_output(&nout_[i * 16][0], (int8_t*)out_[i], 16, 64, 64, 64);
+    intel_mlperf::compare_naive_output(&nout_[i * 16][0], (int8_t*)p_out_[i], 16, 64, ldc, ldc);
   } 
 
   printf("************************ start performance test... **************************\n");
@@ -271,25 +276,25 @@ void test_accuracy_linear(int row_tile) {
   for (int i = 0; i < count; i++) {
     switch (row_tile) {
     case (2):
-      intel_mlperf::_tile_dot_product_16x256<2, 16, tile_io>::compute(out, ldc, act, wei, bias, scale);
+      intel_mlperf::_tile_dot_product_16x256<2, 16, tile_io>::compute(p_out, ldc, act, wei, bias, scale);
       break;
     case (3):
-      intel_mlperf::_tile_dot_product_16x256<3, 16, tile_io>::compute(out, ldc, act, wei, bias, scale);
+      intel_mlperf::_tile_dot_product_16x256<3, 16, tile_io>::compute(p_out, ldc, act, wei, bias, scale);
       break;
     case (4):
-      intel_mlperf::_tile_dot_product_16x256<4, 16, tile_io>::compute(out, ldc, act, wei, bias, scale);
+      intel_mlperf::_tile_dot_product_16x256<4, 16, tile_io>::compute(p_out, ldc, act, wei, bias, scale);
       break;
     case (5):
-      intel_mlperf::_tile_dot_product_16x256<5, 16, tile_io>::compute(out, ldc, act, wei, bias, scale);
+      intel_mlperf::_tile_dot_product_16x256<5, 16, tile_io>::compute(p_out, ldc, act, wei, bias, scale);
       break;
     case (6):
-      intel_mlperf::_tile_dot_product_16x256<6, 16, tile_io>::compute(out, ldc, act, wei, bias, scale);
+      intel_mlperf::_tile_dot_product_16x256<6, 16, tile_io>::compute(p_out, ldc, act, wei, bias, scale);
       break;
     case (7):
-      intel_mlperf::_tile_dot_product_16x256<7, 16, tile_io>::compute(out, ldc, act, wei, bias, scale);
+      intel_mlperf::_tile_dot_product_16x256<7, 16, tile_io>::compute(p_out, ldc, act, wei, bias, scale);
       break;
     case (8):
-      intel_mlperf::_tile_dot_product_16x256<8, 16, tile_io>::compute(out, ldc, act, wei, bias, scale);
+      intel_mlperf::_tile_dot_product_16x256<8, 16, tile_io>::compute(p_out, ldc, act, wei, bias, scale);
       break;
     }
   }

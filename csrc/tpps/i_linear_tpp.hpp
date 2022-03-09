@@ -29,7 +29,6 @@ struct io_policy<col_tile, i_format::tile> {
   }
 
   inline static void _mm512_coalescing_store(void* C, size_t ldc, int idx, __m512i o0, __m512i o1, __m512i o2, __m512i o3) {
-    assert(ldc == 64);
     auto C_ = reinterpret_cast<int8_t (*)[4][16]>(C);
 
     _mm512_mask_cvtepi32_storeu_epi8(C_[idx][0], 0xffff, o0);
