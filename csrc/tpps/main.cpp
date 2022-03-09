@@ -188,6 +188,15 @@ void test_accuracy_linear(int row_tile) {
   case (8):
     intel_mlperf::_tile_dot_product_16x256<8, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
     break;
+  case (9):
+    intel_mlperf::_tile_dot_product_16x256<9, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+    break;
+  case (10):
+    intel_mlperf::_tile_dot_product_16x256<10, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+    break;
+  case (11):
+    intel_mlperf::_tile_dot_product_16x256<11, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+    break;
   }
 
   auto out_ = reinterpret_cast<int8_t (*)[16][64]>(out);
@@ -221,6 +230,15 @@ void test_accuracy_linear(int row_tile) {
       break;
     case (8):
       intel_mlperf::_tile_dot_product_16x256<8, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+      break;
+    case (9):
+      intel_mlperf::_tile_dot_product_16x256<9, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+      break;
+    case (10):
+      intel_mlperf::_tile_dot_product_16x256<10, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+      break;
+    case (11):
+      intel_mlperf::_tile_dot_product_16x256<11, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
       break;
     }
   }
@@ -262,6 +280,15 @@ void test_accuracy_linear(int row_tile) {
   case (8):
     intel_mlperf::_tile_dot_product_16x256<8, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
     break;
+  case (9):
+    intel_mlperf::_tile_dot_product_16x256<9, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
+    break;
+  case (10):
+    intel_mlperf::_tile_dot_product_16x256<10, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
+    break;
+  case (11):
+    intel_mlperf::_tile_dot_product_16x256<11, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
+    break;
   }
 
   auto p_out_ = reinterpret_cast<int8_t (*)[16][ldc]>(p_out);
@@ -295,6 +322,15 @@ void test_accuracy_linear(int row_tile) {
       break;
     case (8):
       intel_mlperf::_tile_dot_product_16x256<8, 16, tile_io>::compute(p_out, ldc, act, wei, bias, scale);
+      break;
+    case (9):
+      intel_mlperf::_tile_dot_product_16x256<9, 16, tile_io>::compute(p_out, ldc, act, wei, bias, scale);
+      break;
+    case (10):
+      intel_mlperf::_tile_dot_product_16x256<10, 16, tile_io>::compute(p_out, ldc, act, wei, bias, scale);
+      break;
+    case (11):
+      intel_mlperf::_tile_dot_product_16x256<11, 16, tile_io>::compute(p_out, ldc, act, wei, bias, scale);
       break;
     }
   }

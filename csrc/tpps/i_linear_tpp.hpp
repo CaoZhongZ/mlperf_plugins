@@ -59,10 +59,13 @@ struct io_policy<col_tile, i_format::plain> {
   }
 };
 
-// we don't use row_tile == 1, maybe add it later
 template <int row_tile, int col_tile, typename io_policy>
-struct _tile_dot_product_16x256 {
+struct _tile_dot_product_16x256;
 
+// we don't use row_tile == 1, maybe add it later
+template <int col_tile, typename io_policy>
+struct _tile_dot_product_16x256<2, col_tile, io_policy> {
+  static constexpr size_t row_tile = 2;
   static constexpr size_t A_footprint = row_tile * col_tile * 16 * 64;
   static constexpr size_t B_footprint = col_tile * 16 * 256;
   static constexpr size_t cache_footprint = A_footprint + B_footprint;
@@ -568,9 +571,8 @@ struct _tile_dot_product_16x256 <6, col_tile, io_policy> {
   }
 };
 
-template <int col_tile, typename io_policy>
-struct _tile_dot_product_16x256 <7, col_tile, io_policy> {
-  static constexpr size_t row_tile = 7;
+template <int row_tile, int col_tile, typename io_policy>
+struct _tile_dot_product_16x256 {
   static constexpr size_t A_footprint = row_tile * col_tile * 16 * 64;
   static constexpr size_t B_footprint = col_tile * 16 * 256;
   static constexpr size_t cache_footprint = A_footprint + B_footprint;
@@ -582,36 +584,33 @@ struct _tile_dot_product_16x256 <7, col_tile, io_policy> {
 
     _tile_loadd(TMM7, B, 64);
 
-    io_policy::template tile_load<TMM6>(A, 0);
     // TMM0 is the tile used twice
-    _tile_loadd(TMM0, scratch_pad[0], 64);
-    __tile_dpbssd<TMM0, TMM6, TMM7>();
-    _tile_stored(TMM0, scratch_pad[0], 64);
+    for (int i = 0; i < (row_tile - 5); i++) {
+      io_policy::template tile_load<TMM6>(A, i);
+      _tile_loadd(TMM0, scratch_pad[i], 64);
+      __tile_dpbssd<TMM0, TMM6, TMM7>();
+      _tile_stored(TMM0, scratch_pad[i], 64);
+    }
 
-    io_policy::template tile_load<TMM6>(A, 1);
-    _tile_loadd(TMM0, scratch_pad[1], 64);
-    __tile_dpbssd<TMM0, TMM6, TMM7>();
-    _tile_stored(TMM0, scratch_pad[1], 64);
-
-    io_policy::template tile_load<TMM6>(A, 2);
+    io_policy::template tile_load<TMM6>(A, row_tile - 5);
     __tile_dpbssd<TMM1, TMM6, TMM7>();
-    io_policy::template tile_load<TMM6>(A, 3);
+    io_policy::template tile_load<TMM6>(A, row_tile - 4);
     __tile_dpbssd<TMM2, TMM6, TMM7>();
-    io_policy::template tile_load<TMM6>(A, 4);
+    io_policy::template tile_load<TMM6>(A, row_tile - 3);
     __tile_dpbssd<TMM3, TMM6, TMM7>();
-    io_policy::template tile_load<TMM6>(A, 5);
+    io_policy::template tile_load<TMM6>(A, row_tile - 2);
     __tile_dpbssd<TMM4, TMM6, TMM7>();
-    io_policy::template tile_load<TMM6>(A, 6);
+    io_policy::template tile_load<TMM6>(A, row_tile - 1);
     __tile_dpbssd<TMM5, TMM6, TMM7>();
   }
 
   inline static void store(void *S) {
     auto S_ = reinterpret_cast<int (*)[16][16]>(S);
-    _tile_stored(TMM1, S_[2], 64);
-    _tile_stored(TMM2, S_[3], 64);
-    _tile_stored(TMM3, S_[4], 64);
-    _tile_stored(TMM4, S_[5], 64);
-    _tile_stored(TMM5, S_[6], 64);
+    _tile_stored(TMM1, S_[row_tile - 5], 64);
+    _tile_stored(TMM2, S_[row_tile - 4], 64);
+    _tile_stored(TMM3, S_[row_tile - 3], 64);
+    _tile_stored(TMM4, S_[row_tile - 2], 64);
+    _tile_stored(TMM5, S_[row_tile - 1], 64);
   }
 
   inline static void zero_accum(void* scrach_) {
@@ -623,132 +622,9 @@ struct _tile_dot_product_16x256 <7, col_tile, io_policy> {
     _tile_zero(TMM4);
     _tile_zero(TMM5);
 
-    _tile_stored(TMM1, scratch_pad[0], 64);
-    _tile_stored(TMM2, scratch_pad[1], 64);
-  }
-
-  inline static void quant_out(void *C, size_t ldc, void *s_0, void *s_1, float *bias, float scale) {
-    auto s_0_ = reinterpret_cast<int (*)[row_tile][16][16]>(s_0);
-    auto s_1_ = reinterpret_cast<int (*)[row_tile][16][16]>(s_1);
-
-    auto scale_ = _mm512_set1_ps(scale);
-    constexpr size_t c_block = 16 * col_tile * 64;
-    auto bias_ = reinterpret_cast<float (*)[16]>(bias);
-
-    auto b0 = _mm512_loadu_ps(bias_[0]);
-    auto b1 = _mm512_loadu_ps(bias_[1]);
-    auto b2 = _mm512_loadu_ps(bias_[2]);
-    auto b3 = _mm512_loadu_ps(bias_[3]);
-
-    auto C_ = reinterpret_cast<int8_t (*)[16 * ldc]>(C);
-#   pragma unroll (row_tile)
-    for (int t = 0; t < row_tile; ++ t) {
-#     pragma unroll (16)
-      for (int i = 0; i < 16; ++ i) {
-        auto i0 = _mm512_load_epi32(s_0_[0][t][i]);
-        auto i1 = _mm512_load_epi32(s_0_[1][t][i]);
-        auto i2 = _mm512_load_epi32(s_1_[0][t][i]);
-        auto i3 = _mm512_load_epi32(s_1_[1][t][i]);
-
-        auto f0 = _mm512_cvtepi32_ps(i0) + b0;
-        auto f1 = _mm512_cvtepi32_ps(i1) + b1;
-        auto f2 = _mm512_cvtepi32_ps(i2) + b2;
-        auto f3 = _mm512_cvtepi32_ps(i3) + b3;
-
-        auto o0 = _mm512_scale_minmax_i8_ps(scale_, f0);
-        auto o1 = _mm512_scale_minmax_i8_ps(scale_, f1);
-        auto o2 = _mm512_scale_minmax_i8_ps(scale_, f2);
-        auto o3 = _mm512_scale_minmax_i8_ps(scale_, f3);
-
-        io_policy::_mm512_coalescing_store(C_[t], ldc, i, o0, o1, o2, o3);
-      }
+    for (int i = 0; i < row_tile - 5; i++) {
+      _tile_stored(TMM1, scratch_pad[i], 64);
     }
-  }
-
-  // Pure tile format
-  inline static void compute(void *C, size_t ldc, void *A, void *B, float *bias, float scale) {
-    alignas (64) int scratch[4][row_tile][16][16];
-
-    auto A_ = reinterpret_cast<typename io_policy::tile_array>(A);
-    auto B_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(B);
-
-#   pragma unroll (4)
-    for (int j = 0; j < 4; ++j) {
-      zero_accum(scratch[j]);
-#     pragma unroll (col_tile)
-      for (int i = 0; i < col_tile; i++) {
-        dot_prod(A_[i], B_[j][i], scratch[j]);
-      }
-      store(scratch[j]);
-    }
-    quant_out(C, ldc, scratch[0], scratch[2], bias, scale);
-  }
-};
-
-template <int col_tile, typename io_policy>
-struct _tile_dot_product_16x256 <8, col_tile, io_policy> {
-  static constexpr size_t row_tile = 8;
-  static constexpr size_t A_footprint = row_tile * col_tile * 16 * 64;
-  static constexpr size_t B_footprint = col_tile * 16 * 256;
-  static constexpr size_t cache_footprint = A_footprint + B_footprint;
-  static constexpr size_t lda = col_tile * 64;
-
-  // This version is with A/B tile interleaving
-  inline static void dot_prod(void *A, void *B, void* scrach_) {
-    auto scratch_pad = reinterpret_cast<int (*)[16][16]>(scrach_);
-
-    _tile_loadd(TMM7, B, 64);
-
-    io_policy::template tile_load<TMM6>(A, 0);
-    // TMM0 is the tile used three times
-    _tile_loadd(TMM0, scratch_pad[0], 64);
-    __tile_dpbssd<TMM0, TMM6, TMM7>();
-    _tile_stored(TMM0, scratch_pad[0], 64);
-
-    io_policy::template tile_load<TMM6>(A, 1);
-    _tile_loadd(TMM0, scratch_pad[1], 64);
-    __tile_dpbssd<TMM0, TMM6, TMM7>();
-    _tile_stored(TMM0, scratch_pad[1], 64);
-
-    io_policy::template tile_load<TMM6>(A, 2);
-    _tile_loadd(TMM0, scratch_pad[2], 64);
-    __tile_dpbssd<TMM0, TMM6, TMM7>();
-    _tile_stored(TMM0, scratch_pad[2], 64);
-
-    io_policy::template tile_load<TMM6>(A, 3);
-    __tile_dpbssd<TMM1, TMM6, TMM7>();
-    io_policy::template tile_load<TMM6>(A, 4);
-    __tile_dpbssd<TMM2, TMM6, TMM7>();
-    io_policy::template tile_load<TMM6>(A, 5);
-    __tile_dpbssd<TMM3, TMM6, TMM7>();
-    io_policy::template tile_load<TMM6>(A, 6);
-    __tile_dpbssd<TMM4, TMM6, TMM7>();
-    io_policy::template tile_load<TMM6>(A, 7);
-    __tile_dpbssd<TMM5, TMM6, TMM7>();
-  }
-
-  inline static void store(void *S) {
-    auto S_ = reinterpret_cast<int (*)[16][16]>(S);
-    _tile_stored(TMM1, S_[3], 64);
-    _tile_stored(TMM2, S_[4], 64);
-    _tile_stored(TMM3, S_[5], 64);
-    _tile_stored(TMM4, S_[6], 64);
-    _tile_stored(TMM5, S_[7], 64);
-  }
-
-  inline static void zero_accum(void* scrach_) {
-    // _tile_zero(TMM0);
-    auto scratch_pad = reinterpret_cast<int (*)[16][16]>(scrach_);
-    
-    _tile_zero(TMM1);
-    _tile_zero(TMM2);
-    _tile_zero(TMM3);
-    _tile_zero(TMM4);
-    _tile_zero(TMM5);
-
-    _tile_stored(TMM1, scratch_pad[0], 64);
-    _tile_stored(TMM2, scratch_pad[1], 64);
-    _tile_stored(TMM3, scratch_pad[2], 64);
   }
 
   inline static void quant_out(void *C, size_t ldc, void *s_0, void *s_1, float *bias, float scale) {
