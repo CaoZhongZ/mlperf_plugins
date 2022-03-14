@@ -571,6 +571,7 @@ struct _tile_dot_product_16x256 <6, col_tile, io_policy> {
   }
 };
 
+// for row_tile >= 7
 template <int row_tile, int col_tile, typename io_policy>
 struct _tile_dot_product_16x256 {
   static constexpr size_t A_footprint = row_tile * col_tile * 16 * 64;
@@ -685,12 +686,13 @@ struct _tile_dot_product_16x256 {
   }
 };
 
-template<int row_tile>
+// [dim0, dim1, dim2] == [M, K, N]
 class block_gemm {
 public:
-  block_gemm(size_t dim0, size_t dim1, size_t dim2)
+  block_gemm(const size_t dim0, const size_t dim1, const size_t dim2)
       : dim0(dim0), dim1(dim1), dim2(dim2) {};
 
+  template <int col_tile>
   void ref(void* output, void* input, void* weight, void* bias, float scale);
 protected:
   size_t dim0, dim1, dim2;
