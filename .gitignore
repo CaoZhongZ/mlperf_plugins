@@ -4,5 +4,6 @@ csrc/*.bk
 csrc/tpps/*.bk
 csrc/tpps/*.a
 csrc/tpps/xxx.exe
+csrc/tpps/*.log
 csrc/tpps/*.o
 

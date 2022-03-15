@@ -1,4 +1,8 @@
+#include <chrono>
+
 #include "i_linear_tpp.hpp"
+
+using Time = std::chrono::high_resolution_clock;
 
 namespace intel_mlperf {
 
@@ -76,121 +80,121 @@ void block_gemm::ref(void* output, void* input, void* weight, void* bias, float 
     // TODO: add pragma parallel
     for (int i = 0; i < col_step; i++) {
       _tile_dot_product_16x256<10, col_tile, ip>::compute(output_[0][i], dim2, input, weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[10][i], dim2, input_[10], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[10 * 16][i], dim2, input_[10 * 16], weight_[i], bias_[i], scale);
     }
     break;
   case (13) :
     // TODO: add pragma parallel
     for (int i = 0; i < col_step; i++) {
       _tile_dot_product_16x256<11, col_tile, ip>::compute(output_[0][i], dim2, input, weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[11][i], dim2, input_[11], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[11 * 16][i], dim2, input_[11 * 16], weight_[i], bias_[i], scale);
     }
     break;
   case (14) :
     // TODO: add pragma parallel
     for (int i = 0; i < col_step; i++) {
       _tile_dot_product_16x256<11, col_tile, ip>::compute(output_[0][i], dim2, input, weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<3, col_tile, ip>::compute(output_[11][i], dim2, input_[11], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<3, col_tile, ip>::compute(output_[11 * 16][i], dim2, input_[11 * 16], weight_[i], bias_[i], scale);
     }
     break;
   case (15) :
     // TODO: add pragma parallel
     for (int i = 0; i < col_step; i++) {
       _tile_dot_product_16x256<11, col_tile, ip>::compute(output_[0][i], dim2, input, weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[11][i], dim2, input_[11], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[13][i], dim2, input_[13], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[11 * 16][i], dim2, input_[11 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[13 * 16][i], dim2, input_[13 * 16], weight_[i], bias_[i], scale);
     }
     break;
   case (16) :
     // TODO: add pragma parallel
     for (int i = 0; i < col_step; i++) {
       _tile_dot_product_16x256<11, col_tile, ip>::compute(output_[0][i], dim2, input, weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[11][i], dim2, input_[11], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<3, col_tile, ip>::compute(output_[13][i], dim2, input_[13], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[11 * 16][i], dim2, input_[11 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<3, col_tile, ip>::compute(output_[13 * 16][i], dim2, input_[13 * 16], weight_[i], bias_[i], scale);
     }
     break;
   case (17) :
     // TODO: add pragma parallel
     for (int i = 0; i < col_step; i++) {
       _tile_dot_product_16x256<11, col_tile, ip>::compute(output_[0][i], dim2, input, weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[11][i], dim2, input_[11], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[13][i], dim2, input_[13], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[15][i], dim2, input_[15], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[11 * 16][i], dim2, input_[11 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[13 * 16][i], dim2, input_[13 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[15 * 16][i], dim2, input_[15 * 16], weight_[i], bias_[i], scale);
     }
     break;
   case (18) :
     // TODO: add pragma parallel
     for (int i = 0; i < col_step; i++) {
       _tile_dot_product_16x256<11, col_tile, ip>::compute(output_[0][i], dim2, input, weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[11][i], dim2, input_[11], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[13][i], dim2, input_[13], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<3, col_tile, ip>::compute(output_[15][i], dim2, input_[15], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[11 * 16][i], dim2, input_[11 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[13 * 16][i], dim2, input_[13 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<3, col_tile, ip>::compute(output_[15 * 16][i], dim2, input_[15 * 16], weight_[i], bias_[i], scale);
     }
     break;
   case (19) :
     // TODO: add pragma parallel
     for (int i = 0; i < col_step; i++) {
       _tile_dot_product_16x256<11, col_tile, ip>::compute(output_[0][i], dim2, input, weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[11][i], dim2, input_[11], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[13][i], dim2, input_[13], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[15][i], dim2, input_[15], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[17][i], dim2, input_[17], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[11 * 16][i], dim2, input_[11 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[13 * 16][i], dim2, input_[13 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[15 * 16][i], dim2, input_[15 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[17 * 16][i], dim2, input_[17 * 16], weight_[i], bias_[i], scale);
     }
     break;
   case (20) :
     // TODO: add pragma parallel
     for (int i = 0; i < col_step; i++) {
       _tile_dot_product_16x256<11, col_tile, ip>::compute(output_[0][i], dim2, input, weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[11][i], dim2, input_[11], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[13][i], dim2, input_[13], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[15][i], dim2, input_[15], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<3, col_tile, ip>::compute(output_[17][i], dim2, input_[17], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[11 * 16][i], dim2, input_[11 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[13 * 16][i], dim2, input_[13 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[15 * 16][i], dim2, input_[15 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<3, col_tile, ip>::compute(output_[17 * 16][i], dim2, input_[17 * 16], weight_[i], bias_[i], scale);
     }
     break;
   case (21) :
     // TODO: add pragma parallel
     for (int i = 0; i < col_step; i++) {
       _tile_dot_product_16x256<11, col_tile, ip>::compute(output_[0][i], dim2, input, weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[11][i], dim2, input_[11], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[13][i], dim2, input_[13], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[15][i], dim2, input_[15], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[17][i], dim2, input_[17], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[19][i], dim2, input_[19], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[11 * 16][i], dim2, input_[11 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[13 * 16][i], dim2, input_[13 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[15 * 16][i], dim2, input_[15 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[17 * 16][i], dim2, input_[17 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[19 * 16][i], dim2, input_[19 * 16], weight_[i], bias_[i], scale);
     }
     break;
   case (22) :
     // TODO: add pragma parallel
     for (int i = 0; i < col_step; i++) {
       _tile_dot_product_16x256<11, col_tile, ip>::compute(output_[0][i], dim2, input, weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[11][i], dim2, input_[11], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[13][i], dim2, input_[13], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[15][i], dim2, input_[15], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[17][i], dim2, input_[17], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<3, col_tile, ip>::compute(output_[19][i], dim2, input_[19], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[11 * 16][i], dim2, input_[11 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[13 * 16][i], dim2, input_[13 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[15 * 16][i], dim2, input_[15 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[17 * 16][i], dim2, input_[17 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<3, col_tile, ip>::compute(output_[19 * 16][i], dim2, input_[19 * 16], weight_[i], bias_[i], scale);
     }
     break;
   case (23) :
     // TODO: add pragma parallel
     for (int i = 0; i < col_step; i++) {
       _tile_dot_product_16x256<11, col_tile, ip>::compute(output_[0][i], dim2, input, weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[11][i], dim2, input_[11], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[13][i], dim2, input_[13], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[15][i], dim2, input_[15], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[17][i], dim2, input_[17], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[19][i], dim2, input_[19], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[21][i], dim2, input_[12], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[11 * 16][i], dim2, input_[11 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[13 * 16][i], dim2, input_[13 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[15 * 16][i], dim2, input_[15 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[17 * 16][i], dim2, input_[17 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[19 * 16][i], dim2, input_[19 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[21 * 16][i], dim2, input_[21 * 16], weight_[i], bias_[i], scale);
     }
     break;
   case (24) :
     // TODO: add pragma parallel
     for (int i = 0; i < col_step; i++) {
       _tile_dot_product_16x256<11, col_tile, ip>::compute(output_[0][i], dim2, input, weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[11][i], dim2, input_[11], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[13][i], dim2, input_[13], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[15][i], dim2, input_[15], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[17][i], dim2, input_[17], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[19][i], dim2, input_[19], weight_[i], bias_[i], scale);
-      _tile_dot_product_16x256<3, col_tile, ip>::compute(output_[21][i], dim2, input_[12], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[11 * 16][i], dim2, input_[11 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[13 * 16][i], dim2, input_[13 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[15 * 16][i], dim2, input_[15 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[17 * 16][i], dim2, input_[17 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[19 * 16][i], dim2, input_[19 * 16], weight_[i], bias_[i], scale);
+      _tile_dot_product_16x256<3, col_tile, ip>::compute(output_[21 * 16][i], dim2, input_[21 * 16], weight_[i], bias_[i], scale);
     }
     break;
   }
