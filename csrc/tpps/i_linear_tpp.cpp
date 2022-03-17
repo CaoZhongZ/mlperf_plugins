@@ -68,6 +68,11 @@ void block_gemm::ref(void* output, void* input, void* weight, void* bias, float 
     // TODO: add pragma parallel
     for (int i = 0; i < col_step; i++) {
       _tile_dot_product_16x256<10, col_tile, ip>::compute(output_[0][i], dim2, input, weight_[i], bias_[i], scale);
+      // _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[0][i], dim2, input, weight_[i], bias_[i], scale);
+      // _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[2 * 16][i], dim2, input, weight_[i], bias_[i], scale);
+      // _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[4 * 16][i], dim2, input, weight_[i], bias_[i], scale);
+      // _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[6 * 16][i], dim2, input, weight_[i], bias_[i], scale);
+      // _tile_dot_product_16x256<2, col_tile, ip>::compute(output_[8 * 16][i], dim2, input, weight_[i], bias_[i], scale);
     }
     break;
   case (11) :

@@ -181,13 +181,30 @@ struct _tile_dot_product_16x256 <3, col_tile, io_policy> {
   template <int tile_reg>
   inline static void dot_prod(void *A, void *B) {
     __tile_loadd<tile_reg>(B, 64);
+    auto B_ = reinterpret_cast<int8_t (*)[16][64]>(B);
 
     io_policy::template tile_load<TMM3>(A, 0);
     __tile_dpbssd<TMM0, TMM3, tile_reg>();
+    _mm_prefetch(B_[1][0], _MM_HINT_T0);
+    _mm_prefetch(B_[1][1], _MM_HINT_T0);
+    _mm_prefetch(B_[1][2], _MM_HINT_T0);
+    _mm_prefetch(B_[1][3], _MM_HINT_T0);
+    _mm_prefetch(B_[1][4], _MM_HINT_T0);
     io_policy::template tile_load<TMM4>(A, 1);
     __tile_dpbssd<TMM1, TMM4, tile_reg>();
+    _mm_prefetch(B_[1][5], _MM_HINT_T0);
+    _mm_prefetch(B_[1][6], _MM_HINT_T0);
+    _mm_prefetch(B_[1][7], _MM_HINT_T0);
+    _mm_prefetch(B_[1][8], _MM_HINT_T0);
+    _mm_prefetch(B_[1][9], _MM_HINT_T0);
     io_policy::template tile_load<TMM5>(A, 2);
     __tile_dpbssd<TMM2, TMM5, tile_reg>();
+    _mm_prefetch(B_[1][10], _MM_HINT_T0);
+    _mm_prefetch(B_[1][11], _MM_HINT_T0);
+    _mm_prefetch(B_[1][12], _MM_HINT_T0);
+    _mm_prefetch(B_[1][13], _MM_HINT_T0);
+    _mm_prefetch(B_[1][14], _MM_HINT_T0);
+    _mm_prefetch(B_[1][15], _MM_HINT_T0);
   }
 
   inline static void store(void *S) {
@@ -278,15 +295,32 @@ struct _tile_dot_product_16x256 <4, col_tile, io_policy> {
   template <int tile_reg>
   inline static void dot_prod(void *A, void *B) {
     __tile_loadd<tile_reg>(B, 64);
+    auto B_ = reinterpret_cast<int8_t (*)[16][64]>(B);
 
     io_policy::template tile_load<TMM4>(A, 0);
     __tile_dpbssd<TMM0, TMM4, tile_reg>();
+    _mm_prefetch(B_[1][0], _MM_HINT_T0);
+    _mm_prefetch(B_[1][1], _MM_HINT_T0);
+    _mm_prefetch(B_[1][2], _MM_HINT_T0);
+    _mm_prefetch(B_[1][3], _MM_HINT_T0);
     io_policy::template tile_load<TMM5>(A, 1);
     __tile_dpbssd<TMM1, TMM5, tile_reg>();
+    _mm_prefetch(B_[1][4], _MM_HINT_T0);
+    _mm_prefetch(B_[1][5], _MM_HINT_T0);
+    _mm_prefetch(B_[1][6], _MM_HINT_T0);
+    _mm_prefetch(B_[1][7], _MM_HINT_T0);
     io_policy::template tile_load<TMM4>(A, 2);
     __tile_dpbssd<TMM2, TMM4, tile_reg>();
+    _mm_prefetch(B_[1][8], _MM_HINT_T0);
+    _mm_prefetch(B_[1][9], _MM_HINT_T0);
+    _mm_prefetch(B_[1][10], _MM_HINT_T0);
+    _mm_prefetch(B_[1][11], _MM_HINT_T0);
     io_policy::template tile_load<TMM5>(A, 3);
     __tile_dpbssd<TMM3, TMM5, tile_reg>();
+    _mm_prefetch(B_[1][12], _MM_HINT_T0);
+    _mm_prefetch(B_[1][13], _MM_HINT_T0);
+    _mm_prefetch(B_[1][14], _MM_HINT_T0);
+    _mm_prefetch(B_[1][15], _MM_HINT_T0);
   }
 
   inline static void store(void *S) {
@@ -309,7 +343,6 @@ struct _tile_dot_product_16x256 <4, col_tile, io_policy> {
     auto s_1_ = reinterpret_cast<int (*)[row_tile][16][16]>(s_1);
 
     auto scale_ = _mm512_set1_ps(scale);
-    constexpr size_t c_block = 16 * col_tile * 64;
     auto bias_ = reinterpret_cast<float (*)[16]>(bias);
 
     auto b0 = _mm512_loadu_ps(bias_[0]);
@@ -379,17 +412,34 @@ struct _tile_dot_product_16x256 <5, col_tile, io_policy> {
   // This version is with A/B tile interleaving
   inline static void dot_prod(void *A, void *B) {
     _tile_loadd(TMM7, B, 64);
+    auto B_ = reinterpret_cast<int8_t (*)[16][64]>(B);
 
     io_policy::template tile_load<TMM5>(A, 0);
     __tile_dpbssd<TMM0, TMM5, TMM7>();
+    _mm_prefetch(B_[1][0], _MM_HINT_T0);
+    _mm_prefetch(B_[1][1], _MM_HINT_T0);
+    _mm_prefetch(B_[1][2], _MM_HINT_T0);
     io_policy::template tile_load<TMM6>(A, 1);
     __tile_dpbssd<TMM1, TMM6, TMM7>();
+    _mm_prefetch(B_[1][3], _MM_HINT_T0);
+    _mm_prefetch(B_[1][4], _MM_HINT_T0);
+    _mm_prefetch(B_[1][5], _MM_HINT_T0);
     io_policy::template tile_load<TMM5>(A, 2);
     __tile_dpbssd<TMM2, TMM5, TMM7>();
+    _mm_prefetch(B_[1][6], _MM_HINT_T0);
+    _mm_prefetch(B_[1][7], _MM_HINT_T0);
+    _mm_prefetch(B_[1][8], _MM_HINT_T0);
     io_policy::template tile_load<TMM6>(A, 3);
     __tile_dpbssd<TMM3, TMM6, TMM7>();
+    _mm_prefetch(B_[1][9], _MM_HINT_T0);
+    _mm_prefetch(B_[1][10], _MM_HINT_T0);
+    _mm_prefetch(B_[1][11], _MM_HINT_T0);
     io_policy::template tile_load<TMM5>(A, 4);
     __tile_dpbssd<TMM4, TMM5, TMM7>();
+    _mm_prefetch(B_[1][12], _MM_HINT_T0);
+    _mm_prefetch(B_[1][13], _MM_HINT_T0);
+    _mm_prefetch(B_[1][14], _MM_HINT_T0);
+    _mm_prefetch(B_[1][15], _MM_HINT_T0);
   }
 
   inline static void store(void *S) {
@@ -414,7 +464,6 @@ struct _tile_dot_product_16x256 <5, col_tile, io_policy> {
     auto s_1_ = reinterpret_cast<int (*)[row_tile][16][16]>(s_1);
 
     auto scale_ = _mm512_set1_ps(scale);
-    constexpr size_t c_block = 16 * col_tile * 64;
     auto bias_ = reinterpret_cast<float (*)[16]>(bias);
 
     auto b0 = _mm512_loadu_ps(bias_[0]);
@@ -479,19 +528,36 @@ struct _tile_dot_product_16x256 <6, col_tile, io_policy> {
   // This version is with A/B tile interleaving
   inline static void dot_prod(void *A, void *B) {
     _tile_loadd(TMM7, B, 64);
+    auto B_ = reinterpret_cast<int8_t (*)[16][64]>(B);
 
     io_policy::template tile_load<TMM6>(A, 0);
     __tile_dpbssd<TMM0, TMM6, TMM7>();
+    _mm_prefetch(B_[1][0], _MM_HINT_T0);
+    _mm_prefetch(B_[1][1], _MM_HINT_T0);
+    _mm_prefetch(B_[1][2], _MM_HINT_T0);
     io_policy::template tile_load<TMM6>(A, 1);
     __tile_dpbssd<TMM1, TMM6, TMM7>();
+    _mm_prefetch(B_[1][3], _MM_HINT_T0);
+    _mm_prefetch(B_[1][4], _MM_HINT_T0);
+    _mm_prefetch(B_[1][5], _MM_HINT_T0);
     io_policy::template tile_load<TMM6>(A, 2);
     __tile_dpbssd<TMM2, TMM6, TMM7>();
+    _mm_prefetch(B_[1][6], _MM_HINT_T0);
+    _mm_prefetch(B_[1][7], _MM_HINT_T0);
+    _mm_prefetch(B_[1][8], _MM_HINT_T0);
     io_policy::template tile_load<TMM6>(A, 3);
     __tile_dpbssd<TMM3, TMM6, TMM7>();
+    _mm_prefetch(B_[1][9], _MM_HINT_T0);
+    _mm_prefetch(B_[1][10], _MM_HINT_T0);
+    _mm_prefetch(B_[1][11], _MM_HINT_T0);
     io_policy::template tile_load<TMM6>(A, 4);
     __tile_dpbssd<TMM4, TMM6, TMM7>();
+    _mm_prefetch(B_[1][12], _MM_HINT_T0);
+    _mm_prefetch(B_[1][13], _MM_HINT_T0);
+    _mm_prefetch(B_[1][14], _MM_HINT_T0);
     io_policy::template tile_load<TMM6>(A, 5);
     __tile_dpbssd<TMM5, TMM6, TMM7>();
+    _mm_prefetch(B_[1][15], _MM_HINT_T0);
   }
 
   inline static void store(void *S) {
@@ -518,7 +584,6 @@ struct _tile_dot_product_16x256 <6, col_tile, io_policy> {
     auto s_1_ = reinterpret_cast<int (*)[row_tile][16][16]>(s_1);
 
     auto scale_ = _mm512_set1_ps(scale);
-    constexpr size_t c_block = 16 * col_tile * 64;
     auto bias_ = reinterpret_cast<float (*)[16]>(bias);
 
     auto b0 = _mm512_loadu_ps(bias_[0]);
@@ -584,6 +649,7 @@ struct _tile_dot_product_16x256 {
     auto scratch_pad = reinterpret_cast<int (*)[16][16]>(scrach_);
 
     _tile_loadd(TMM7, B, 64);
+    auto B_ = reinterpret_cast<int8_t (*)[16][64]>(B);
 
     // TMM0 is the tile used twice
     for (int i = 0; i < (row_tile - 5); i++) {
@@ -592,17 +658,33 @@ struct _tile_dot_product_16x256 {
       __tile_dpbssd<TMM0, TMM6, TMM7>();
       _tile_stored(TMM0, scratch_pad[i], 64);
     }
+    _mm_prefetch(B_[1][1], _MM_HINT_T0);
+    _mm_prefetch(B_[1][2], _MM_HINT_T0);
+    _mm_prefetch(B_[1][3], _MM_HINT_T0);
 
     io_policy::template tile_load<TMM6>(A, row_tile - 5);
     __tile_dpbssd<TMM1, TMM6, TMM7>();
+    _mm_prefetch(B_[1][4], _MM_HINT_T0);
+    _mm_prefetch(B_[1][5], _MM_HINT_T0);
+    _mm_prefetch(B_[1][6], _MM_HINT_T0);
     io_policy::template tile_load<TMM6>(A, row_tile - 4);
     __tile_dpbssd<TMM2, TMM6, TMM7>();
+    _mm_prefetch(B_[1][7], _MM_HINT_T0);
+    _mm_prefetch(B_[1][8], _MM_HINT_T0);
+    _mm_prefetch(B_[1][9], _MM_HINT_T0);
     io_policy::template tile_load<TMM6>(A, row_tile - 3);
     __tile_dpbssd<TMM3, TMM6, TMM7>();
+    _mm_prefetch(B_[1][10], _MM_HINT_T0);
+    _mm_prefetch(B_[1][11], _MM_HINT_T0);
+    _mm_prefetch(B_[1][12], _MM_HINT_T0);
     io_policy::template tile_load<TMM6>(A, row_tile - 2);
     __tile_dpbssd<TMM4, TMM6, TMM7>();
+    _mm_prefetch(B_[1][13], _MM_HINT_T0);
+    _mm_prefetch(B_[1][14], _MM_HINT_T0);
+    _mm_prefetch(B_[1][15], _MM_HINT_T0);
     io_policy::template tile_load<TMM6>(A, row_tile - 1);
     __tile_dpbssd<TMM5, TMM6, TMM7>();
+    _mm_prefetch(B_[1][16], _MM_HINT_T0);
   }
 
   inline static void store(void *S) {
@@ -633,7 +715,6 @@ struct _tile_dot_product_16x256 {
     auto s_1_ = reinterpret_cast<int (*)[row_tile][16][16]>(s_1);
 
     auto scale_ = _mm512_set1_ps(scale);
-    constexpr size_t c_block = 16 * col_tile * 64;
     auto bias_ = reinterpret_cast<float (*)[16]>(bias);
 
     auto b0 = _mm512_loadu_ps(bias_[0]);
