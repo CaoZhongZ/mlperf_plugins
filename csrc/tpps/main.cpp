@@ -328,12 +328,16 @@ void test_accuracy_linear(int row_tile) {
 
   auto wei400m = new int8_t[6400 * 256 * 256];
   auto wei400m_ = reinterpret_cast<int8_t (*)[256 * 256]>(wei400m);
+
+# pragma omp parallel
   for (int i = 0; i < 6400; i++) {
-    set_data_wei(wei400m_[i], bias);
+    set_data_wei(wei400m_[j][i], bias);
   }
-  count = 6400000;
+
+  count = 5600000;
   printf("************************ start performance test... **************************\n");
   lstart = Time::now();
+# pragma omp parallel
   for (int i = 0; i < count; i++) {
     switch (row_tile) {
     case (2):

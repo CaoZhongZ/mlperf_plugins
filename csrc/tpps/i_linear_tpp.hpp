@@ -767,16 +767,25 @@ struct _tile_dot_product_16x256 {
   }
 };
 
-// [dim0, dim1, dim2] == [M, K, N]
-class block_gemm {
+// Use linear interface instead of iGEMM
+class i_linear {
 public:
-  block_gemm(const size_t dim0, const size_t dim1, const size_t dim2)
-      : dim0(dim0), dim1(dim1), dim2(dim2) {};
+  i_linear(size_t input_feature, size_t output_feature, bool bias)
+      : ic_(input_feature), oc_(output_feature), has_bias_(bias) {
+        cols_in_tile_ = input_feature / 64;
+        total_work_ = output_feature / 64;
+  }
 
   template <int col_tile>
   void ref(void* output, void* input, void* weight, void* bias, float scale);
 protected:
-  size_t dim0, dim1, dim2;
+  size_t ic_;
+  size_t oc_;
+  bool has_bias_;
+
+  // output division
+  size_t cols_in_tile_;
+  size_t total_work_;
 };
 
 }
