@@ -767,16 +767,35 @@ struct _tile_dot_product_16x256 {
   }
 };
 
-// [dim0, dim1, dim2] == [M, K, N]
-class block_gemm {
+// Use linear interface instead of iGEMM
+class i_linear {
 public:
-  block_gemm(const size_t dim0, const size_t dim1, const size_t dim2)
-      : dim0(dim0), dim1(dim1), dim2(dim2) {};
+  i_linear(size_t sequence_length, size_t input_feature, size_t output_feature, bool bias)
+      : sl_(sequence_length), ic_(input_feature), oc_(output_feature), has_bias_(bias) {
+        cols_in_tile_ = input_feature / 64;
+        total_work_ = output_feature / 64;
+  }
 
-  template <int col_tile>
+  template <int row_tile, int col_tile>
+  void compute_block(void* C, size_t ldc, void* A, void* B, float* bias, float scale);
+  void tile_dot_product_16x256(const int row_tile, const int col_tile, 
+                               void *C, size_t ldc, void *A, void *B, void *bias, float scale);
+
   void ref(void* output, void* input, void* weight, void* bias, float scale);
 protected:
-  size_t dim0, dim1, dim2;
+  typedef void (i_linear::* compute_block_t) (
+      void*, size_t, void*, void*, float*, float);
+  // using compute_block_t = void (*)(void*, size_t, void*, void*, float*, float);
+
+  static const compute_block_t compute_block_tbl_ [12][2];
+  size_t sl_;
+  size_t ic_;
+  size_t oc_;
+  bool has_bias_;
+
+  // output division
+  size_t cols_in_tile_;
+  size_t total_work_;
 };
 
 }

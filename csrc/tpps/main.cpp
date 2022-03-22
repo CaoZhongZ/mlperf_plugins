@@ -158,7 +158,7 @@ void send_weight(void* weight, void* nweight, const size_t dim1, const size_t di
 }
 
 void test_accuracy_linear(int row_tile) {
-  alignas(64) int8_t act[row_tile * 16 * 1024];
+  alignas(64) int8_t act[row_tile][16][1024];
   alignas(64) int8_t wei[256 * 256];
   alignas(64) int nact[row_tile * 16 * 1024];
   alignas(64) int nwei[1024 * 64];
@@ -183,7 +183,8 @@ void test_accuracy_linear(int row_tile) {
   naive_linear(nact, 1024, nwei, 64, nout, ldc, bias, scale, row_tile);
   printf("****************** start block test row_tile = %d... *********************\n", row_tile);
   printf("****************** accuracy...*********************\n");
-  alignas(64) int8_t out[row_tile * 16][64];
+  alignas(64) int8_t out[row_tile][16][64];
+
   switch (row_tile) {
   case (2):
     intel_mlperf::_tile_dot_product_16x256<2, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
@@ -353,6 +354,9 @@ void test_accuracy_linear(int row_tile) {
       break;
     case (7):
       intel_mlperf::_tile_dot_product_16x256<7, 16, tile_io>::compute(p_out, ldc, act, wei400m_[i % 6400], bias, scale);
+      // intel_mlperf::_tile_dot_product_16x256<2, 16, tile_io>::compute(p_out, ldc, act, wei400m_[i % 6400], bias, scale);
+      // intel_mlperf::_tile_dot_product_16x256<2, 16, tile_io>::compute(p_out[2], ldc, act[2], wei400m_[i % 6400], bias, scale);
+      // intel_mlperf::_tile_dot_product_16x256<3, 16, tile_io>::compute(p_out[4], ldc, act[4], wei400m_[i % 6400], bias, scale);
       break;
     case (8):
       intel_mlperf::_tile_dot_product_16x256<8, 16, tile_io>::compute(p_out, ldc, act, wei400m_[i % 6400], bias, scale);
@@ -382,7 +386,7 @@ void test_accuracy_linear(int row_tile) {
 }
 
 void test_block_gemm(const size_t dim0, const size_t dim1, const size_t dim2, bool accuracy = true) {
-  auto gemm_ = intel_mlperf::block_gemm(dim0, dim1, dim2);
+  auto gemm_ = intel_mlperf::i_linear(dim0, dim1, dim2);
 
   size_t row_tile = (dim0 + 15) / 16;
   size_t col_step = dim2 / 64;
@@ -459,11 +463,11 @@ int main(int argc, char* argv[]) {
 
   bool accuracy_mode = false;
   
-  // test_accuracy_linear(row_tile);
-  for (int i = 10; i <= 24; i++) {
-    // printf("************************ 1024x1024 test row_tile: %d ********************\n", i);
-    test_block_gemm(i * 16, 1024, 1024, accuracy_mode);
-  }
+  test_accuracy_linear(row_tile);
+  // for (int i = 7; i <= 24; i++) {
+  //   // printf("************************ 1024x1024 test row_tile: %d ********************\n", i);
+  //   test_block_gemm(i * 16, 1024, 1024, accuracy_mode);
+  // }
 
   // for (int i = 3; i <= 24; i++) {
   //   // printf("************************ 1024x4096 test row_tile: %d ********************\n", i);
