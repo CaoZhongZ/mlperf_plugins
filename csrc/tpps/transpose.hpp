@@ -14,25 +14,25 @@ inline void tr_vnni_x64(void *at, const void *a, size_t lda, size_t ldat) {
 
   __m512i even[16];
 
-#pragma unroll(tail)
+#pragma unroll
   for (int i = 0; i < tail; ++i) {
     even[i] = _mm512_loadu_si512(a_ + i);
   }
 
-#pragma unroll(16 - tail)
+#pragma unroll
   for (int i = tail; i < 16; ++i) {
     even[i] = _mm512_set1_epi32(0);
   }
 
   __m512i odd[16];
 
-#pragma unroll(8)
+#pragma unroll (8)
   for (int i = 0; i < 8; ++i) {
     odd[2 * i] = _mm512_unpacklo_epi32(even[2 * i], even[2 * i + 1]);
     odd[2 * i + 1] = _mm512_unpackhi_epi32(even[2 * i], even[2 * i + 1]);
   }
 
-#pragma unroll(4)
+#pragma unroll (4)
   for (int i = 0; i < 4; ++i) {
     even[4 * i] = _mm512_unpacklo_epi64(odd[4 * i], odd[4 * i + 2]);
     even[4 * i + 1] = _mm512_unpackhi_epi64(odd[4 * i], odd[4 * i + 2]);
@@ -40,7 +40,7 @@ inline void tr_vnni_x64(void *at, const void *a, size_t lda, size_t ldat) {
     even[4 * i + 3] = _mm512_unpackhi_epi64(odd[4 * i + 1], odd[4 * i + 3]);
   }
 
-#pragma unroll(2)
+#pragma unroll (2)
   for (int i = 0; i < 2; ++i) {
     odd[8 * i + 0] =
         _mm512_shuffle_i32x4(even[8 * i + 0], even[8 * i + 4], 0x88);
@@ -79,7 +79,7 @@ inline void tr_vnni_x64(void *at, const void *a, size_t lda, size_t ldat) {
 
   auto at_ = reinterpret_cast<int8_t(*)[ldat]>(at);
 
-#pragma unroll(16)
+#pragma unroll (16)
   for (int i = 0; i < 16; ++i) {
     _mm512_storeu_si512(at_ + i, even[i]);
   }
@@ -94,11 +94,11 @@ inline void tr_vnni_4x(void *out, const void *a, size_t lda, size_t ldo) {
   __m512i row[4];
   auto a_ = reinterpret_cast<const int8_t(*)[lda]>(a);
 
-#pragma unroll(tail)
+#pragma unroll
   for (int i = 0; i < tail; ++i)
     row[i] = _mm512_loadu_si512(a_[i]);
 
-#pragma unroll(4 - tail)
+#pragma unroll 
   for (int i = tail; i < 4; ++i)
     row[i] = _mm512_set1_epi8(0);
 

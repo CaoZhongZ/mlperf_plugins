@@ -62,7 +62,104 @@ struct io_policy<col_tile, i_format::plain> {
 template <int row_tile, int col_tile, typename io_policy>
 struct _tile_dot_product_16x256;
 
-// we don't use row_tile == 1, maybe add it later
+template <int col_tile, typename io_policy>
+struct _tile_dot_product_16x256<1, col_tile, io_policy> {
+  static constexpr size_t row_tile = 1;
+  static constexpr size_t A_footprint = row_tile * col_tile * 16 * 64;
+  static constexpr size_t B_footprint = col_tile * 16 * 256;
+  static constexpr size_t cache_footprint = A_footprint + B_footprint;
+  static constexpr size_t lda = col_tile * 64;
+
+  inline static void dot_prod(void *A, void *B) {
+    auto B_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(B);
+    
+    _tile_loadd(TMM6, B_[0], 64);
+    
+    io_policy::template tile_load<TMM4>(A, 0);
+    __tile_dpbssd<TMM0, TMM4, TMM6>();
+    
+    _tile_loadd(TMM7, B_[1], 64);
+
+    __tile_dpbssd<TMM1, TMM4, TMM7>();
+  }
+
+  inline static void store(void *S) {
+    auto S_ = reinterpret_cast<int (*)[16][16]>(S);
+    _tile_stored(TMM0, S_[0], 64);
+    _tile_stored(TMM1, S_[1], 64);
+  }
+
+  inline static void zero_accum() {
+    _tile_zero(TMM0);
+    _tile_zero(TMM1);
+  }
+
+  inline static void quant_out(void *C, size_t ldc, void *s_0, void *s_1, float *bias, float scale) {
+    auto s_0_ = reinterpret_cast<int (*)[2][16][16]>(s_0);
+    auto s_1_ = reinterpret_cast<int (*)[2][16][16]>(s_1);
+
+    auto scale_ = _mm512_set1_ps(scale);
+    auto bias_ = reinterpret_cast<float (*)[16]>(bias);
+
+    auto b0 = _mm512_loadu_ps(bias_[0]);
+    auto b1 = _mm512_loadu_ps(bias_[1]);
+    auto b2 = _mm512_loadu_ps(bias_[2]);
+    auto b3 = _mm512_loadu_ps(bias_[3]);
+
+    auto C_ = reinterpret_cast<int8_t (*)[16 * ldc]>(C);
+    #pragma unroll (row_tile)
+    for (int t = 0; t < row_tile; ++ t) {
+
+      #pragma unroll (16)
+      for (int i = 0; i < 16; ++ i) {
+        auto i0 = _mm512_load_epi32(s_0_[t][0][i]);
+        auto i1 = _mm512_load_epi32(s_0_[t][1][i]);
+        auto i2 = _mm512_load_epi32(s_1_[t][0][i]);
+        auto i3 = _mm512_load_epi32(s_1_[t][1][i]);
+
+        auto f0 = _mm512_cvtepi32_ps(i0) + b0;
+        auto f1 = _mm512_cvtepi32_ps(i1) + b1;
+        auto f2 = _mm512_cvtepi32_ps(i2) + b2;
+        auto f3 = _mm512_cvtepi32_ps(i3) + b3;
+
+        auto o0 = _mm512_scale_minmax_i8_ps(scale_, f0);
+        auto o1 = _mm512_scale_minmax_i8_ps(scale_, f1);
+        auto o2 = _mm512_scale_minmax_i8_ps(scale_, f2);
+        auto o3 = _mm512_scale_minmax_i8_ps(scale_, f3);
+
+        // every 16 got output
+        io_policy::_mm512_coalescing_store(C_[t], ldc, i, o0, o1, o2, o3);
+      }
+    }
+  }
+
+  inline static void compute(void *C, size_t ldc, void *A, void *B, float *bias, float scale) {
+    alignas (64) int scratch_0[row_tile][2][16][16];
+    alignas (64) int scratch_1[row_tile][2][16][16];
+
+    auto A_ = reinterpret_cast<typename io_policy::tile_array>(A);
+    auto B_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(B);
+
+    zero_accum();
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      dot_prod(A_[i], B_[0][i]);
+    }
+
+    store(scratch_0);
+    zero_accum();
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      dot_prod(A_[i], B_[2][i]);
+    }
+
+    store(scratch_1);
+    quant_out(C, ldc, scratch_0, scratch_1, bias, scale);
+  }
+};
+
 template <int col_tile, typename io_policy>
 struct _tile_dot_product_16x256<2, col_tile, io_policy> {
   static constexpr size_t row_tile = 2;
