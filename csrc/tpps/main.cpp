@@ -345,17 +345,17 @@ void test_tile_16x256(int row_tile) {
   count = 56000000 * 3;
   printf("************************ start performance test... **************************\n");
   lstart = Time::now();
-  for (int j = 0; j < 10000; j++) {
-#   pragma omp parallel for
+  for (int j = 0; j < 1000; j++) {
+// #   pragma omp parallel for
     for (size_t i = 0; i < block_num; i++) {
       switch (row_tile) {
       case (2):
         intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out, ldc, act, wei400m_[i % block_num], bias, scale);
         break;
       case (3):
-        intel_mlperf::_tile_dot_product_16x256<3, 16, plain_io>::compute(p_out, ldc, act, wei400m_[i % block_num], bias, scale);
-        // intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
-        // intel_mlperf::_tile_dot_product_16x256<1, 16, plain_io>::compute(p_out[2 * 16], ldc, act[2], wei, bias, scale);
+        // intel_mlperf::_tile_dot_product_16x256<3, 16, plain_io>::compute(p_out, ldc, act, wei400m_[i % block_num], bias, scale);
+        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out, ldc, act, wei400m_[i % block_num], bias, scale);
+        intel_mlperf::_tile_dot_product_16x256<1, 16, plain_io>::compute(p_out[2 * 16], ldc, act[2], wei400m_[i % block_num], bias, scale);
         break;
       case (4):
         intel_mlperf::_tile_dot_product_16x256<4, 16, plain_io>::compute(p_out, ldc, act, wei400m_[i % block_num], bias, scale);
@@ -395,76 +395,94 @@ void test_tile_16x256(int row_tile) {
           .count();
   std::cout << count  << " times plain tile linear time : "
             << (float)lduring / 1000 / 1000 << " ms " << std::endl;
-  std::cout << "single linear time : " << (float)lduring / (10000 * block_num) << " ns" << std::endl;
+  std::cout << "single linear time : " << (float)lduring / (1000 * block_num) << " ns" << std::endl;
 
   delete[] wei400m;
 }
 
-void test_block_gemm(const size_t dim0, const size_t dim1, const size_t dim2, bool accuracy = true) {
-//   auto gemm_ = intel_mlperf::i_linear(dim0, dim1, dim2);
-// 
-//   size_t row_tile = (dim0 + 15) / 16;
-//   size_t col_step = dim2 / 64;
-//   alignas(64) int8_t input[row_tile][16][dim1];
-//   // int8_t weight[dim2 / 64][dim1 / 4][256];
-//   auto weight400m = new int8_t[400 * dim1 * dim2];
-//   auto weight400m_ = reinterpret_cast<int8_t (*)[dim1 * dim2]>(weight400m);
-//   auto weight = weight400m_[0];
-//   alignas(64) int8_t output[dim0][dim2];
-//   float bias[col_step][64];
-//   float scale = 0.0018;
-//   set_data_act(input, row_tile, dim1);
-//   for (int i = 0; i < 400; i++) {
-//     set_data_wei(weight400m_[i], bias, dim1 / 64, col_step);
-//   }
-//   
-// 
-//   // intel_mlperf::print_2d_matrix<int>((int*)nweight, dim1, dim2, 1024);
-//   // getchar();
-// 
-//   // intel_mlperf::print_2d_matrix<int>((int*)noutput, dim0, dim2, dim2);
-//   // getchar();
-//   // intel_mlperf::print_2d_matrix<int8_t>((int8_t*)output, dim0, dim2, dim2);
-//   // getchar();
-//   if (accuracy) {
-//     switch (dim1 / 64) {
-//     case (16):
-//       gemm_.ref<16>(output, input, weight, bias, scale);
-//       break;
-//     case (64):
-//       gemm_.ref<64>(output, input, weight, bias, scale);
-//       break;
-//     }
-// 
-//     auto ninput = new int[dim0 * dim1];
-//     auto nweight = new int[dim1 * dim2];
-//     auto noutput = new int[dim0 * dim2];
-// 
-//     send_input(input, ninput, dim0, dim1);
-//     send_weight(weight, nweight, dim1, dim2);
-//     naive_linear(ninput, dim1, nweight, dim2, noutput, dim2, bias, scale, row_tile);
-//     intel_mlperf::compare_naive_output((int*)noutput, (int8_t*)output, dim0, dim2, dim2, dim2);
-// 
-//     delete[] ninput;
-//     delete[] nweight;
-//     delete[] noutput;
-//   } else {
-//     printf("**************************** start test performance **********************\n");
-//     auto start = Time::now();
-//     for (int i = 0; i < 40000; i++) {
-//       switch (dim1 / 64) {
-//       case (16):
-//         gemm_.ref<16>(output, input, weight400m_[i % 400], bias, scale);
-//         break;
-//       case (64):
-//         gemm_.ref<64>(output, input, weight400m_[i % 400], bias, scale);
-//         break;
-//       }
-//     }
-//     auto during = std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start).count();
-//     std::cout << dim0 << " x " << dim1 << " x " << dim2 << " : " << (float)during / 1000 / 1000 / 40000 << " ms " << std::endl;
-//   }
-//   delete[] weight400m;
+void test_block_gemm(const size_t sl, const size_t input_f, const size_t output_f, bool accuracy = true) {
+  // size_t sl = 176;
+  // size_t input_f = 1024;
+  // size_t output_f = 1024;
+  bool has_bias = true;
+  auto gemm_ = intel_mlperf::i_linear(sl, input_f, output_f, has_bias);
+
+  size_t row_tile = (sl + 15) / 16;
+  size_t col_step = output_f / 64;
+  alignas(64) int8_t input[row_tile][16][input_f];
+
+  size_t block_row = input_f / 4;
+  size_t block_col = 256;
+  size_t block_num = 400;
+  auto weight400m = new int8_t[block_num * input_f * output_f];
+  auto weight400m_ = reinterpret_cast<int8_t (*)[input_f * output_f]>(weight400m);
+
+  alignas(64) int8_t output[sl][output_f];
+  float bias[col_step][64];
+  float scale = 0.0018;
+  set_data_act(input, row_tile, input_f);
+
+# pragma omp parallel for
+  for (int i = 0; i < block_num; i++) {
+    set_data_wei(weight400m_[i], bias, input_f / 64, col_step);
+  }
+  
+
+  // intel_mlperf::print_2d_matrix<int>((int*)nweight, dim1, dim2, 1024);
+  // getchar();
+
+  // intel_mlperf::print_2d_matrix<int>((int*)noutput, dim0, dim2, dim2);
+  // getchar();
+  // intel_mlperf::print_2d_matrix<int8_t>((int8_t*)output, dim0, dim2, dim2);
+  // getchar();
+  if (accuracy) {
+    auto weight = weight400m_[0];
+    switch (input_f / 64) {
+    case (16):
+      gemm_.ref(output, input, weight, bias, scale);
+      break;
+    case (64):
+      gemm_.ref(output, input, weight, bias, scale);
+      break;
+    }
+    intel_mlperf::print_2d_matrix<int8_t>((int8_t*)output, sl, output_f, output_f);
+    getchar();
+
+    auto ninput = new int[sl * input_f];
+    auto nweight = new int[input_f * output_f];
+    auto noutput = new int[sl * output_f];
+
+    send_input(input, ninput, sl, input_f);
+    send_weight(weight, nweight, input_f, output_f);
+    naive_linear(ninput, input_f, nweight, output_f, noutput, output_f, bias, scale, row_tile);
+    intel_mlperf::compare_naive_output((int*)noutput, (int8_t*)output, sl, output_f, output_f, output_f);
+
+    delete[] ninput;
+    delete[] nweight;
+    delete[] noutput;
+  } 
+  else {
+    printf("**************************** start test performance **********************\n");
+    int loop_num = 10000;
+    auto start = Time::now();
+    for (int i = 0; i < loop_num; i++) {
+# pragma omp parallel for
+      for (int j = 0; j < block_num; j++) {
+        switch (input_f / 64) {
+        case (16):
+          gemm_.ref(output, input, weight400m_[j % 400], bias, scale);
+          break;
+        case (64):
+          gemm_.ref(output, input, weight400m_[j % 400], bias, scale);
+          break;
+      }
+      
+      }
+    }
+    auto during = std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start).count();
+    std::cout << sl << " x " << input_f << " x " << output_f << " : " << (float)during / loop_num / block_num << " ns " << std::endl;
+  }
+  delete[] weight400m;
 }
 
 int main(int argc, char* argv[]) {
@@ -478,11 +496,12 @@ int main(int argc, char* argv[]) {
 
   bool accuracy_mode = false;
   
-  test_tile_16x256(row_tile);
-  // for (int i = 7; i <= 24; i++) {
-  //   // printf("************************ 1024x1024 test row_tile: %d ********************\n", i);
-  //   test_block_gemm(i * 16, 1024, 1024, accuracy_mode);
-  // }
+  // test_tile_16x256(row_tile);
+  // test_block_gemm(11 * 16, 1024, 1024, accuracy_mode);
+  for (int i = 3; i <= 24; i++) {
+    printf("************************ 1024x1024 test row_tile: %d ********************\n", i);
+    test_block_gemm(i * 16, 1024, 1024, accuracy_mode);
+  }
 
   // for (int i = 3; i <= 24; i++) {
   //   // printf("************************ 1024x4096 test row_tile: %d ********************\n", i);

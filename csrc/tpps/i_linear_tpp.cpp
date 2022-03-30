@@ -15,7 +15,7 @@ const i_linear::compute_block_t i_linear::compute_block_tbl_ [12][2] = {
   {
     nullptr, nullptr
   }, {
-    nullptr, nullptr
+    &i_linear::compute_block<1, 16>, &i_linear::compute_block<1, 64>
   }, {
     &i_linear::compute_block<2, 16>, &i_linear::compute_block<2, 64>
   }, {
@@ -48,227 +48,19 @@ void i_linear::tile_dot_product_16x256(const int row_tile, const int col_tile,
   auto C_ = reinterpret_cast<int8_t (*)[16][total_work_][64]>(C);
   auto A_ = reinterpret_cast<int8_t (*)[16][ic_]>(A);
 
-  compute_block_t computer_ = nullptr;
-  compute_block_t computer_1 = nullptr;
-  compute_block_t computer_2 = nullptr;
+  compute_block_t computer_2 = compute_block_tbl_[2][col_idx];
+  compute_block_t computer_1 = compute_block_tbl_[1][col_idx];
 
-
-  switch (row_tile) {
-  case (3) :
-    // TODO: add pragma parallel
-    computer_ = compute_block_tbl_[3][col_idx];
-    for (int i = 0; i < total_work_; i++) {
-      (this->*computer_)(C_[0][0][i], ldc, A_, B_[i], bias_[i], scale);
+# pragma unroll
+  for (int i = 0; i < total_work_; i++) {
+    int j = 0;
+#   pragma unroll
+    for (; j < row_tile / 2; j++) {
+      (this->*computer_2)(C_[j * 2][0][i], ldc, A_[j * 2], B_[i], bias_[i], scale);
     }
-    break;
-  case (4) :
-    // TODO: add pragma parallel
-    computer_ = compute_block_tbl_[4][col_idx];
-    for (int i = 0; i < total_work_; i++) {
-      (this->*computer_)(C_[0][0][i], ldc, A_, B_[i], bias_[i], scale);
+    if (row_tile % 2 == 1) {
+      (this->*computer_1)(C_[j * 2][0][i], ldc, A_[j * 2], B_[i], bias_[i], scale);
     }
-    break;
-  case (5) :
-    // TODO: add pragma parallel
-    computer_ = compute_block_tbl_[5][col_idx];
-    for (int i = 0; i < total_work_; i++) {
-      (this->*computer_)(C_[0][0][i], ldc, A_, B_[i], bias_[i], scale);
-    }
-    break;
-  case (6) :
-    // TODO: add pragma parallel
-    computer_ = compute_block_tbl_[6][col_idx];
-    for (int i = 0; i < total_work_; i++) {
-      (this->*computer_)(C_[0][0][i], ldc, A_, B_[i], bias_[i], scale);
-    }
-    break;
-  case (7) :
-    // TODO: add pragma parallel
-    computer_ = compute_block_tbl_[7][col_idx];
-    for (int i = 0; i < total_work_; i++) {
-      (this->*computer_)(C_[0][0][i], ldc, A_, B_[i], bias_[i], scale);
-    }
-    break;
-  case (8) :
-    // TODO: add pragma parallel
-    computer_ = compute_block_tbl_[8][col_idx];
-    for (int i = 0; i < total_work_; i++) {
-      (this->*computer_)(C_[0][0][i], ldc, A_, B_[i], bias_[i], scale);
-    }
-    break;
-  case (9) :
-    // TODO: add pragma parallel
-    computer_ = compute_block_tbl_[9][col_idx];
-    for (int i = 0; i < total_work_; i++) {
-      (this->*computer_)(C_[0][0][i], ldc, A_, B_[i], bias_[i], scale);
-    }
-    break;
-  case (10) :
-    // TODO: add pragma parallel
-    computer_ = compute_block_tbl_[10][col_idx];
-    for (int i = 0; i < total_work_; i++) {
-      (this->*computer_)(C_[0][0][i], ldc, A_, B_[i], bias_[i], scale);
-    }
-    break;
-  case (11) :
-    // TODO: add pragma parallel
-    computer_ = compute_block_tbl_[11][col_idx];
-    for (int i = 0; i < total_work_; i++) {
-      (this->*computer_)(C_[0][0][i], ldc, A_, B_[i], bias_[i], scale);
-    }
-    break;
-  case (12) :
-    // TODO: add pragma parallel
-    computer_1 = compute_block_tbl_[10][col_idx];
-    computer_2 = compute_block_tbl_[2][col_idx];
-    for (int i = 0; i < total_work_; i++) {
-      (this->*computer_1)(C_[0][0][i], ldc, A_, B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[10][0][i], ldc, A_[10], B_[i], bias_[i], scale);
-    }
-    break;
-  case (13) :
-    // TODO: add pragma parallel
-    computer_1 = compute_block_tbl_[11][col_idx];
-    computer_2 = compute_block_tbl_[2][col_idx];
-    for (int i = 0; i < total_work_; i++) {
-      (this->*computer_1)(C_[0][0][i], ldc, A_, B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[11][0][i], ldc, A_[11], B_[i], bias_[i], scale);
-    }
-    break;
-  case (14) :
-    // TODO: add pragma parallel
-    computer_1 = compute_block_tbl_[11][col_idx];
-    computer_2 = compute_block_tbl_[3][col_idx];
-    for (int i = 0; i < total_work_; i++) {
-      (this->*computer_1)(C_[0][0][i], ldc, A_, B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[11][0][i], ldc, A_[11], B_[i], bias_[i], scale);
-    }
-    break;
-  case (15) :
-    // TODO: add pragma parallel
-    computer_1 = compute_block_tbl_[11][col_idx];
-    computer_2 = compute_block_tbl_[2][col_idx];
-    for (int i = 0; i < total_work_; i++) {
-      (this->*computer_1)(C_[0][0][i], ldc, A_, B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[11][0][i], ldc, A_[11], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[13][0][i], ldc, A_[13], B_[i], bias_[i], scale);
-    }
-    break;
-  case (16) :
-    // TODO: add pragma parallel
-    computer_1 = compute_block_tbl_[10][col_idx];
-    computer_2 = compute_block_tbl_[2][col_idx];
-    for (int i = 0; i < total_work_; i++) {
-      (this->*computer_1)(C_[0][0][i], ldc, A_, B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[10][0][i], ldc, A_[10], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[12][0][i], ldc, A_[12], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[14][0][i], ldc, A_[14], B_[i], bias_[i], scale);
-    }
-    break;
-  case (17) :
-    // TODO: add pragma parallel
-    computer_1 = compute_block_tbl_[11][col_idx];
-    computer_2 = compute_block_tbl_[2][col_idx];
-    for (int i = 0; i < total_work_; i++) {
-      (this->*computer_1)(C_[0][0][i], ldc, A_, B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[11][0][i], ldc, A_[11], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[13][0][i], ldc, A_[13], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[15][0][i], ldc, A_[15], B_[i], bias_[i], scale);
-    }
-    break;
-  case (18) :
-    // TODO: add pragma parallel
-    computer_1 = compute_block_tbl_[10][col_idx];
-    computer_2 = compute_block_tbl_[2][col_idx];
-    for (int i = 0; i < total_work_; i++) {
-      (this->*computer_1)(C_[0][0][i], ldc, A_, B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[10][0][i], ldc, A_[10], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[12][0][i], ldc, A_[12], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[14][0][i], ldc, A_[14], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[16][0][i], ldc, A_[16], B_[i], bias_[i], scale);
-    }
-    break;
-  case (19) :
-    // TODO: add pragma parallel
-    computer_1 = compute_block_tbl_[11][col_idx];
-    computer_2 = compute_block_tbl_[2][col_idx];
-    for (int i = 0; i < total_work_; i++) {
-      (this->*computer_1)(C_[0][0][i], ldc, A_, B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[11][0][i], ldc, A_[11], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[13][0][i], ldc, A_[13], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[15][0][i], ldc, A_[15], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[17][0][i], ldc, A_[17], B_[i], bias_[i], scale);
-    }
-    break;
-  case (20) :
-    // TODO: add pragma parallel
-    computer_1 = compute_block_tbl_[10][col_idx];
-    computer_2 = compute_block_tbl_[2][col_idx];
-    for (int i = 0; i < total_work_; i++) {
-      (this->*computer_1)(C_[0][0][i], ldc, A_, B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[10][0][i], ldc, A_[10], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[12][0][i], ldc, A_[12], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[14][0][i], ldc, A_[14], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[16][0][i], ldc, A_[16], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[18][0][i], ldc, A_[18], B_[i], bias_[i], scale);
-    }
-    break;
-  case (21) :
-    // TODO: add pragma parallel
-    computer_1 = compute_block_tbl_[11][col_idx];
-    computer_2 = compute_block_tbl_[2][col_idx];
-    for (int i = 0; i < total_work_; i++) {
-      (this->*computer_1)(C_[0][0][i], ldc, A_, B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[11][0][i], ldc, A_[11], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[13][0][i], ldc, A_[13], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[15][0][i], ldc, A_[15], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[17][0][i], ldc, A_[17], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[19][0][i], ldc, A_[19], B_[i], bias_[i], scale);
-    }
-    break;
-  case (22) :
-    // TODO: add pragma parallel
-    computer_1 = compute_block_tbl_[10][col_idx];
-    computer_2 = compute_block_tbl_[2][col_idx];
-    for (int i = 0; i < total_work_; i++) {
-      (this->*computer_1)(C_[0][0][i], ldc, A_, B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[10][0][i], ldc, A_[10], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[12][0][i], ldc, A_[12], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[14][0][i], ldc, A_[14], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[16][0][i], ldc, A_[16], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[18][0][i], ldc, A_[18], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[20][0][i], ldc, A_[20], B_[i], bias_[i], scale);
-    }
-    break;
-  case (23) :
-    // TODO: add pragma parallel
-    computer_1 = compute_block_tbl_[11][col_idx];
-    computer_2 = compute_block_tbl_[2][col_idx];
-    for (int i = 0; i < total_work_; i++) {
-      (this->*computer_1)(C_[0][0][i], ldc, A_, B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[11][0][i], ldc, A_[11], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[13][0][i], ldc, A_[13], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[15][0][i], ldc, A_[15], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[17][0][i], ldc, A_[17], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[19][0][i], ldc, A_[19], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[21][0][i], ldc, A_[21], B_[i], bias_[i], scale);
-    }
-    break;
-  case (24) :
-    // TODO: add pragma parallel
-    computer_1 = compute_block_tbl_[10][col_idx];
-    computer_2 = compute_block_tbl_[2][col_idx];
-    for (int i = 0; i < total_work_; i++) {
-      (this->*computer_1)(C_[0][0][i], ldc, A_, B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[10][0][i], ldc, A_[10], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[12][0][i], ldc, A_[12], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[14][0][i], ldc, A_[14], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[16][0][i], ldc, A_[16], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[18][0][i], ldc, A_[18], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[20][0][i], ldc, A_[20], B_[i], bias_[i], scale);
-      (this->*computer_2)(C_[22][0][i], ldc, A_[22], B_[i], bias_[i], scale);
-    }
-    break;
   }
 }
 
