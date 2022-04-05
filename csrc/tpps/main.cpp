@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <random>
 #include <cmath>
+#include <omp.h>
 
 #include "i_softmax_tpp.hpp"
 #include "i_linear_tpp.hpp"
@@ -157,6 +158,46 @@ void send_weight(void* weight, void* nweight, const size_t dim1, const size_t di
   }
 }
 
+void performance_test_256x256(int row_tile, void* C, size_t ldc, void* A, void* B, float* bias, float scale, 
+                              size_t counter, size_t core_num) {
+
+  using plain_io = intel_mlperf::io_policy<16, intel_mlperf::i_format::plain>;
+  int loop_num = row_tile / 2;
+  int remaining = row_tile % 2;
+  size_t single_loop = counter / core_num;
+
+  auto core_out = reinterpret_cast<int8_t (*)[row_tile * 16][ldc]>(C);
+  auto act = reinterpret_cast<int8_t (*)[ldc]>(A);
+  auto wei400m_ = reinterpret_cast<int8_t (*)[256 * 256]>(B);
+# pragma omp parallel for num_threads (core_num)
+  for (size_t i = 0; i < counter; i++) {
+#   pragma unroll
+    for (int j = 0; j < loop_num; j++) {
+      intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(core_out[i / single_loop][j * 2 * 16], ldc, act[j * 2], wei400m_[i % counter], bias, scale);
+    }
+    if (remaining) {
+      intel_mlperf::_tile_dot_product_16x256<1, 16, plain_io>::compute(core_out[i / single_loop][loop_num * 2 * 16], ldc, act[loop_num * 2], wei400m_[i % counter], bias, scale);
+    }
+  }
+}
+
+void accuracy_test_256x256(int row_tile, void* C, size_t ldc, void* A, void* B, float* bias, float scale) {
+
+  using plain_io = intel_mlperf::io_policy<16, intel_mlperf::i_format::plain>;
+  int loop_num = row_tile / 2;
+  int remaining = row_tile % 2;
+
+  auto C_ = reinterpret_cast<int8_t (*)[ldc]>(C);
+  auto act = reinterpret_cast<int8_t (*)[ldc]>(A);
+  
+  for (int j = 0; j < loop_num; j++) {
+    intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(C_[j * 2 * 16], ldc, act[j * 2 * 16], B, bias, scale);
+  }
+  if (remaining) {
+    intel_mlperf::_tile_dot_product_16x256<1, 16, plain_io>::compute(C_[loop_num * 2 * 16], ldc, act[loop_num * 2 * 16], B, bias, scale);
+  }
+}
+
 void test_tile_16x256(int row_tile) {
   alignas(64) int8_t act[row_tile][16][1024];
   alignas(64) int8_t wei[256 * 256];
@@ -285,49 +326,7 @@ void test_tile_16x256(int row_tile) {
   naive_linear(nact, 1024, nwei, 64, nout, ldc, bias, scale, row_tile);
   int8_t p_out[row_tile * 16][ldc];
   printf("****************** accuracy...*********************\n");
-  switch (row_tile) {
-  case (1):
-    intel_mlperf::_tile_dot_product_16x256<1, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
-    break;
-  case (2):
-    intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
-    break;
-  case (3):
-    // intel_mlperf::_tile_dot_product_16x256<3, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
-    intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
-    intel_mlperf::_tile_dot_product_16x256<1, 16, plain_io>::compute(p_out[2 * 16], ldc, act[2], wei, bias, scale);
-    break;
-  case (4):
-    intel_mlperf::_tile_dot_product_16x256<4, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
-    break;
-  case (5):
-    intel_mlperf::_tile_dot_product_16x256<5, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
-    break;
-  case (6):
-    // intel_mlperf::_tile_dot_product_16x256<6, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
-    intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
-    intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[2 * 16], ldc, act[2], wei, bias, scale);
-    intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[4 * 16], ldc, act[4], wei, bias, scale);
-    break;
-  case (7):
-    intel_mlperf::_tile_dot_product_16x256<7, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
-    break;
-  case (8):
-    intel_mlperf::_tile_dot_product_16x256<8, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
-    break;
-  case (9):
-    intel_mlperf::_tile_dot_product_16x256<9, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
-    break;
-  case (10):
-    intel_mlperf::_tile_dot_product_16x256<10, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
-    break;
-  case (11):
-    intel_mlperf::_tile_dot_product_16x256<11, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
-    break;
-  case (12):
-    intel_mlperf::_tile_dot_product_16x256<12, 16, plain_io>::compute(p_out, ldc, act, wei, bias, scale);
-    break;
-  }
+  accuracy_test_256x256(row_tile, p_out, ldc, act, wei, bias, scale);
 
   auto p_out_ = reinterpret_cast<int8_t (*)[16][ldc]>(p_out);
   nout_ = reinterpret_cast<decltype(nout_)>(nout);
@@ -336,93 +335,45 @@ void test_tile_16x256(int row_tile) {
   } 
 
   size_t block_num = 7168;
-  auto wei400m = new int8_t[block_num * 256 * 256];
+  // auto wei400m = new int8_t[block_num * 256 * 256];
+  void* wei400m = nullptr;
+  posix_memalign(&wei400m, 4096, block_num * 256 * 256);
   auto wei400m_ = reinterpret_cast<int8_t (*)[256 * 256]>(wei400m);
-# pragma omp parallel for
-  for (int i = 0; i < block_num; i++) {
-    set_data_wei(wei400m_[i], bias);
-  }
+// # pragma omp parallel for
+//   for (int i = 0; i < block_num; i++) {
+//     set_data_wei(wei400m_[i], bias);
+//   }
+  memset(wei400m, 1, block_num * 256 * 256);
   count = 56000000 * 3;
   printf("************************ start performance test... **************************\n");
-  lstart = Time::now();
-  for (int j = 0; j < 10000; j++) {
-#   pragma omp parallel for
-    for (size_t i = 0; i < block_num; i++) {
-      switch (row_tile) {
-      case (2):
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out, ldc, act, wei400m_[i % block_num], bias, scale);
-        break;
-      case (3):
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out, ldc, act, wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<1, 16, plain_io>::compute(p_out[2 * 16], ldc, act[2], wei400m_[i % block_num], bias, scale);
-        break;
-      case (4):
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out, ldc, act, wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[2 * 16], ldc, act[2], wei400m_[i % block_num], bias, scale);
-        break;
-      case (5):
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out, ldc, act, wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[2 * 16], ldc, act[2], wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<1, 16, plain_io>::compute(p_out[4 * 16], ldc, act[4], wei400m_[i % block_num], bias, scale);
-        break;
-      case (6):
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out, ldc, act, wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[2 * 16], ldc, act[2], wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[4 * 16], ldc, act[4], wei400m_[i % block_num], bias, scale);
-        break;
-      case (7):
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out, ldc, act, wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[2 * 16], ldc, act[2], wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[4 * 16], ldc, act[4], wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<1, 16, plain_io>::compute(p_out[6 * 16], ldc, act[6], wei400m_[i % block_num], bias, scale);
-        break;
-      case (8):
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out, ldc, act, wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[2 * 16], ldc, act[2], wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[4 * 16], ldc, act[4], wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[6 * 16], ldc, act[6], wei400m_[i % block_num], bias, scale);
-        break;
-      case (9):
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out, ldc, act, wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[2 * 16], ldc, act[2], wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[4 * 16], ldc, act[4], wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[6 * 16], ldc, act[6], wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<1, 16, plain_io>::compute(p_out[8 * 16], ldc, act[8], wei400m_[i % block_num], bias, scale);
-        break;
-      case (10):
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out, ldc, act, wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[2 * 16], ldc, act[2], wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[4 * 16], ldc, act[4], wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[6 * 16], ldc, act[6], wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[8 * 16], ldc, act[8], wei400m_[i % block_num], bias, scale);
-        break;
-      case (11):
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out, ldc, act, wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[2 * 16], ldc, act[2], wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[4 * 16], ldc, act[4], wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[6 * 16], ldc, act[6], wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[8 * 16], ldc, act[8], wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<1, 16, plain_io>::compute(p_out[10 * 16], ldc, act[10], wei400m_[i % block_num], bias, scale);
-        break;
-      case (12):
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out, ldc, act, wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[2 * 16], ldc, act[2], wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[4 * 16], ldc, act[4], wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[6 * 16], ldc, act[6], wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[8 * 16], ldc, act[8], wei400m_[i % block_num], bias, scale);
-        intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(p_out[10 * 16], ldc, act[10], wei400m_[i % block_num], bias, scale);
-        break;
-      }
-    }
-  }
-  lduring =
-      std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - lstart)
-          .count();
-  std::cout << count  << " times plain tile linear time : "
-            << (float)lduring / 1000 / 1000 << " ms " << std::endl;
-  std::cout << "single linear time : " << (float)lduring / 10000 / 1000 / 1000 << " ms" << std::endl;
+  
+  int core_num = 56;
+  int counter = core_num * 200;
+  int single_loop = block_num / core_num;
+  int row_total_num = 100;
 
-  delete[] wei400m;
+  std::vector<float> durings;
+  durings.emplace_back(0);
+ 
+  for (int i = 2; i < row_total_num; i += 2) {
+    int row_tile_ = i;
+    void* core_out_ = nullptr;
+    posix_memalign(&core_out_, 4096, core_num * row_tile_ * 16 * ldc);
+    lstart = Time::now();
+    for (int j = 0; j < counter; j++) {
+      performance_test_256x256(row_tile_, core_out_, ldc, act, wei400m, bias, scale, block_num, core_num);
+    }
+    lduring = std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - lstart).count();
+    std::cout << row_tile_ << " linear time : " << (float)lduring / counter / single_loop << " ns" << std::endl;
+    durings.emplace_back((float)lduring / counter / single_loop);
+  }
+  
+  for (int i = 0; i < durings.size() - 1; i += 2) {
+    std::cout << durings[i + 1] - durings[i] << std::endl;
+  }
+
+  // delete[] wei400m;
+  free(wei400m);
 }
 
 void test_block_gemm(const size_t sl, const size_t input_f, const size_t output_f, bool accuracy = true) {
