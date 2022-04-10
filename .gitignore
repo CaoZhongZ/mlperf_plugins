@@ -6,4 +6,7 @@ csrc/tpps/*.a
 csrc/tpps/xxx.exe
 csrc/tpps/*.log
 csrc/tpps/*.o
-
+csrc/tpps/perf.data
+csrc/tpps/perf.data.old
+csrc/tpps/r000macc
+csrc/tpps/r001hpc

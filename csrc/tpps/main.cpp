@@ -167,17 +167,18 @@ void performance_test_256x256(int row_tile, void* C, size_t ldc, void* A, void* 
   size_t single_loop = counter / core_num;
 
   auto core_out = reinterpret_cast<int8_t (*)[row_tile * 16][ldc]>(C);
-  auto act = reinterpret_cast<int8_t (*)[ldc]>(A);
+  auto act = reinterpret_cast<int8_t (*)[row_tile * 16][ldc]>(A);
   auto wei400m_ = reinterpret_cast<int8_t (*)[256 * 256]>(B);
 # pragma omp parallel for num_threads (core_num)
   for (size_t i = 0; i < counter; i++) {
 #   pragma unroll
     for (int j = 0; j < loop_num; j++) {
-      intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(core_out[i / single_loop][j * 2 * 16], ldc, act[j * 2], wei400m_[i % counter], bias, scale);
+      // intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(core_out[i / single_loop][j * 2 * 16], ldc, act[i / single_loop][j * 2], wei400m_[i % counter], bias, scale);
+      intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(core_out[i / single_loop][j * 2 * 16], ldc, act[i / single_loop][j * 2], B, bias, scale);
     }
-    if (remaining) {
-      intel_mlperf::_tile_dot_product_16x256<1, 16, plain_io>::compute(core_out[i / single_loop][loop_num * 2 * 16], ldc, act[loop_num * 2], wei400m_[i % counter], bias, scale);
-    }
+    // if (remaining) {
+    //   intel_mlperf::_tile_dot_product_16x256<1, 16, plain_io>::compute(core_out[i / single_loop][loop_num * 2 * 16], ldc, act[i / single_loop][loop_num * 2], wei400m_[i % counter], bias, scale);
+    // }
   }
 }
 
@@ -334,34 +335,40 @@ void test_tile_16x256(int row_tile) {
     intel_mlperf::compare_naive_output(&nout_[i * 16][0], (int8_t*)p_out_[i], 16, 64, ldc, ldc);
   } 
 
-  size_t block_num = 7168;
+  printf("************************ start performance test... **************************\n");
+  
+  int core_num = 38;
+  size_t block_num = core_num * 128;
+  int counter = core_num * 200;
+  int single_loop = block_num / core_num;
+  int row_total_num = 50;
+
   // auto wei400m = new int8_t[block_num * 256 * 256];
   void* wei400m = nullptr;
   posix_memalign(&wei400m, 4096, block_num * 256 * 256);
   auto wei400m_ = reinterpret_cast<int8_t (*)[256 * 256]>(wei400m);
+
 // # pragma omp parallel for
 //   for (int i = 0; i < block_num; i++) {
 //     set_data_wei(wei400m_[i], bias);
 //   }
   memset(wei400m, 1, block_num * 256 * 256);
-  count = 56000000 * 3;
-  printf("************************ start performance test... **************************\n");
-  
-  int core_num = 56;
-  int counter = core_num * 200;
-  int single_loop = block_num / core_num;
-  int row_total_num = 100;
 
   std::vector<float> durings;
   durings.emplace_back(0);
  
   for (int i = 2; i < row_total_num; i += 2) {
     int row_tile_ = i;
+
+    void* core_act_ = nullptr;
+    posix_memalign(&core_act_, 4096, core_num * row_tile_ * 16 * ldc);
+    memset(core_act_, 1, core_num * row_tile_ * 16 * ldc);
+
     void* core_out_ = nullptr;
     posix_memalign(&core_out_, 4096, core_num * row_tile_ * 16 * ldc);
     lstart = Time::now();
     for (int j = 0; j < counter; j++) {
-      performance_test_256x256(row_tile_, core_out_, ldc, act, wei400m, bias, scale, block_num, core_num);
+      performance_test_256x256(row_tile_, core_out_, ldc, core_act_, wei, bias, scale, block_num, core_num);
     }
     lduring = std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - lstart).count();
     std::cout << row_tile_ << " linear time : " << (float)lduring / counter / single_loop << " ns" << std::endl;

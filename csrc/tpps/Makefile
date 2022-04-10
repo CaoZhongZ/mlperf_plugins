@@ -13,7 +13,7 @@ MAIN = xxx.exe
 .PHONY: depend clean
 
 all: $(MAIN)
-	@echo Simple compiler name xxx.exe has benn compiled
+	@echo Simple compiler name xxx.exe has been compiled
 $(MAIN): $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $(MAIN) $(OBJS)
 
