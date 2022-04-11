@@ -12,31 +12,18 @@ void i_linear::compute_block(void* C, size_t ldc, void* A, void* B, float* bias,
 }
 
 const i_linear::compute_block_t i_linear::compute_block_tbl_ [12][2] = {
-  {
-    nullptr, nullptr
-  }, {
-    &i_linear::compute_block<1, 16>, &i_linear::compute_block<1, 64>
-  }, {
-    &i_linear::compute_block<2, 16>, &i_linear::compute_block<2, 64>
-  }, {
-    &i_linear::compute_block<3, 16>, &i_linear::compute_block<3, 64>
-  }, {
-    &i_linear::compute_block<4, 16>, &i_linear::compute_block<4, 64>
-  }, {
-    &i_linear::compute_block<5, 16>, &i_linear::compute_block<5, 64>
-  }, {
-    &i_linear::compute_block<6, 16>, &i_linear::compute_block<6, 64>
-  }, {
-    &i_linear::compute_block<7, 16>, &i_linear::compute_block<7, 64>
-  }, {
-    &i_linear::compute_block<8, 16>, &i_linear::compute_block<8, 64>
-  }, {
-    &i_linear::compute_block<9, 16>, &i_linear::compute_block<9, 64>
-  }, {
-    &i_linear::compute_block<10, 16>, &i_linear::compute_block<10, 64>
-  }, {
-    &i_linear::compute_block<11, 16>, &i_linear::compute_block<11, 64>
-  }
+  { nullptr, nullptr }, 
+  { &i_linear::compute_block<1, 16>, &i_linear::compute_block<1, 64> }, 
+  { &i_linear::compute_block<2, 16>, &i_linear::compute_block<2, 64> }, 
+  { &i_linear::compute_block<3, 16>, &i_linear::compute_block<3, 64> }, 
+  { &i_linear::compute_block<4, 16>, &i_linear::compute_block<4, 64> }, 
+  { &i_linear::compute_block<5, 16>, &i_linear::compute_block<5, 64> }, 
+  { &i_linear::compute_block<6, 16>, &i_linear::compute_block<6, 64> }, 
+  { &i_linear::compute_block<7, 16>, &i_linear::compute_block<7, 64> }, 
+  { &i_linear::compute_block<8, 16>, &i_linear::compute_block<8, 64> }, 
+  { &i_linear::compute_block<9, 16>, &i_linear::compute_block<9, 64> }, 
+  { &i_linear::compute_block<10, 16>, &i_linear::compute_block<10, 64> }, 
+  { &i_linear::compute_block<11, 16>, &i_linear::compute_block<11, 64> }
 };
 
 void i_linear::tile_dot_product_16x256(const int row_tile, const int col_tile, 

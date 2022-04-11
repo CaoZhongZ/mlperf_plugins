@@ -168,21 +168,70 @@ struct _tile_dot_product_16x256<2, col_tile, io_policy> {
   static constexpr size_t cache_footprint = A_footprint + B_footprint;
   static constexpr size_t lda = col_tile * 64;
 
+  inline static void avx_512_load(void *A, void *B) {
+    auto B_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(B);
+    auto A_ = reinterpret_cast<int8_t (*)[16][lda]>(A);
+
+    auto tem = _mm512_set1_epi8(0);
+#   pragma unroll 16
+    for (int i = 0; i < 16; i++) {
+      tem += _mm512_loadu_epi8(B_[0][0][i]);
+    }
+    
+#   pragma unroll 16
+    for (int i = 0; i < 16; i++) {
+      tem += _mm512_loadu_epi8(A_[0][i]);
+    }
+
+#   pragma unroll 16
+    for (int i = 0; i < 16; i++) {
+      tem += _mm512_loadu_epi8(A_[1][i]);
+    }
+
+#   pragma unroll 16
+    for (int i = 0; i < 16; i++) {
+      tem += _mm512_loadu_epi8(B_[1][0][i]);
+    }
+    _mm512_storeu_epi8(A_[0][0], tem);
+  }
+
+  inline static void avx_512_store(void *S) {
+    auto S_ = reinterpret_cast<int (*)[16][16]>(S);
+    auto tem = _mm512_set1_epi32(0);
+
+    #   pragma unroll 16
+    for (int i = 0; i < 16; i++) {
+      _mm512_storeu_epi32(S_[0][i], tem);
+    }
+    #   pragma unroll 16
+    for (int i = 0; i < 16; i++) {
+      _mm512_storeu_epi32(S_[1][i], tem);
+    }
+    #   pragma unroll 16
+    for (int i = 0; i < 16; i++) {
+      _mm512_storeu_epi32(S_[2][i], tem);
+    }
+    #   pragma unroll 16
+    for (int i = 0; i < 16; i++) {
+      _mm512_storeu_epi32(S_[3][i], tem);
+    }
+  }
+
   inline static void dot_prod(void *A, void *B) {
     auto B_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(B);
-    
+    auto A_ = reinterpret_cast<int8_t (*)[16][lda]>(A);
+
     _tile_loadd(TMM6, B_[0], 64);
     
     io_policy::template tile_load<TMM4>(A, 0);
-    __tile_dpbssd<TMM0, TMM4, TMM6>();
+    // __tile_dpbssd<TMM0, TMM4, TMM6>();
     
     io_policy::template tile_load<TMM5>(A, 1);
-    __tile_dpbssd<TMM2, TMM5, TMM6>();
+    // __tile_dpbssd<TMM2, TMM5, TMM6>();
 
     _tile_loadd(TMM7, B_[1], 64);
-
-    __tile_dpbssd<TMM1, TMM4, TMM7>();
-    __tile_dpbssd<TMM3, TMM5, TMM7>();
+    // __tile_dpbssd<TMM1, TMM4, TMM7>();
+    // __tile_dpbssd<TMM3, TMM5, TMM7>();
   }
 
   inline static void store(void *S) {
@@ -233,6 +282,12 @@ struct _tile_dot_product_16x256<2, col_tile, io_policy> {
         auto o2 = _mm512_scale_minmax_i8_ps(scale_, f2);
         auto o3 = _mm512_scale_minmax_i8_ps(scale_, f3);
 
+        // add gelu
+        // auto g0 = _mm512_gelu_ps(o0);
+        // auto g1 = _mm512_gelu_ps(o1);
+        // auto g2 = _mm512_gelu_ps(o2);
+        // auto g3 = _mm512_gelu_ps(o3);
+
         // every 16 got output
         io_policy::_mm512_coalescing_store(C_[t], ldc, i, o0, o1, o2, o3);
       }
@@ -250,18 +305,18 @@ struct _tile_dot_product_16x256<2, col_tile, io_policy> {
 
 #   pragma unroll (col_tile)
     for (int i = 0; i < col_tile; ++i) {
-      dot_prod(A_[i], B_[0][i]);
+      avx_512_load(A_[i], B_[0][i]);
     }
 
-    store(scratch_0);
+    avx_512_store(scratch_0);
     zero_accum();
 
 #   pragma unroll (col_tile)
     for (int i = 0; i < col_tile; ++i) {
-      dot_prod(A_[i], B_[2][i]);
+      avx_512_load(A_[i], B_[2][i]);
     }
 
-    store(scratch_1);
+    avx_512_store(scratch_1);
     quant_out(C, ldc, scratch_0, scratch_1, bias, scale);
   }
 };

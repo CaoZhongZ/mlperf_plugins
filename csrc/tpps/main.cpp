@@ -227,41 +227,41 @@ void test_tile_16x256(int row_tile) {
   printf("****************** accuracy...*********************\n");
   alignas(64) int8_t out[row_tile][16][64];
 
-  switch (row_tile) {
-  case (2):
-    intel_mlperf::_tile_dot_product_16x256<2, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
-    break;
-  case (3):
-    intel_mlperf::_tile_dot_product_16x256<3, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
-    break;
-  case (4):
-    intel_mlperf::_tile_dot_product_16x256<4, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
-    break;
-  case (5):
-    intel_mlperf::_tile_dot_product_16x256<5, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
-    break;
-  case (6):
-    intel_mlperf::_tile_dot_product_16x256<6, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
-    break;
-  case (7):
-    intel_mlperf::_tile_dot_product_16x256<7, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
-    break;
-  case (8):
-    intel_mlperf::_tile_dot_product_16x256<8, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
-    break;
-  case (9):
-    intel_mlperf::_tile_dot_product_16x256<9, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
-    break;
-  case (10):
-    intel_mlperf::_tile_dot_product_16x256<10, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
-    break;
-  case (11):
-    intel_mlperf::_tile_dot_product_16x256<11, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
-    break;
-  case (12):
-    intel_mlperf::_tile_dot_product_16x256<12, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
-    break;
-  }
+  // switch (row_tile) {
+  // case (2):
+  //   intel_mlperf::_tile_dot_product_16x256<2, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+  //   break;
+  // case (3):
+  //   intel_mlperf::_tile_dot_product_16x256<3, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+  //   break;
+  // case (4):
+  //   intel_mlperf::_tile_dot_product_16x256<4, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+  //   break;
+  // case (5):
+  //   intel_mlperf::_tile_dot_product_16x256<5, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+  //   break;
+  // case (6):
+  //   intel_mlperf::_tile_dot_product_16x256<6, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+  //   break;
+  // case (7):
+  //   intel_mlperf::_tile_dot_product_16x256<7, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+  //   break;
+  // case (8):
+  //   intel_mlperf::_tile_dot_product_16x256<8, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+  //   break;
+  // case (9):
+  //   intel_mlperf::_tile_dot_product_16x256<9, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+  //   break;
+  // case (10):
+  //   intel_mlperf::_tile_dot_product_16x256<10, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+  //   break;
+  // case (11):
+  //   intel_mlperf::_tile_dot_product_16x256<11, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+  //   break;
+  // case (12):
+  //   intel_mlperf::_tile_dot_product_16x256<12, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+  //   break;
+  // }
 
   auto out_ = reinterpret_cast<int8_t (*)[16][64]>(out);
   auto nout_ = reinterpret_cast<int (*)[ldc]>(nout);
@@ -275,41 +275,41 @@ void test_tile_16x256(int row_tile) {
   // auto wei400m_ = reinterpret_cast<int8_t (*)[256 * 256]>(wei400m);
   auto lstart = Time::now();
   for (size_t i = 0; i < count; i++) {
-    switch (row_tile) {
-    case (2):
-      intel_mlperf::_tile_dot_product_16x256<2, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
-      break;
-    case (3):
-      intel_mlperf::_tile_dot_product_16x256<3, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
-      break;
-    case (4):
-      intel_mlperf::_tile_dot_product_16x256<4, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
-      break;
-    case (5):
-      intel_mlperf::_tile_dot_product_16x256<5, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
-      break;
-    case (6):
-      intel_mlperf::_tile_dot_product_16x256<6, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
-      break;
-    case (7):
-      intel_mlperf::_tile_dot_product_16x256<7, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
-      break;
-    case (8):
-      intel_mlperf::_tile_dot_product_16x256<8, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
-      break;
-    case (9):
-      intel_mlperf::_tile_dot_product_16x256<9, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
-      break;
-    case (10):
-      intel_mlperf::_tile_dot_product_16x256<10, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
-      break;
-    case (11):
-      intel_mlperf::_tile_dot_product_16x256<11, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
-      break;
-    case (12):
-      intel_mlperf::_tile_dot_product_16x256<12, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
-      break;
-    }
+    // switch (row_tile) {
+    // case (2):
+    //   intel_mlperf::_tile_dot_product_16x256<2, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+    //   break;
+    // case (3):
+    //   intel_mlperf::_tile_dot_product_16x256<3, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+    //   break;
+    // case (4):
+    //   intel_mlperf::_tile_dot_product_16x256<4, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+    //   break;
+    // case (5):
+    //   intel_mlperf::_tile_dot_product_16x256<5, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+    //   break;
+    // case (6):
+    //   intel_mlperf::_tile_dot_product_16x256<6, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+    //   break;
+    // case (7):
+    //   intel_mlperf::_tile_dot_product_16x256<7, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+    //   break;
+    // case (8):
+    //   intel_mlperf::_tile_dot_product_16x256<8, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+    //   break;
+    // case (9):
+    //   intel_mlperf::_tile_dot_product_16x256<9, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+    //   break;
+    // case (10):
+    //   intel_mlperf::_tile_dot_product_16x256<10, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+    //   break;
+    // case (11):
+    //   intel_mlperf::_tile_dot_product_16x256<11, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+    //   break;
+    // case (12):
+    //   intel_mlperf::_tile_dot_product_16x256<12, 16, tile_io>::compute(out, 64, act, wei, bias, scale);
+    //   break;
+    // }
   }
   auto lduring =
       std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - lstart)
@@ -337,7 +337,7 @@ void test_tile_16x256(int row_tile) {
 
   printf("************************ start performance test... **************************\n");
   
-  int core_num = 38;
+  int core_num = 39;
   size_t block_num = core_num * 128;
   int counter = core_num * 200;
   int single_loop = block_num / core_num;
@@ -383,7 +383,7 @@ void test_tile_16x256(int row_tile) {
   free(wei400m);
 }
 
-void test_block_gemm(const size_t sl, const size_t input_f, const size_t output_f, bool accuracy = true) {
+void test_block_gemm(const size_t sl, const size_t input_f, const size_t output_f, bool accuracy, const int num_cores) {
   // size_t sl = 176;
   // size_t input_f = 1024;
   // size_t output_f = 1024;
@@ -397,7 +397,9 @@ void test_block_gemm(const size_t sl, const size_t input_f, const size_t output_
   size_t block_row = input_f / 4;
   size_t block_col = 256;
   size_t block_num = 448;
-  auto weight400m = new int8_t[block_num * input_f * output_f];
+  // auto weight400m = new int8_t[block_num * input_f * output_f];
+  void* weight400m = nullptr;
+  posix_memalign(&weight400m, 4096, block_num * input_f * output_f);
   auto weight400m_ = reinterpret_cast<int8_t (*)[input_f * output_f]>(weight400m);
 
   alignas(64) int8_t output[sl][output_f];
@@ -428,8 +430,6 @@ void test_block_gemm(const size_t sl, const size_t input_f, const size_t output_
       gemm_.ref(output, input, weight, bias, scale);
       break;
     }
-    intel_mlperf::print_2d_matrix<int8_t>((int8_t*)output, sl, output_f, output_f);
-    getchar();
 
     auto ninput = new int[sl * input_f];
     auto nweight = new int[input_f * output_f];
@@ -449,7 +449,7 @@ void test_block_gemm(const size_t sl, const size_t input_f, const size_t output_
     int loop_num = 10000;
     auto start = Time::now();
     for (int i = 0; i < loop_num; i++) {
-# pragma omp parallel for
+#     pragma omp parallel for num_threads (num_cores)
       for (int j = 0; j < block_num; j++) {
         switch (input_f / 64) {
         case (16):
@@ -470,29 +470,33 @@ void test_block_gemm(const size_t sl, const size_t input_f, const size_t output_
 int main(int argc, char* argv[]) {
   int row_tile = 2;
   int is_block = 1;
+  int num_cores = 56;
   if (argc == 2) {
     row_tile = std::atoi(argv[1]);
+  } else if (argc == 3) {
+    num_cores = std::atoi(argv[2]);
   }
+  
   intel_mlperf::amx_init();
   intel_mlperf::Tilecfg().set_config();
 
   bool accuracy_mode = false;
   
   test_tile_16x256(row_tile);
-  // test_block_gemm(11 * 16, 1024, 1024, accuracy_mode);
+  // test_block_gemm(11 * 16, 1024, 1024, accuracy_mode, num_cores);
   // for (int i = 3; i <= 24; i++) {
   //   printf("************************ 1024x1024 test row_tile: %d ********************\n", i);
-  //   test_block_gemm(i * 16, 1024, 1024, accuracy_mode);
+  //   test_block_gemm(i * 16, 1024, 1024, accuracy_mode, num_cores);
   // }
 
   // for (int i = 3; i <= 24; i++) {
   //   // printf("************************ 1024x4096 test row_tile: %d ********************\n", i);
-  //   test_block_gemm(i * 16, 1024, 4096, accuracy_mode);
+  //   test_block_gemm(i * 16, 1024, 4096, accuracy_mode, num_cores);
   // }
 
   // for (int i = 3; i <= 24; i++) {
   //   // printf("************************ 4096x1024 test row_tile: %d ********************\n", i);
-  //   test_block_gemm(i * 16, 4096, 1024, accuracy_mode);
+  //   test_block_gemm(i * 16, 4096, 1024, accuracy_mode, num_cores);
   // }
   return 0;
 }
