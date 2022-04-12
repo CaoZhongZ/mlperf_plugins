@@ -5,4 +5,4 @@ export KMP_HW_SUBSET=1s,56c,1t
 # perf report
 # vtune -collect hpc-performance ./xxx.exe
 # perf mem record -a ./xxx.exe
-./xxx.exe
+./xxx.exe $1

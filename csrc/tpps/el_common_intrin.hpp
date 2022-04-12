@@ -27,6 +27,19 @@ static inline __m512 _mm512_gelu_ps(__m512 x) {
   return x * _mm512_set1_ps(0.5f) * y;
 }
 
+static inline __m512i _mm512_scale_minmax_gelu_i8_ps(__m512 x, __m512 vS, __m512 vS2) {
+  auto max = _mm512_set1_ps(127.f);
+  auto min = _mm512_set1_ps(-127.f);
+
+  auto r = x * vS;
+  auto g = _mm512_gelu_ps(r);
+  auto m = _mm512_roundscale_ps(g * vS2, _MM_FROUND_TO_NEAREST_INT);
+
+  auto c1 = _mm512_min_ps(m, max);
+  auto c2 = _mm512_max_ps(c1, min);
+  return _mm512_cvtps_epi32(c2);
+}
+
 static inline __m512i _mm512_scale_minmax_i8_ps(__m512 x, __m512 vS) {
   auto max = _mm512_set1_ps(127.f);
   auto min = _mm512_set1_ps(-127.f);

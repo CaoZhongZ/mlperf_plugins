@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <random>
 #include <cmath>
+#include <math.h>
 #include <omp.h>
 
 #include "i_softmax_tpp.hpp"
@@ -51,7 +52,13 @@ static constexpr size_t rows = 16;
 static constexpr int qmax = 127.0;
 static constexpr int qmin = -127.0;
 
-void naive_linear(void* a, const size_t lda, void* b, const size_t ldb, void* c, const size_t ldc, void* bias, float scale, int row_tile) {
+float gelu_func(float x) {
+  float rsqrt_2 = 0.70710678;
+  auto y = std::erf(x * rsqrt_2) + 1;
+  return x * y * 0.5;
+}
+
+void naive_linear(void* a, const size_t lda, void* b, const size_t ldb, void* c, const size_t ldc, void* bias, float scale, int row_tile, bool with_op = false, float scale2 = 1.0) {
   // this function is to test _tile_gemm output 64 of ldc
   auto a_ = reinterpret_cast<int (*)[lda]>(a);
   auto b_ = reinterpret_cast<int (*)[ldb]>(b);
@@ -79,6 +86,10 @@ void naive_linear(void* a, const size_t lda, void* b, const size_t ldb, void* c,
       float tem = static_cast<float>(c_[i][j]);
       tem += bias_[j];
       tem *= scale;
+      if (with_op) {
+        tem = gelu_func(tem);
+        tem = tem * scale2;
+      }
       c_[i][j] = static_cast<int>(round(tem));
       c_[i][j] = c_[i][j] < qmax ? c_[i][j] : qmax;
       c_[i][j] = c_[i][j] > qmin ? c_[i][j] : qmin;
@@ -159,7 +170,7 @@ void send_weight(void* weight, void* nweight, const size_t dim1, const size_t di
 }
 
 void performance_test_256x256(int row_tile, void* C, size_t ldc, void* A, void* B, float* bias, float scale, 
-                              size_t counter, size_t core_num) {
+                              size_t counter, size_t core_num, bool post_op = false, float o_scale = 1.0) {
 
   using plain_io = intel_mlperf::io_policy<16, intel_mlperf::i_format::plain>;
   int loop_num = row_tile / 2;
@@ -169,12 +180,13 @@ void performance_test_256x256(int row_tile, void* C, size_t ldc, void* A, void* 
   auto core_out = reinterpret_cast<int8_t (*)[row_tile * 16][ldc]>(C);
   auto act = reinterpret_cast<int8_t (*)[row_tile * 16][ldc]>(A);
   auto wei400m_ = reinterpret_cast<int8_t (*)[256 * 256]>(B);
+
 # pragma omp parallel for collapse(1) num_threads (core_num)
   for (size_t i = 0; i < counter; i++) {
 #   pragma unroll
     for (int j = 0; j < loop_num; j++) {
       // intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(core_out[i / single_loop][j * 2 * 16], ldc, act[i / single_loop][j * 2], wei400m_[i % counter], bias, scale);
-      intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(core_out[i / single_loop][j * 2 * 16], ldc, act[i / single_loop][j * 2], B, bias, scale);
+      intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(core_out[i / single_loop][j * 2 * 16], ldc, act[i / single_loop][j * 2], B, bias, scale, post_op, o_scale);
     }
     // if (remaining) {
     //   intel_mlperf::_tile_dot_product_16x256<1, 16, plain_io>::compute(core_out[i / single_loop][loop_num * 2 * 16], ldc, act[i / single_loop][loop_num * 2], wei400m_[i % counter], bias, scale);
@@ -182,7 +194,7 @@ void performance_test_256x256(int row_tile, void* C, size_t ldc, void* A, void* 
   }
 }
 
-void accuracy_test_256x256(int row_tile, void* C, size_t ldc, void* A, void* B, float* bias, float scale) {
+void accuracy_test_256x256(int row_tile, void* C, size_t ldc, void* A, void* B, float* bias, float scale, bool post_op = false, float o_scale = 1.0) {
 
   using plain_io = intel_mlperf::io_policy<16, intel_mlperf::i_format::plain>;
   int loop_num = row_tile / 2;
@@ -192,10 +204,10 @@ void accuracy_test_256x256(int row_tile, void* C, size_t ldc, void* A, void* B, 
   auto act = reinterpret_cast<int8_t (*)[ldc]>(A);
   
   for (int j = 0; j < loop_num; j++) {
-    intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(C_[j * 2 * 16], ldc, act[j * 2 * 16], B, bias, scale);
+    intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(C_[j * 2 * 16], ldc, act[j * 2 * 16], B, bias, scale, post_op, o_scale);
   }
   if (remaining) {
-    intel_mlperf::_tile_dot_product_16x256<1, 16, plain_io>::compute(C_[loop_num * 2 * 16], ldc, act[loop_num * 2 * 16], B, bias, scale);
+    intel_mlperf::_tile_dot_product_16x256<1, 16, plain_io>::compute(C_[loop_num * 2 * 16], ldc, act[loop_num * 2 * 16], B, bias, scale, post_op, o_scale);
   }
 }
 
@@ -323,21 +335,27 @@ void test_tile_16x256(int row_tile) {
 
   using plain_io = intel_mlperf::io_policy<16, intel_mlperf::i_format::plain>;
 
+  bool post_op = true;
+  float o_scale = 1.5;
+
   send_data2naive(act, wei, nact, nwei, row_tile, false);
-  naive_linear(nact, 1024, nwei, 64, nout, ldc, bias, scale, row_tile);
+  naive_linear(nact, 1024, nwei, 64, nout, ldc, bias, scale, row_tile, post_op, o_scale);
   int8_t p_out[row_tile * 16][ldc];
   printf("****************** accuracy...*********************\n");
-  // accuracy_test_256x256(row_tile, p_out, ldc, act, wei, bias, scale);
+  
+  accuracy_test_256x256(row_tile, p_out, ldc, act, wei, bias, scale, post_op, o_scale);
 
   auto p_out_ = reinterpret_cast<int8_t (*)[16][ldc]>(p_out);
   nout_ = reinterpret_cast<decltype(nout_)>(nout);
-  // for (int i = 0; i < row_tile; i++) {
-  //   intel_mlperf::compare_naive_output(&nout_[i * 16][0], (int8_t*)p_out_[i], 16, 64, ldc, ldc);
-  // } 
+  for (int i = 0; i < row_tile; i++) {
+    intel_mlperf::compare_naive_output(&nout_[i * 16][0], (int8_t*)p_out_[i], 16, 64, ldc, ldc);
+  } 
+  intel_mlperf::print_2d_matrix<int>(nout, 16, 16, ldc);
+  getchar();
 
   printf("************************ start performance test... **************************\n");
   
-  int core_num = 56;
+  int core_num = 16;
   size_t block_num = core_num * 128;
   int counter = core_num * 200;
   int single_loop = block_num / core_num;
@@ -389,7 +407,9 @@ void test_block_gemm(const size_t sl, const size_t input_f, const size_t output_
   // size_t input_f = 1024;
   // size_t output_f = 1024;
   bool has_bias = true;
-  auto gemm_ = intel_mlperf::i_linear(sl, input_f, output_f, has_bias);
+  bool post_op = false;
+  float o_scale = 1.5;
+  auto gemm_ = intel_mlperf::i_linear(sl, input_f, output_f, has_bias, post_op);
 
   size_t row_tile = (sl + 15) / 16;
   size_t col_step = output_f / 64;
@@ -482,7 +502,7 @@ int main(int argc, char* argv[]) {
   intel_mlperf::Tilecfg().set_config();
 
   bool accuracy_mode = false;
-  
+  std::cout << "row_tile : " << row_tile << std::endl;
   test_tile_16x256(row_tile);
   // test_block_gemm(11 * 16, 1024, 1024, accuracy_mode, num_cores);
   // for (int i = 3; i <= 24; i++) {
