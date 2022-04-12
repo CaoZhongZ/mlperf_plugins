@@ -169,7 +169,7 @@ void performance_test_256x256(int row_tile, void* C, size_t ldc, void* A, void* 
   auto core_out = reinterpret_cast<int8_t (*)[row_tile * 16][ldc]>(C);
   auto act = reinterpret_cast<int8_t (*)[row_tile * 16][ldc]>(A);
   auto wei400m_ = reinterpret_cast<int8_t (*)[256 * 256]>(B);
-# pragma omp parallel for num_threads (core_num)
+# pragma omp parallel for collapse(1) num_threads (core_num)
   for (size_t i = 0; i < counter; i++) {
 #   pragma unroll
     for (int j = 0; j < loop_num; j++) {
@@ -265,9 +265,9 @@ void test_tile_16x256(int row_tile) {
 
   auto out_ = reinterpret_cast<int8_t (*)[16][64]>(out);
   auto nout_ = reinterpret_cast<int (*)[ldc]>(nout);
-  for (int i = 0; i < row_tile; i++) {
-    intel_mlperf::compare_naive_output(&nout_[i * 16][0], (int8_t*)out_[i], 16, 64, ldc, 64);
-  } 
+  // for (int i = 0; i < row_tile; i++) {
+  //   intel_mlperf::compare_naive_output(&nout_[i * 16][0], (int8_t*)out_[i], 16, 64, ldc, 64);
+  // } 
 
   printf("************************ start performance test... **************************\n");
   size_t count = 64000;
@@ -327,17 +327,17 @@ void test_tile_16x256(int row_tile) {
   naive_linear(nact, 1024, nwei, 64, nout, ldc, bias, scale, row_tile);
   int8_t p_out[row_tile * 16][ldc];
   printf("****************** accuracy...*********************\n");
-  accuracy_test_256x256(row_tile, p_out, ldc, act, wei, bias, scale);
+  // accuracy_test_256x256(row_tile, p_out, ldc, act, wei, bias, scale);
 
   auto p_out_ = reinterpret_cast<int8_t (*)[16][ldc]>(p_out);
   nout_ = reinterpret_cast<decltype(nout_)>(nout);
-  for (int i = 0; i < row_tile; i++) {
-    intel_mlperf::compare_naive_output(&nout_[i * 16][0], (int8_t*)p_out_[i], 16, 64, ldc, ldc);
-  } 
+  // for (int i = 0; i < row_tile; i++) {
+  //   intel_mlperf::compare_naive_output(&nout_[i * 16][0], (int8_t*)p_out_[i], 16, 64, ldc, ldc);
+  // } 
 
   printf("************************ start performance test... **************************\n");
   
-  int core_num = 39;
+  int core_num = 56;
   size_t block_num = core_num * 128;
   int counter = core_num * 200;
   int single_loop = block_num / core_num;
@@ -371,13 +371,14 @@ void test_tile_16x256(int row_tile) {
       performance_test_256x256(row_tile_, core_out_, ldc, core_act_, wei, bias, scale, block_num, core_num);
     }
     lduring = std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - lstart).count();
-    std::cout << row_tile_ << " linear time : " << (float)lduring / counter / single_loop << " ns" << std::endl;
+    std::cout << row_tile_ << " linear time : " << (float)lduring / counter / single_loop << " ns durings : " << 
+      (float)lduring / counter / single_loop - durings.back() << " ns" << std::endl;
     durings.emplace_back((float)lduring / counter / single_loop);
   }
   
-  for (int i = 0; i < durings.size() - 1; i += 2) {
-    std::cout << durings[i + 1] - durings[i] << std::endl;
-  }
+  // for (int i = 0; i < durings.size() - 1; i += 2) {
+  //   std::cout << durings[i + 1] - durings[i] << std::endl;
+  // }
 
   // delete[] wei400m;
   free(wei400m);
