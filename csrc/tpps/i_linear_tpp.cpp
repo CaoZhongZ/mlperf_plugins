@@ -27,9 +27,9 @@ const i_linear::compute_block_t i_linear::compute_block_tbl_ [3][2] = {
 };
 
 void i_linear::tile_dot_product_16x256(const int row_tile, size_t roll_back, const int col_tile, 
-                                       void *C, size_t ldc, void *A, void *B, float *bias, float scale, float o_scale) {
+                                       void *C, void *A, void *B, float *bias, float scale, float o_scale) {
   int col_idx = col_tile == 16 ? 0 : 1;
-
+  const int ldc = 64;
   auto C_ = reinterpret_cast<int8_t (*)[ldc]>(C);
   auto A_ = reinterpret_cast<int8_t (*)[ic_]>(A);
 
@@ -57,7 +57,7 @@ void i_linear::ref(void* output, void* input, void* weight, float* bias, float s
   size_t roll_back = row_tile * 16 - sl_;
 
   // col_tile = 16 or 64
-  tile_dot_product_16x256(row_tile, roll_back, cols_in_tile_, output, oc_, input, weight, bias, scale, o_scale);
+  tile_dot_product_16x256(row_tile, roll_back, cols_in_tile_, output, input, weight, bias, scale, o_scale);
 }
 
 }
