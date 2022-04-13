@@ -948,26 +948,26 @@ struct _tile_dot_product_16x256 {
 };
 
 // Use linear interface instead of iGEMM
+// A compute block just compute slx256, delete total work
 class i_linear {
 public:
-  i_linear(size_t sequence_length, size_t input_feature, size_t output_feature, bool bias, bool post_op)
-      : sl_(sequence_length), ic_(input_feature), oc_(output_feature), has_bias_(bias), post_op_(post_op) {
+  i_linear(size_t sequence_length, size_t input_feature, bool bias, bool post_op)
+      : sl_(sequence_length), ic_(input_feature), has_bias_(bias), post_op_(post_op) {
         cols_in_tile_ = input_feature / 64;
-        total_work_ = output_feature / 64;
   }
 
   template <int row_tile, int col_tile>
-  void compute_block(void* C, size_t ldc, void* A, void* B, float* bias, float scale);
-  void tile_dot_product_16x256(const int row_tile, const int col_tile, 
-                               void *C, size_t ldc, void *A, void *B, void *bias, float scale);
+  void compute_block(void* C, size_t ldc, void* A, void* B, float* bias, float scale, bool post_op = false, float o_scale = 1.0);
+  void tile_dot_product_16x256(const int row_tile, size_t roll_back, const int col_tile, 
+                               void *C, size_t ldc, void *A, void *B, float *bias, float scale, float o_scale);
 
-  void ref(void* output, void* input, void* weight, void* bias, float scale);
+  void ref(void* output, void* input, void* weight, float* bias, float scale, float o_scale = 1.0);
 protected:
   typedef void (i_linear::* compute_block_t) (
-      void*, size_t, void*, void*, float*, float);
+      void*, size_t, void*, void*, float*, float, bool, float);
   // using compute_block_t = void (*)(void*, size_t, void*, void*, float*, float);
 
-  static const compute_block_t compute_block_tbl_ [12][2];
+  static const compute_block_t compute_block_tbl_ [3][2];
   size_t sl_;
   size_t ic_;
   size_t oc_;
@@ -976,7 +976,6 @@ protected:
 
   // output division
   size_t cols_in_tile_;
-  size_t total_work_;
 };
 
 }

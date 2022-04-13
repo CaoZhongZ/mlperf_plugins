@@ -15,18 +15,23 @@ at::Tensor amx_linear(
   const at::Tensor& input,
   const at::Tensor& weight,
   const at::Tensor& bias,
-  const at::Scalar& scale
+  const at::Scalar& scale,
+  const bool post_op,
+  const at::Scalar& o_scale
 ) {
+  // input shape: [bs, sl, hidden_size]
   auto ishape = input.sizes();
   auto bs = ishape[0];
-  auto i_row_bn = ishape[1];
-  auto i_col_bn = ishape[2];
+  auto sl = ishape[1];
+  auto hidden_size = ishape[2];
 
+  // weight shape: [col_step, 4, col_tile, 16, 64]
   auto wshape = weight.sizes();
-  auto w_col_bn = wshape[0];
-  auto w_row_bn = wshape[2];
+  auto col_step = wshape[0];
+  auto col_tile = wshape[2];
 
-  auto output = at::empty({bs, i_row_bn, w_col_bn, 16, 64},
+  // output shape: [bs, sl, col_step * 64]
+  auto output = at::empty({bs, sl, col_step * 64},
                           at::TensorOptions().dtype<int8_t>().memory_format(
                           c10::MemoryFormat::Contiguous));
 
@@ -36,19 +41,19 @@ at::Tensor amx_linear(
   }
   Tilecfg().set_config();
 
-  auto input_ = reinterpret_cast<int8_t (*)[i_row_bn][i_col_bn][16][64]>(input.data_ptr());
-  auto weight_ = reinterpret_cast<int8_t (*)[4][w_row_bn][16][64]>(weight.data_ptr());
-  auto output_ = reinterpret_cast<int8_t (*)[i_row_bn][w_col_bn][16][64]>(output.data_ptr());
-  auto bias_ = bias.data_ptr();
+  auto input_ = reinterpret_cast<int8_t (*)[sl][hidden_size]>(input.data_ptr());
+  auto weight_ = reinterpret_cast<int8_t (*)[4][col_tile][16][64]>(weight.data_ptr());
+  auto output_ = reinterpret_cast<int8_t (*)[sl][col_step][64]>(output.data_ptr());
+  auto bias_ = reinterpret_cast<float (*)[64]>(bias.data_ptr());
   auto scale_ = scale.toFloat();
-
-  size_t dim0 = i_row_bn * 16;
-  size_t dim1 = i_col_bn * 64;
-  size_t dim2 = w_col_bn * 64;
-  block_gemm<2> gemm_compute(dim0, dim1, dim2);
+  float o_scale_ = post_op ? o_scale.toFloat() : 1.0;
+  
+  auto block_computer = i_linear(sl, hidden_size, true, post_op);
 
   for (size_t i = 0; i < bs; i++) {
-    gemm_compute.ref(output_[i], input_[i], weight_, bias_, scale_);
+    for (size_t j = 0; j < col_step; j++) {
+      block_computer.ref(output_[i][0][j], input_, weight_[j], bias_[j], scale_, o_scale_);
+    }
   } 
   return output;
 }
