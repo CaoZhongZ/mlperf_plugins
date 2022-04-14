@@ -1,6 +1,7 @@
 #include <chrono>
 
 #include "i_linear_tpp.hpp"
+#include "amx_config.hpp"
 
 using Time = std::chrono::high_resolution_clock;
 
@@ -50,6 +51,8 @@ void i_linear::tile_dot_product_16x256(const int row_tile, size_t roll_back, con
 
 void i_linear::ref(void* output, void* input, void* weight, float* bias, float scale, float o_scale) {
   // suppose input is padding to 16x and have plain formate, no padding maybe added later
+
+  Tilecfg().set_config();
   const size_t row_block = 16;
   size_t row_tile = (sl_ + 15) / row_block;
   

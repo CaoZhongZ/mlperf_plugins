@@ -407,29 +407,30 @@ void test_block_gemm(const size_t sl, const size_t input_f, const size_t output_
   // size_t input_f = 1024;
   // size_t output_f = 1024;
   bool has_bias = true;
-  bool post_op = true;
+  bool post_op = false;
   float o_scale = 1.5;
   auto gemm_ = intel_mlperf::i_linear(sl, input_f, output_f, has_bias, post_op);
 
   size_t row_tile = (sl + 15) / 16;
   size_t col_step = output_f / 64;
+  size_t col_tile = input_f / 64;
   alignas(64) int8_t input[sl][input_f];
 
   size_t block_row = input_f / 4;
   size_t block_col = 256;
   size_t block_num = 448;
-  // auto weight400m = new int8_t[block_num * input_f * output_f];
+
   void* weight400m = nullptr;
   posix_memalign(&weight400m, 4096, block_num * input_f * output_f);
-  auto weight400m_ = reinterpret_cast<int8_t (*)[input_f * output_f]>(weight400m);
+  auto weight400m_ = reinterpret_cast<int8_t (*)[col_step][4][col_tile][16][64]>(weight400m);
 
-  alignas(64) int8_t output[sl][64];
+  alignas(64) int8_t output[sl][col_step][64];
   float bias[col_step][64];
   float scale = 0.0018;
 
 # pragma omp parallel for
   for (int i = 0; i < block_num; i++) {
-    set_data_wei(weight400m_[i], bias, input_f / 64, col_step);
+    set_data_wei(weight400m_[i], bias, col_tile, col_step);
   }
   
   // intel_mlperf::print_2d_matrix<int>((int*)nweight, dim1, dim2, 1024);
@@ -440,30 +441,25 @@ void test_block_gemm(const size_t sl, const size_t input_f, const size_t output_
   // intel_mlperf::print_2d_matrix<int8_t>((int8_t*)output, dim0, dim2, dim2);
   // getchar();
   if (accuracy) {
-    int8_t weight[block_row][256];
+    auto weight = weight400m_[0];
     set_data_act(input, sl, input_f);
-    set_data_wei(weight, bias[0], input_f / 64);
-    switch (input_f / 64) {
-    case (16):
-      gemm_.ref(output, input, weight, bias[0], scale, o_scale);
-      break;
-    case (64):
-      gemm_.ref(output, input, weight, bias[0], scale, o_scale);
-      break;
+    // set_data_wei(weight, bias[0], col_tile);
+    for (int i = 0; i < col_step; i++) {
+      gemm_.ref(output[0][i], input, weight[i], bias[i], scale, o_scale);
     }
 
     auto ninput = new int[sl * input_f];
-    auto nweight = new int[input_f * 64];
-    auto noutput = new int[sl * 64];
+    auto nweight = new int[input_f * output_f];
+    auto noutput = new int[sl * output_f];
 
     send_input(input, ninput, sl, input_f);
-    send_weight(weight, nweight, input_f, 64);
-    naive_linear(ninput, input_f, nweight, 64, noutput, 64, bias[0], scale, sl, post_op, o_scale);
+    send_weight(weight, nweight, input_f, output_f);
+    naive_linear(ninput, input_f, nweight, output_f, noutput, output_f, bias, scale, sl, post_op, o_scale);
 
-    intel_mlperf::print_2d_matrix<int8_t>((int8_t*)output, 16, 16, 64);
-    getchar();
-    intel_mlperf::print_2d_matrix<int>((int*)noutput, 16, 16, 64);
-    getchar();
+    // intel_mlperf::print_2d_matrix<int8_t>((int8_t*)output, 16, 16, 64);
+    // getchar();
+    // intel_mlperf::print_2d_matrix<int>((int*)noutput, 16, 16, 64);
+    // getchar();
 
     intel_mlperf::compare_naive_output((int*)noutput, (int8_t*)output, sl, 64, 64, 64);
 
@@ -510,7 +506,7 @@ int main(int argc, char* argv[]) {
   bool accuracy_mode = true;
   std::cout << "row_tile : " << row_tile << std::endl;
   // test_tile_16x256(row_tile);
-  test_block_gemm(87, 1024, 64, accuracy_mode, num_cores);
+  test_block_gemm(111, 4096, 1024, accuracy_mode, num_cores);
   // for (int i = 3; i <= 24; i++) {
   //   printf("************************ 1024x1024 test row_tile: %d ********************\n", i);
   //   test_block_gemm(i * 16, 1024, 1024, accuracy_mode, num_cores);
