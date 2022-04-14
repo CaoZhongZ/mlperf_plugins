@@ -48,7 +48,7 @@ at::Tensor amx_linear(
   auto scale_ = scale.toFloat();
   float o_scale_ = post_op ? o_scale.toFloat() : 1.0;
   
-  auto block_computer = i_linear(sl, hidden_size, true, post_op);
+  auto block_computer = i_linear(sl, hidden_size, col_step * 64, true, post_op);
 
   for (size_t i = 0; i < bs; i++) {
     for (size_t j = 0; j < col_step; j++) {

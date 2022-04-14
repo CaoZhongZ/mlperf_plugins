@@ -951,8 +951,8 @@ struct _tile_dot_product_16x256 {
 // A compute block just compute slx256, delete total work
 class i_linear {
 public:
-  i_linear(size_t sequence_length, size_t input_feature, bool bias, bool post_op)
-      : sl_(sequence_length), ic_(input_feature), has_bias_(bias), post_op_(post_op) {
+  i_linear(size_t sequence_length, size_t input_feature, size_t output_feature, bool bias, bool post_op)
+      : sl_(sequence_length), ic_(input_feature), oc_(output_feature), has_bias_(bias), post_op_(post_op) {
         cols_in_tile_ = input_feature / 64;
   }
 

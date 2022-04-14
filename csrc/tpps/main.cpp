@@ -409,7 +409,7 @@ void test_block_gemm(const size_t sl, const size_t input_f, const size_t output_
   bool has_bias = true;
   bool post_op = true;
   float o_scale = 1.5;
-  auto gemm_ = intel_mlperf::i_linear(sl, input_f, has_bias, post_op);
+  auto gemm_ = intel_mlperf::i_linear(sl, input_f, output_f, has_bias, post_op);
 
   size_t row_tile = (sl + 15) / 16;
   size_t col_step = output_f / 64;

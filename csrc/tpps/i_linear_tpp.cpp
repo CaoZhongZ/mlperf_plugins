@@ -29,8 +29,7 @@ const i_linear::compute_block_t i_linear::compute_block_tbl_ [3][2] = {
 void i_linear::tile_dot_product_16x256(const int row_tile, size_t roll_back, const int col_tile, 
                                        void *C, void *A, void *B, float *bias, float scale, float o_scale) {
   int col_idx = col_tile == 16 ? 0 : 1;
-  const int ldc = 64;
-  auto C_ = reinterpret_cast<int8_t (*)[ldc]>(C);
+  auto C_ = reinterpret_cast<int8_t (*)[oc_]>(C);
   auto A_ = reinterpret_cast<int8_t (*)[ic_]>(A);
 
   compute_block_t computer_2 = compute_block_tbl_[2][col_idx];
@@ -41,11 +40,11 @@ void i_linear::tile_dot_product_16x256(const int row_tile, size_t roll_back, con
 # pragma unroll
   for (; j < row_tile - 1; j += 2) {
     cur_pos = (j == row_tile - 2) ? j * 16 - roll_back : j * 16;
-    (this->*computer_2)(C_[cur_pos], ldc, A_[cur_pos], B, bias, scale, post_op_, o_scale);
+    (this->*computer_2)(C_[cur_pos], oc_, A_[cur_pos], B, bias, scale, post_op_, o_scale);
   }
   if (row_tile % 2 == 1) {
     cur_pos = j * 16 - roll_back;
-    (this->*computer_1)(C_[cur_pos], ldc, A_[cur_pos], B, bias, scale, post_op_, o_scale);
+    (this->*computer_1)(C_[cur_pos], oc_, A_[cur_pos], B, bias, scale, post_op_, o_scale);
   }
 }
 
