@@ -347,15 +347,13 @@ void test_tile_16x256(int row_tile) {
 
   auto p_out_ = reinterpret_cast<int8_t (*)[16][ldc]>(p_out);
   nout_ = reinterpret_cast<decltype(nout_)>(nout);
-  for (int i = 0; i < row_tile; i++) {
-    intel_mlperf::compare_naive_output(&nout_[i * 16][0], (int8_t*)p_out_[i], 16, 64, ldc, ldc);
-  } 
-  intel_mlperf::print_2d_matrix<int>(nout, 16, 16, ldc);
-  getchar();
+  // for (int i = 0; i < row_tile; i++) {
+  //   intel_mlperf::compare_naive_output(&nout_[i * 16][0], (int8_t*)p_out_[i], 16, 64, ldc, ldc);
+  // } 
 
   printf("************************ start performance test... **************************\n");
   
-  int core_num = 16;
+  int core_num = 56;
   size_t block_num = core_num * 128;
   int counter = core_num * 200;
   int single_loop = block_num / core_num;
@@ -505,8 +503,8 @@ int main(int argc, char* argv[]) {
 
   bool accuracy_mode = true;
   std::cout << "row_tile : " << row_tile << std::endl;
-  // test_tile_16x256(row_tile);
-  test_block_gemm(111, 4096, 1024, accuracy_mode, num_cores);
+  test_tile_16x256(row_tile);
+  // test_block_gemm(111, 4096, 1024, accuracy_mode, num_cores);
   // for (int i = 3; i <= 24; i++) {
   //   printf("************************ 1024x1024 test row_tile: %d ********************\n", i);
   //   test_block_gemm(i * 16, 1024, 1024, accuracy_mode, num_cores);
