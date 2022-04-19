@@ -353,7 +353,7 @@ void test_tile_16x256(int row_tile) {
 
   printf("************************ start performance test... **************************\n");
   
-  int core_num = 56;
+  int core_num = 1;
   size_t block_num = core_num * 128;
   int counter = core_num * 200;
   int single_loop = block_num / core_num;

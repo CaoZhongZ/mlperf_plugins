@@ -1139,6 +1139,9 @@ public:
   void compute_block(void* C, size_t ldc, void* A, void* B, float* bias, float scale, bool post_op = false, float o_scale = 1.0);
   void tile_dot_product_16x256(const int row_tile, size_t roll_back, const int col_tile, 
                                void *C, void *A, void *B, float *bias, float scale, float o_scale);
+  
+  void tile_linear(const int row_tile, size_t roll_back, const int col_tile, 
+                   void *C, void *A, void *B, float *bias, float scale, float o_scale);
 
   void ref(void* output, void* input, void* weight, float* bias, float scale, float o_scale = 1.0);
 protected:

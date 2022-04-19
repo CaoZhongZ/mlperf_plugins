@@ -49,6 +49,34 @@ void i_linear::tile_dot_product_16x256(const int row_tile, size_t roll_back, con
   }
 }
 
+void i_linear::tile_linear(const int row_tile, size_t roll_back, const int col_tile, 
+                           void *C, void *A, void *B, float *bias, float scale, float o_scale) {
+  int col_idx = col_tile == 16 ? 0 : 1;
+  int col_step = oc_ / 64;
+  auto C_ = reinterpret_cast<int8_t (*)[col_step][64]>(C);
+  auto A_ = reinterpret_cast<int8_t (*)[ic_]>(A);
+  auto B_ = reinterpret_cast<int8_t (*)[4][col_tile][16][64]>(B);
+  auto bias_ = reinterpret_cast<float (*)[64]>(bias);
+
+  compute_block_t computer_2 = compute_block_tbl_[2][col_idx];
+  compute_block_t computer_1 = compute_block_tbl_[1][col_idx];
+
+# pragma unroll
+  for (int i = 0; i < col_step; i++) {
+    int j = 0;
+    int cur_pos = 0;
+#   pragma unroll
+    for (; j < row_tile - 1; j += 2) {
+      cur_pos = (j == row_tile - 2) ? j * 16 - roll_back : j * 16;
+      (this->*computer_2)(C_[cur_pos][i], oc_, A_[cur_pos], B_[i], bias_[i], scale, post_op_, o_scale);
+    }
+    if (row_tile % 2 == 1) {
+      cur_pos = j * 16 - roll_back;
+      (this->*computer_1)(C_[cur_pos][i], oc_, A_[cur_pos], B_[i], bias_[i], scale, post_op_, o_scale);
+    }
+  }
+}
+
 void i_linear::ref(void* output, void* input, void* weight, float* bias, float scale, float o_scale) {
   // suppose input is padding to 16x and have plain formate, no padding maybe added later
 
@@ -59,7 +87,8 @@ void i_linear::ref(void* output, void* input, void* weight, float* bias, float s
   size_t roll_back = row_tile * 16 - sl_;
 
   // col_tile = 16 or 64
-  tile_dot_product_16x256(row_tile, roll_back, cols_in_tile_, output, input, weight, bias, scale, o_scale);
+  // tile_dot_product_16x256(row_tile, roll_back, cols_in_tile_, output, input, weight, bias, scale, o_scale);
+  tile_linear(row_tile, roll_back, cols_in_tile_, output, input, weight, bias, scale, o_scale);
 }
 
 }

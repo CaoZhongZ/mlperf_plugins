@@ -50,12 +50,17 @@ at::Tensor amx_linear(
 
   auto block_computer = i_linear(sl, hidden_size, col_step * 64, true, post_op);
 
-# pragma omp parallel for collapse(2)
+// # pragma omp parallel for collapse(2)
+//   for (size_t i = 0; i < bs; i++) {
+//     for (size_t j = 0; j < col_step; j++) {
+//       block_computer.ref(output_[i][0][j], input_[i], weight_[j], bias_[j], scale_, o_scale_);
+//     }
+//   } 
+
+# pragma omp parallel for collapse(1)
   for (size_t i = 0; i < bs; i++) {
-    for (size_t j = 0; j < col_step; j++) {
-      block_computer.ref(output_[i][0][j], input_[i], weight_[j], bias_[j], scale_, o_scale_);
-    }
-  } 
+    block_computer.ref(output_[i], input_[i], weight_, (float*)bias.data_ptr(), scale_, o_scale_);
+  }
   return output;
 }
 
