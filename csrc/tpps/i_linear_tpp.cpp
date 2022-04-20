@@ -87,8 +87,8 @@ void i_linear::ref(void* output, void* input, void* weight, float* bias, float s
   size_t roll_back = row_tile * 16 - sl_;
 
   // col_tile = 16 or 64
-  // tile_dot_product_16x256(row_tile, roll_back, cols_in_tile_, output, input, weight, bias, scale, o_scale);
-  tile_linear(row_tile, roll_back, cols_in_tile_, output, input, weight, bias, scale, o_scale);
+  tile_dot_product_16x256(row_tile, roll_back, cols_in_tile_, output, input, weight, bias, scale, o_scale);
+  // tile_linear(row_tile, roll_back, cols_in_tile_, output, input, weight, bias, scale, o_scale);
 }
 
 }

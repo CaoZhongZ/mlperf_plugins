@@ -41,26 +41,39 @@ at::Tensor amx_linear(
   }
   // Tilecfg().set_config();
 
-  auto input_ = reinterpret_cast<int8_t (*)[sl][hidden_size]>(input.data_ptr());
+  auto input_ = reinterpret_cast<int8_t (*)[hidden_size]>(input.data_ptr());
   auto weight_ = reinterpret_cast<int8_t (*)[4][col_tile][16][64]>(weight.data_ptr());
-  auto output_ = reinterpret_cast<int8_t (*)[sl][col_step][64]>(output.data_ptr());
+  auto output_ = reinterpret_cast<int8_t (*)[col_step][64]>(output.data_ptr());
   auto bias_ = reinterpret_cast<float (*)[64]>(bias.data_ptr());
   auto scale_ = scale.toFloat();
   float o_scale_ = post_op ? o_scale.toFloat() : 1.0;
 
+  auto total_sl = bs * sl;
+  size_t row_tile = (total_sl + 15) / 16;
+  size_t roll_back = row_tile * 16 - total_sl;
+
+  int col_idx = col_tile == 16 ? 0 : 1;
   auto block_computer = i_linear(sl, hidden_size, col_step * 64, true, post_op);
+  auto computer_2 = block_computer.compute_block_tbl_[2][col_idx];
+  auto computer_1 = block_computer.compute_block_tbl_[1][col_idx];
 
-// # pragma omp parallel for collapse(2)
-//   for (size_t i = 0; i < bs; i++) {
-//     for (size_t j = 0; j < col_step; j++) {
-//       block_computer.ref(output_[i][0][j], input_[i], weight_[j], bias_[j], scale_, o_scale_);
-//     }
-//   } 
-
-# pragma omp parallel for collapse(1)
-  for (size_t i = 0; i < bs; i++) {
-    block_computer.ref(output_[i], input_[i], weight_, (float*)bias.data_ptr(), scale_, o_scale_);
+# pragma omp parallel for collapse(2)
+  for (size_t i = 0; i < col_step; i++) {
+    for (size_t j = 0; j < row_tile / 2; j++) {
+      if (row_tile % 2 == 0) {
+        int cur_pos = (j == row_tile / 2 - 1) ? j * 32 - roll_back : j * 32;
+        (block_computer.*computer_2)(output_[cur_pos][i], col_step * 64, input_[cur_pos], weight_[i], bias_[i], scale_, post_op, o_scale.toFloat());
+      } else {
+        int cur_pos = j * 32;
+        (block_computer.*computer_2)(output_[cur_pos][i], col_step * 64, input_[cur_pos], weight_[i], bias_[i], scale_, post_op, o_scale.toFloat());
+        if (j == row_tile / 2 - 1) {
+          cur_pos += 32 - roll_back;
+          (block_computer.*computer_1)(output_[cur_pos][i], col_step * 64, input_[cur_pos], weight_[i], bias_[i], scale_, post_op, o_scale.toFloat());
+        }
+      }
+    }
   }
+
   return output;
 }
 

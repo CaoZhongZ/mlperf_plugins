@@ -1144,12 +1144,14 @@ public:
                    void *C, void *A, void *B, float *bias, float scale, float o_scale);
 
   void ref(void* output, void* input, void* weight, float* bias, float scale, float o_scale = 1.0);
-protected:
+
   typedef void (i_linear::* compute_block_t) (
       void*, size_t, void*, void*, float*, float, bool, float);
+  static const compute_block_t compute_block_tbl_ [3][2];
+protected:
+  
   // using compute_block_t = void (*)(void*, size_t, void*, void*, float*, float);
 
-  static const compute_block_t compute_block_tbl_ [3][2];
   size_t sl_;
   size_t ic_;
   size_t oc_;
