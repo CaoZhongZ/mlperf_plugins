@@ -39,7 +39,6 @@ at::Tensor amx_linear(
   if (!amx_flag) {
     return output;
   }
-  // Tilecfg().set_config();
 
   auto input_ = reinterpret_cast<int8_t (*)[hidden_size]>(input.data_ptr());
   auto weight_ = reinterpret_cast<int8_t (*)[4][col_tile][16][64]>(weight.data_ptr());
