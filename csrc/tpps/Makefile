@@ -4,6 +4,9 @@
 CXX = g++
 CXXFLAGS = -fPIC -fopenmp -march=native -mfma -O3 -std=c++14 -Wall -Dusercp
 
+INCLUDES = -I/home/baodi/anaconda3/envs/bert_inf/include
+LFLAGS = -L/home/baodi/anaconda3/envs/bert_inf/lib
+
 SRCS = main.cpp helper.cpp amx_config.cpp i_linear_tpp.cpp
 
 OBJS = $(SRCS:.cpp=.o)
@@ -15,7 +18,7 @@ MAIN = xxx.exe
 all: $(MAIN)
 	@echo Simple compiler name xxx.exe has been compiled
 $(MAIN): $(OBJS)
-	$(CXX) $(CXXFLAGS) -o $(MAIN) $(OBJS)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -o $(MAIN) $(OBJS) $(LFLAGS)
 
 # libtpps.a : $(kernels:.cpp=.o)
 # 	ar rcs $@ $^

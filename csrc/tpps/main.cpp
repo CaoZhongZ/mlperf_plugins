@@ -24,6 +24,7 @@ void set_data_act(void *a, size_t sl, size_t hidden_length = 1024)
   std::normal_distribution<double> dis(0, 1);
   auto a_ = reinterpret_cast<int8_t (*)>(a);
   size_t elenum = sl * hidden_length;
+# pragma omp parallel for
   for (int i = 0; i < elenum; i++) {
     a_[i] = static_cast<int8_t>(dis(gen) * 0xf);
     // a_[i] = 0;
@@ -36,11 +37,13 @@ void set_data_wei(void *w, void* b, size_t col_tile = 16, size_t col_step = 1) {
   std::normal_distribution<double> dis(0, 1);
   auto w_ = reinterpret_cast<int8_t (*)>(w);
   size_t elenum = col_tile * 16 * 256 * col_step;
+  # pragma omp parallel for
   for (int i = 0; i < elenum; i++) {
     w_[i] = static_cast<int8_t>(dis(gen) * 0xf);
     // w_[i] = 0;
   }
   auto b_ = reinterpret_cast<float (*)>(b);
+  # pragma omp parallel for
   for (int i = 0; i < 64 * col_step; i++) {
     b_[i] = static_cast<float>(dis(gen) * 0xf);
     // b_[i] = 0;
@@ -167,6 +170,64 @@ void send_weight(void* weight, void* nweight, const size_t dim1, const size_t di
       }
     }
   }
+}
+
+void performance_test_whole_gemm(size_t sl, size_t input_feature, size_t output_feature, size_t counter, int core_num = 56) {
+  
+  void* input;
+  posix_memalign(&input, 4096, sl * input_feature * counter);
+  // set_data_act(input, sl * counter, input_feature);
+  memset(input, 1, sl * input_feature * counter);
+
+  void* weight;
+  posix_memalign(&weight, 4096, input_feature * output_feature * counter);
+  void* bias;
+  posix_memalign(&bias, 4096, output_feature * 4 * counter);
+  int col_tile = input_feature / 64;
+  int col_step = output_feature / 64;
+  
+  // set_data_wei(weight, bias, col_tile * counter, col_step);
+  memset(weight, 1, input_feature * output_feature * counter);
+
+  void* output;
+  posix_memalign(&output, 4096, sl * output_feature * counter);
+
+  auto input_ = reinterpret_cast<int8_t (*)[sl][input_feature]>(input);
+  auto weight_ = reinterpret_cast<int8_t (*)[col_step][4][col_tile][16][64]>(weight);
+  auto output_ = reinterpret_cast<int8_t (*)[sl][col_step][64]>(output);
+  auto bias_ = reinterpret_cast<float (*)[col_step][64]>(bias);
+  auto scale_ = 0.0018;
+  float o_scale_ = 1.5;
+
+  size_t row_tile = (sl + 15) / 16;
+  size_t roll_back = row_tile * 16 - sl;
+
+  int col_idx = col_tile == 16 ? 0 : 1;
+  auto block_computer = intel_mlperf::i_linear(sl, input_feature, col_step * 64, true, false);
+  auto computer_2 = block_computer.compute_block_tbl_[2][col_idx];
+  auto computer_1 = block_computer.compute_block_tbl_[1][col_idx];
+
+  auto start = Time::now();
+  for (size_t k = 0; k < counter; k++) {
+    # pragma omp parallel for collapse(2)
+    for (size_t i = 0; i < col_step; i++) {
+      for (size_t j = 0; j < row_tile / 2; j++) {
+        if (row_tile % 2 == 0) {
+          int cur_pos = (j == row_tile / 2 - 1) ? j * 32 - roll_back : j * 32;
+          (block_computer.*computer_2)(output_[k][cur_pos][i], col_step * 64, input_[k][cur_pos], weight_[k][i], bias_[k][i], scale_, false, o_scale_);
+        } else {
+          int cur_pos = j * 32;
+          (block_computer.*computer_2)(output_[k][cur_pos][i], col_step * 64, input_[k][cur_pos], weight_[k][i], bias_[k][i], scale_, false, o_scale_);
+          if (j == row_tile / 2 - 1) {
+            cur_pos += 32 - roll_back;
+            (block_computer.*computer_1)(output_[k][cur_pos][i], col_step * 64, input_[k][cur_pos], weight_[k][i], bias_[k][i], scale_, false, o_scale_);
+          }
+        }
+      }
+    }
+  }
+  auto during = std::chrono::duration_cast<std::chrono::milliseconds>(Time::now() - start).count();
+  std::cout << sl << "x" << input_feature << "x" << output_feature << " linear time : " << float(during) / counter << " ms" << std::endl;
 }
 
 void performance_test_256x256(int row_tile, void* C, size_t ldc, void* A, void* B, float* bias, float scale, 
@@ -489,22 +550,30 @@ void test_block_gemm(const size_t sl, const size_t input_f, const size_t output_
 }
 
 int main(int argc, char* argv[]) {
-  int row_tile = 2;
+  int sl = 768;
   int is_block = 1;
   int num_cores = 56;
-  if (argc == 2) {
-    row_tile = std::atoi(argv[1]);
-  } else if (argc == 3) {
-    num_cores = std::atoi(argv[2]);
+  int counter = 100;
+  if (argc >= 2) {
+    sl = std::atoi(argv[1]);
+  } 
+  if (argc >= 3) {
+    counter = std::atoi(argv[2]);
+  } 
+  if (argc >= 4) {
+    num_cores = std::atoi(argv[3]);
   }
   
   intel_mlperf::amx_init();
   intel_mlperf::Tilecfg().set_config();
 
   bool accuracy_mode = true;
-  std::cout << "row_tile : " << row_tile << std::endl;
-  test_tile_16x256(row_tile);
-  // test_block_gemm(111, 4096, 1024, accuracy_mode, num_cores);
+  std::cout << "sl : " << sl << std::endl;
+  std::cout << "counter : " << counter << std::endl;
+  std::cout << "num_cores : " << num_cores << std::endl;
+  test_tile_16x256(sl / 16);
+  // test_block_gemm(768, 4096, 1024, accuracy_mode, num_cores);
+  // performance_test_whole_gemm(sl, 1024, 1024, counter, num_cores);
   // for (int i = 3; i <= 24; i++) {
   //   printf("************************ 1024x1024 test row_tile: %d ********************\n", i);
   //   test_block_gemm(i * 16, 1024, 1024, accuracy_mode, num_cores);
