@@ -4,6 +4,7 @@
 #include <immintrin.h>
 #include <iostream>
 #include <string.h>
+#include <omp.h>
 
 #include "amx_linear.hpp"
 #include "i_linear_tpp.hpp"
@@ -51,23 +52,34 @@ at::Tensor amx_linear(
   size_t row_tile = (total_sl + 15) / 16;
   size_t roll_back = row_tile * 16 - total_sl;
 
+  // ic_tile
   int col_idx = col_tile == 16 ? 0 : 1;
-  auto block_computer = i_linear(sl, hidden_size, col_step * 64, true, post_op);
+  auto block_computer = i_linear(total_sl, hidden_size, col_step * 64, true, post_op);
   auto computer_2 = block_computer.compute_block_tbl_[2][col_idx];
   auto computer_1 = block_computer.compute_block_tbl_[1][col_idx];
 
-# pragma omp parallel for collapse(2)
-  for (size_t i = 0; i < col_step; i++) {
-    for (size_t j = 0; j < row_tile / 2; j++) {
+  // outside if
+  // outside row_tile / 2 
+
+  auto num_thread = omp_get_number_thread();
+  auto step = col_step / num_thread;
+# pragma omp parallel for collapse(3)
+  for (size_t j = 0; j < row_tile / 2; j++) {
+    for (size_t i = 0; i < step; i++) {
+      for (size_t k = 0; k < num_thread; ++k) {
+        auto cid = omp_getthreadnum();
+        auto start_weight_idx = i * num_thread + k + cid;
+      }
+      
       if (row_tile % 2 == 0) {
         int cur_pos = (j == row_tile / 2 - 1) ? j * 32 - roll_back : j * 32;
-        (block_computer.*computer_2)(output_[cur_pos][i], col_step * 64, input_[cur_pos], weight_[i], bias_[i], scale_, post_op, o_scale.toFloat());
+        (block_computer.*computer_2)(output_[cur_pos][i], col_step * 64, input_[cur_pos], weight_[i], bias_[i], scale_, post_op, o_scale_);
       } else {
         int cur_pos = j * 32;
-        (block_computer.*computer_2)(output_[cur_pos][i], col_step * 64, input_[cur_pos], weight_[i], bias_[i], scale_, post_op, o_scale.toFloat());
+        (block_computer.*computer_2)(output_[cur_pos][i], col_step * 64, input_[cur_pos], weight_[i], bias_[i], scale_, post_op, o_scale_);
         if (j == row_tile / 2 - 1) {
           cur_pos += 32 - roll_back;
-          (block_computer.*computer_1)(output_[cur_pos][i], col_step * 64, input_[cur_pos], weight_[i], bias_[i], scale_, post_op, o_scale.toFloat());
+          (block_computer.*computer_1)(output_[cur_pos][i], col_step * 64, input_[cur_pos], weight_[i], bias_[i], scale_, post_op, o_scale_);
         }
       }
     }
