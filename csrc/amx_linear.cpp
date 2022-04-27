@@ -52,23 +52,31 @@ at::Tensor amx_linear(
   size_t roll_back = row_tile * 16 - total_sl;
 
   int col_idx = col_tile == 16 ? 0 : 1;
-  auto block_computer = i_linear(sl, hidden_size, col_step * 64, true, post_op);
+  size_t os_ = col_step * 64;
+  auto block_computer = i_linear(sl, hidden_size, os_, true, post_op);
   auto computer_2 = block_computer.compute_block_tbl_[2][col_idx];
   auto computer_1 = block_computer.compute_block_tbl_[1][col_idx];
 
-# pragma omp parallel for collapse(2)
-  for (size_t i = 0; i < col_step; i++) {
-    for (size_t j = 0; j < row_tile / 2; j++) {
-      if (row_tile % 2 == 0) {
-        int cur_pos = (j == row_tile / 2 - 1) ? j * 32 - roll_back : j * 32;
-        (block_computer.*computer_2)(output_[cur_pos][i], col_step * 64, input_[cur_pos], weight_[i], bias_[i], scale_, post_op, o_scale.toFloat());
-      } else {
-        int cur_pos = j * 32;
-        (block_computer.*computer_2)(output_[cur_pos][i], col_step * 64, input_[cur_pos], weight_[i], bias_[i], scale_, post_op, o_scale.toFloat());
-        if (j == row_tile / 2 - 1) {
-          cur_pos += 32 - roll_back;
-          (block_computer.*computer_1)(output_[cur_pos][i], col_step * 64, input_[cur_pos], weight_[i], bias_[i], scale_, post_op, o_scale.toFloat());
-        }
+  bool odd_tile = row_tile % 2;
+  size_t row_step = row_tile / 2 + odd_tile;
+  
+  if (odd_tile) {
+    # pragma omp parallel for collapse(2)
+    for (size_t i = 0; i < col_step; i++) {
+      for (size_t j = 0; j < row_step; j++) {
+        size_t rollback_ = (j == row_step - 1) * roll_back;
+        auto computer_   = (j == row_step - 1) ? block_computer.compute_block_tbl_[1][col_idx] : block_computer.compute_block_tbl_[2][col_idx];
+        auto cur_pos = j * 32 - rollback_;
+        (block_computer.*computer_)(output_[cur_pos][i], os_, input_[cur_pos], weight_[i], bias_[i], scale_, post_op, o_scale_);
+      }
+    }
+  } else {
+    # pragma omp parallel for collapse(2)
+    for (size_t i = 0; i < col_step; i++) {
+      for (size_t j = 0; j < row_step; j++) {
+        size_t rollback_ = (j == row_step - 1) * roll_back;
+        int cur_pos = j * 32 - roll_back;
+        (block_computer.*computer_2)(output_[cur_pos][i], os_, input_[cur_pos], weight_[i], bias_[i], scale_, post_op, o_scale_);
       }
     }
   }
