@@ -4,6 +4,7 @@
 #include <immintrin.h>
 #include <iostream>
 #include <string.h>
+#include <omp.h>
 
 #include "amx_linear.hpp"
 #include "i_linear_tpp.hpp"
@@ -55,10 +56,12 @@ at::Tensor amx_linear(
   size_t os_ = col_step * 64;
   auto block_computer = i_linear(sl, hidden_size, os_, true, post_op);
   auto computer_2 = block_computer.compute_block_tbl_[2][col_idx];
-  auto computer_1 = block_computer.compute_block_tbl_[1][col_idx];
 
   bool odd_tile = row_tile % 2;
   size_t row_step = row_tile / 2 + odd_tile;
+
+  auto num_threads = omp_get_num_threads();
+  std::cout << "num_thread = " << num_threads << std::endl;
   
   if (odd_tile) {
     # pragma omp parallel for collapse(2)
@@ -75,7 +78,7 @@ at::Tensor amx_linear(
     for (size_t i = 0; i < col_step; i++) {
       for (size_t j = 0; j < row_step; j++) {
         size_t rollback_ = (j == row_step - 1) * roll_back;
-        int cur_pos = j * 32 - roll_back;
+        int cur_pos = j * 32 - rollback_;
         (block_computer.*computer_2)(output_[cur_pos][i], os_, input_[cur_pos], weight_[i], bias_[i], scale_, post_op, o_scale_);
       }
     }
