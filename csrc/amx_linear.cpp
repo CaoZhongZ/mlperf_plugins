@@ -59,14 +59,13 @@ at::Tensor amx_linear(
 
   bool odd_tile = row_tile % 2;
   size_t row_step = row_tile / 2 + odd_tile;
-
-  auto num_threads = omp_get_num_threads();
-  std::cout << "num_thread = " << num_threads << std::endl;
   
   if (odd_tile) {
     # pragma omp parallel for collapse(2)
     for (size_t i = 0; i < col_step; i++) {
       for (size_t j = 0; j < row_step; j++) {
+        auto num_threads = omp_get_num_threads();
+        std::cout << "num_thread = " << num_threads << std::endl;
         size_t rollback_ = (j == row_step - 1) * roll_back;
         auto computer_   = (j == row_step - 1) ? block_computer.compute_block_tbl_[1][col_idx] : block_computer.compute_block_tbl_[2][col_idx];
         auto cur_pos = j * 32 - rollback_;
