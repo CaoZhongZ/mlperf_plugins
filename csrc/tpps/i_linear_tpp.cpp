@@ -29,7 +29,7 @@ const i_linear::compute_block_t i_linear::compute_block_tbl_ [3][2] = {
 };
 
 void i_linear::tile_dot_product_16x256(void *C, void *A, void *B, float *bias, float scale, float o_scale, 
-                                       const size_t sl, const size_t col_step) {
+                                       const size_t sl, const size_t col_step, size_t cur_id, size_t total_chunks) {
   int col_idx = cols_in_tile_ == 16 ? 0 : 1;
   auto C_ = reinterpret_cast<int8_t (*)[col_step][64]>(C);
   auto A_ = reinterpret_cast<int8_t (*)[ic_]>(A);
@@ -45,21 +45,41 @@ void i_linear::tile_dot_product_16x256(void *C, void *A, void *B, float *bias, f
   bool odd_tile = row_tile % 2;
   size_t row_step = row_tile / 2 + odd_tile;
 
+  size_t chunk_step = (col_step + total_chunks - 1) / total_chunks;
+
   if (odd_tile) {
-    for (size_t i = 0; i < col_step; i++) {
-      for (size_t j = 0; j < row_step; j++) {
-        size_t rollback_ = (j == row_step - 1) * roll_back;
-        auto computer_   = (j == row_step - 1) ? this->compute_block_tbl_[1][col_idx] : this->compute_block_tbl_[2][col_idx];
-        auto row_pos = j * 32 - rollback_;
-        (this->*computer_)(C_[row_pos][i], oc_, A_[row_pos], B_[i], bias_[i], scale, post_op_, o_scale);
+    for (size_t i = 0; i < chunk_step; i++) {
+      for (size_t k = 0; k < total_chunks; k++) {
+        for (size_t j = 0; j < row_step; j++) {
+          size_t rollback_ = (j == row_step - 1) * roll_back;
+          auto computer_   = (j == row_step - 1) ? this->compute_block_tbl_[1][col_idx] : this->compute_block_tbl_[2][col_idx];
+          auto row_pos = j * 32 - rollback_;
+          size_t col_pos = (cur_id + k) % total_chunks + i * total_chunks;
+          if (col_pos >= col_step) {
+            continue;
+          }
+          // if (cur_id == 1) {
+          //   printf("%d length sequence : %d / %d, innerfunction --> [%d, %d]\n", sl, cur_id, total_chunks, row_pos, col_pos);
+          // }
+          (this->*computer_)(C_[row_pos][col_pos], oc_, A_[row_pos], B_[col_pos], bias_[col_pos], scale, post_op_, o_scale);
+        }
       }
     }
   } else {
-    for (size_t i = 0; i < col_step; i++) {
-      for (size_t j = 0; j < row_step; j++) {
-        size_t rollback_ = (j == row_step - 1) * roll_back;
-        int row_pos = j * 32 - rollback_;
-        (this->*computer_2)(C_[row_pos][i], oc_, A_[row_pos], B_[i], bias_[i], scale, post_op_, o_scale);
+    for (size_t i = 0; i < chunk_step; i++) {
+      for (size_t k = 0; k < total_chunks; k++) {
+        for (size_t j = 0; j < row_step; j++) {
+          size_t rollback_ = (j == row_step - 1) * roll_back;
+          auto row_pos = j * 32 - rollback_;
+          size_t col_pos = (cur_id + k) % total_chunks + i * total_chunks;
+          if (col_pos >= col_step) {
+            continue;
+          }
+          // if (cur_id == 1) {
+          //   printf("%d length sequence : %d / %d, innerfunction --> [%d, %d]\n", sl, cur_id, total_chunks, row_pos, col_pos);
+          // }
+          (this->*computer_2)(C_[row_pos][col_pos], oc_, A_[row_pos], B_[col_pos], bias_[col_pos], scale, post_op_, o_scale);
+        }
       }
     }
   }

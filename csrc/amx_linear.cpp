@@ -64,8 +64,8 @@ at::Tensor amx_linear(
     auto core_id = omp_get_thread_num();
     // printf("------------ core_id : %d / %d\n", core_id, total_core_num);
     size_t start_ = total_sl * core_id / total_core_num;
-    size_t chunk_sl_ = (total_sl * core_id + total_sl) / total_core_num - total_sl * core_id / total_core_num;
-    block_computer.tile_dot_product_16x256(output_[start_], input_[start_], weight_, bias_, scale_, o_scale_, chunk_sl_, col_step);
+    size_t chunk_sl_ = (total_sl * core_id + total_sl) / total_core_num - start_;
+    block_computer.tile_dot_product_16x256(output_[start_], input_[start_], weight_, bias_, scale_, o_scale_, chunk_sl_, col_step, core_id, total_core_num);
   }
 
   return output;
