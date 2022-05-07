@@ -2,9 +2,9 @@
 # CXXFLAGS=-fPIC -fopenmp -xHOST -fma -O3 -std=c++14 -Wall -Dusercp
 
 CXX = g++
-CXXFLAGS = -fPIC -fopenmp -march=native -mfma -O3 -std=c++14 -Wall -Dusercp
+CXXFLAGS = -fPIC -fopenmp -march=native -mfma -O0 -g -std=c++14 -Wall -Dusercp
 
-SRCS = main.cpp helper.cpp amx_config.cpp i_linear_tpp.cpp
+SRCS = main.cpp helper.cpp amx_config.cpp i_linear_tpp.cpp test_gemm.cpp
 
 OBJS = $(SRCS:.cpp=.o)
 

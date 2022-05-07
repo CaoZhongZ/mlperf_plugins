@@ -1,3 +1,5 @@
+#pragma once
+
 #include <immintrin.h>
 
 template <int dst, int s0, int s1> inline void __tile_dpbssd();

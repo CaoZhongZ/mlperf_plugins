@@ -15,86 +15,12 @@
 #include "i_linear_tpp.hpp"
 #include "amx_config.hpp"
 
-using Time = std::chrono::high_resolution_clock;
-
-void set_data_act(void *a, size_t sl, size_t hidden_length = 1024)
-{
-  unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
-  std::default_random_engine gen(seed);
-  std::normal_distribution<double> dis(0, 1);
-  auto a_ = reinterpret_cast<int8_t (*)>(a);
-  size_t elenum = sl * hidden_length;
-  for (int i = 0; i < elenum; i++) {
-    a_[i] = static_cast<int8_t>(dis(gen) * 0xf);
-    // a_[i] = 0;
-  }
-}
-
-void set_data_wei(void *w, void* b, size_t col_tile = 16, size_t col_step = 1) {
-  unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
-  std::default_random_engine gen(seed);
-  std::normal_distribution<double> dis(0, 1);
-  auto w_ = reinterpret_cast<int8_t (*)>(w);
-  size_t elenum = col_tile * 16 * 256 * col_step;
-  for (int i = 0; i < elenum; i++) {
-    w_[i] = static_cast<int8_t>(dis(gen) * 0xf);
-    // w_[i] = 0;
-  }
-  auto b_ = reinterpret_cast<float (*)>(b);
-  for (int i = 0; i < 64 * col_step; i++) {
-    b_[i] = static_cast<float>(dis(gen) * 0xf);
-    // b_[i] = 0;
-  }
-}
-
-static constexpr size_t cols = 384;
-static constexpr size_t rows = 16;
-static constexpr int qmax = 127.0;
-static constexpr int qmin = -127.0;
+#include "test_gemm.h"
 
 float gelu_func(float x) {
   float rsqrt_2 = 0.70710678;
   auto y = std::erf(x * rsqrt_2) + 1;
   return x * y * 0.5;
-}
-
-void naive_linear(void* a, const size_t lda, void* b, const size_t ldb, void* c, const size_t ldc, void* bias, float scale, int sl, bool with_op = false, float scale2 = 1.0) {
-  // this function is to test _tile_gemm output 64 of ldc
-  auto a_ = reinterpret_cast<int (*)[lda]>(a);
-  auto b_ = reinterpret_cast<int (*)[ldb]>(b);
-  auto c_ = reinterpret_cast<int (*)[ldc]>(c);
-  auto bias_ = reinterpret_cast<float (*)>(bias);
-
-  for (int i = 0; i < sl; i++) {
-    for (int j = 0; j < ldc; j++) {
-      c_[i][j] = 0;
-    }
-  }
-
-  for (int i = 0; i < sl; i++) {
-    for (int j = 0; j < ldc; j++) {
-      for (int k = 0; k < lda; k++) {
-        c_[i][j] += a_[i][k] * b_[k][j];
-        // std::cout << i << " " << k << " " << j << " : " << a_[i][k] << " , " << b_[k][j] << " : " << c_[i][j] << std::endl;
-      }
-      // getchar();
-    }
-  }
-
-  for (int i = 0; i < sl; i++) {
-    for (int j = 0; j < ldc; j++) {
-      float tem = static_cast<float>(c_[i][j]);
-      tem += bias_[j];
-      tem *= scale;
-      if (with_op) {
-        tem = gelu_func(tem);
-        tem = tem * scale2;
-      }
-      c_[i][j] = static_cast<int>(round(tem));
-      c_[i][j] = c_[i][j] < qmax ? c_[i][j] : qmax;
-      c_[i][j] = c_[i][j] > qmin ? c_[i][j] : qmin;
-    }
-  }
 }
 
 void send_data2naive(void* a, void* b, void* na, void* nb, int row_tile, bool is_block, size_t lda = 1024, size_t ldb = 64) {
@@ -120,7 +46,6 @@ void send_data2naive(void* a, void* b, void* na, void* nb, int row_tile, bool is
     }
   }
   
-
   auto b_ = reinterpret_cast<int8_t (*)[16][16][64]>(b);
   auto nb_ = reinterpret_cast<int (*)[ldb]>(nb);
 
@@ -131,38 +56,6 @@ void send_data2naive(void* a, void* b, void* na, void* nb, int row_tile, bool is
           auto row_offset = m % 4;
           auto col_offset = m / 4;
           nb_[j * 64 + k * 4 + row_offset][i * 16 + col_offset] = static_cast<int>(b_[i][j][k][m]);
-        }
-      }
-    }
-  }
-}
-
-void send_input(void* input, void* ninput, const size_t dim0, const size_t dim1) {
-  auto input_ = reinterpret_cast<int8_t (*)[dim1]>(input);
-  auto ninput_ = reinterpret_cast<int (*)[dim1]>(ninput);
-
-  for (size_t i = 0; i < dim0; i++) {
-    for (size_t j = 0; j < dim1; j++) {
-      ninput_[i][j] = static_cast<int>(input_[i][j]);
-    }
-  }
-}
-
-void send_weight(void* weight, void* nweight, const size_t dim1, const size_t dim2) {
-  size_t col_step = dim2 / 64;
-  size_t col_tile = dim1 / 64;
-
-  auto weight_ = reinterpret_cast<int8_t (*)[4][col_tile][16][64]>(weight);
-  auto nweight_ = reinterpret_cast<int (*)[dim2]>(nweight);
-  for (size_t i = 0; i < col_step; i++) {
-    for (size_t j = 0; j < 4; j++) {
-      for (size_t m = 0; m < col_tile; m++) {
-        for (size_t k = 0; k < 16; k++) {
-          for (size_t n = 0; n < 64; n++) {
-            auto row_offset = n % 4;
-            auto col_offset = n / 4;
-            nweight_[m * 64 + k * 4 + row_offset][i * 64 + j * 16 + col_offset] = static_cast<int>(weight_[i][j][m][k][n]);
-          }
         }
       }
     }
@@ -223,8 +116,9 @@ void test_tile_16x256(int row_tile) {
   
   alignas(64) int nout[row_tile * 16 * ldc];
   float scale = 0.0018;
-  set_data_act(act, row_tile * 16);
-  set_data_wei(wei, bias);
+
+  intel_mlperf::set_data_act(act, row_tile * 16);
+  intel_mlperf::set_data_wei(wei, bias);
 
   using tile_io  = intel_mlperf::io_policy<16, intel_mlperf::i_format::tile>;
 
@@ -234,7 +128,7 @@ void test_tile_16x256(int row_tile) {
   // intel_mlperf::amx_init();
   // intel_mlperf::Tilecfg().set_config();
 
-  naive_linear(nact, 1024, nwei, 64, nout, ldc, bias, scale, row_tile * 16);
+  intel_mlperf::naive_linear(nact, 1024, nwei, 64, nout, ldc, bias, scale, row_tile * 16);
   printf("****************** start block test row_tile = %d... *********************\n", row_tile);
   printf("****************** accuracy...*********************\n");
   alignas(64) int8_t out[row_tile][16][64];
@@ -339,7 +233,7 @@ void test_tile_16x256(int row_tile) {
   float o_scale = 1.5;
 
   send_data2naive(act, wei, nact, nwei, row_tile, false);
-  naive_linear(nact, 1024, nwei, 64, nout, ldc, bias, scale, row_tile * 16, post_op, o_scale);
+  intel_mlperf::naive_linear(nact, 1024, nwei, 64, nout, ldc, bias, scale, row_tile * 16, post_op, o_scale);
   int8_t p_out[row_tile * 16][ldc];
   printf("****************** accuracy...*********************\n");
   
@@ -428,7 +322,7 @@ void test_block_gemm(const size_t sl, const size_t input_f, const size_t output_
 
 # pragma omp parallel for
   for (int i = 0; i < block_num; i++) {
-    set_data_wei(weight400m_[i], bias, col_tile, col_step);
+    intel_mlperf::set_data_wei(weight400m_[i], bias, col_tile, col_step);
   }
   
   // intel_mlperf::print_2d_matrix<int>((int*)nweight, dim1, dim2, 1024);
@@ -440,7 +334,7 @@ void test_block_gemm(const size_t sl, const size_t input_f, const size_t output_
   // getchar();
   if (accuracy) {
     auto weight = weight400m_[0];
-    set_data_act(input, sl, input_f);
+    intel_mlperf::set_data_act(input, sl, input_f);
     // set_data_wei(weight, bias[0], col_tile);
     for (int i = 0; i < col_step; i++) {
       gemm_.ref(output[0][i], input, weight[i], bias[i], scale, o_scale);
@@ -450,9 +344,9 @@ void test_block_gemm(const size_t sl, const size_t input_f, const size_t output_
     auto nweight = new int[input_f * output_f];
     auto noutput = new int[sl * output_f];
 
-    send_input(input, ninput, sl, input_f);
-    send_weight(weight, nweight, input_f, output_f);
-    naive_linear(ninput, input_f, nweight, output_f, noutput, output_f, bias, scale, sl, post_op, o_scale);
+    intel_mlperf::send_input(input, ninput, sl, input_f);
+    intel_mlperf::send_weight(weight, nweight, input_f, output_f);
+    intel_mlperf::naive_linear(ninput, input_f, nweight, output_f, noutput, output_f, bias, scale, sl, post_op, o_scale);
 
     // intel_mlperf::print_2d_matrix<int8_t>((int8_t*)output, 16, 16, 64);
     // getchar();
@@ -503,21 +397,9 @@ int main(int argc, char* argv[]) {
 
   bool accuracy_mode = true;
   std::cout << "row_tile : " << row_tile << std::endl;
-  test_tile_16x256(row_tile);
-  // test_block_gemm(111, 4096, 1024, accuracy_mode, num_cores);
-  // for (int i = 3; i <= 24; i++) {
-  //   printf("************************ 1024x1024 test row_tile: %d ********************\n", i);
-  //   test_block_gemm(i * 16, 1024, 1024, accuracy_mode, num_cores);
-  // }
+  // test_tile_16x256(row_tile);
 
-  // for (int i = 3; i <= 24; i++) {
-  //   // printf("************************ 1024x4096 test row_tile: %d ********************\n", i);
-  //   test_block_gemm(i * 16, 1024, 4096, accuracy_mode, num_cores);
-  // }
-
-  // for (int i = 3; i <= 24; i++) {
-  //   // printf("************************ 4096x1024 test row_tile: %d ********************\n", i);
-  //   test_block_gemm(i * 16, 4096, 1024, accuracy_mode, num_cores);
-  // }
+  // intel_mlperf::performanc_gemm(64, 1024, 64);
+  intel_mlperf::accuracy_gemm(64, 1024, 64);
   return 0;
 }
