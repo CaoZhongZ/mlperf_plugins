@@ -3,6 +3,7 @@
 #include <chrono>
 
 #include "i_gemm_tpp.hpp"
+#include "i_linear_tpp.hpp"
 #include "test_gemm.h"
 #include "helper.hpp"
 
@@ -93,19 +94,6 @@ void send_weight_2(void* weight, void* nweight, const size_t ic, const size_t oc
       }      
     }
   }
-
-  // for (size_t i = 0; i < col_chunks; ++i) {
-  //   for (size_t m = 0; m < row_chunks; ++m) {
-  //     for (size_t j = 0; j < 4; ++j) {
-  //       for (size_t l = 0; l < 4; ++l) {
-  //         print_2d_matrix<int8_t>((int8_t*)weight_[i][m][j][l], 16, 64, 64);
-  //         print_2d_matrix<int>((int*)&nweight_[m * 256 + l * 64][i * 64 + j * 16], 64, 16, oc);
-  //         getchar();
-  //       }
-  //     }      
-  //   }
-  // }
-
 }
 
 void naive_linear(void* a, const size_t lda, void* b, const size_t ldb, void* c, const size_t ldc, 
@@ -132,9 +120,6 @@ void naive_linear(void* a, const size_t lda, void* b, const size_t ldb, void* c,
     }
   }
 
-  // print_2d_matrix<int>((int*)&c_[16*1][16*1], 16, 16, ldc);
-  // getchar();
-
   for (int i = 0; i < sl; i++) {
     for (int j = 0; j < ldc; j++) {
       float tem = static_cast<float>(c_[i][j]);
@@ -151,7 +136,7 @@ void naive_linear(void* a, const size_t lda, void* b, const size_t ldb, void* c,
   }
 }
 
-void performanc_gemm(const int sl, const int ic, const int oc) {
+void performance_gemm(const int sl, const int ic, const int oc) {
   void* weight;
   posix_memalign(&weight, 4096, ic * oc);
 
@@ -163,8 +148,8 @@ void performanc_gemm(const int sl, const int ic, const int oc) {
   alignas(64) int8_t input[sl][row_chunks][256];
 
   set_data_act(input, sl, ic);
-  // set_data_wei(weight, bias, ic, oc);
-  memset(weight, 1, ic * oc);
+  set_data_wei(weight, bias, ic, oc);
+  // memset(weight, 1, ic * oc);
 
   alignas(64) int8_t output[sl][col_chunks][64];
   alignas(64) int acc_pad[4096];
@@ -173,9 +158,9 @@ void performanc_gemm(const int sl, const int ic, const int oc) {
   float scale = 0.018;
   bool post_op = false;
   float o_scale = 1.5;
-  int count = 1000000;
+  int count = 4000000;
 
-
+  auto start = Time::now();
   for (int k = 0; k < count; ++k) {
     for (int i = 0; i < col_chunks; ++i) {
       for (int j = 0; j < row_chunks; ++j) {
@@ -184,7 +169,45 @@ void performanc_gemm(const int sl, const int ic, const int oc) {
       _tile_gemm_64x256::quant_out(output[0][i], oc, acc_pad, bias[i], scale, post_op, o_scale);
     }
   }
+  auto during = std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start).count();
+  printf("%d x %d gemm time : %f ns\n", ic, oc, (float)during / count);
+}
+
+void performance_linear(const int sl, const int ic, const int oc) {
+  void* weight;
+  posix_memalign(&weight, 4096, ic * oc);
+
+  size_t col_tile = ic / 64;
+  size_t col_chunks = oc / 64;
+  auto weight_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(weight);
+
+  alignas(64) float bias[col_chunks][64];
+  alignas(64) int8_t input[sl][col_tile][64];
+
+  set_data_act(input, sl, ic);
+  set_data_wei(weight, bias, ic, oc);
+  // memset(weight, 1, ic * oc);
+
+  alignas(64) int8_t output[sl][col_chunks][64];
+
+  float scale = 0.018;
+  bool post_op = false;
+  float o_scale = 1.5;
+  int count = 4000000;
   
+  using plain_io = intel_mlperf::io_policy<16, intel_mlperf::i_format::plain>;
+  int row_tile = sl / 32;
+
+  auto start = Time::now();
+  for (int k = 0; k < count; ++k) {
+    for (int i = 0; i < col_chunks; ++i) {
+      for (int j = 0; j < row_tile; ++j) {
+        _tile_dot_product_16x256<2, 16, plain_io>::compute(output[32*j][i], oc, input[32*j][i], weight_[i], bias[i], scale);
+      }
+    }
+  }
+  auto during = std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start).count();
+  printf("%d x %d linear time : %f ns\n", ic, oc, (float)during / count);
 }
 
 void accuracy_gemm(const int sl, const int ic, const int oc) {
@@ -211,14 +234,9 @@ void accuracy_gemm(const int sl, const int ic, const int oc) {
   int count = 1000000;
 
   for (int i = 0; i < col_chunks; ++i) {
-    // print_2d_matrix<int>(acc_pad, 16, 16, 16);
-    // getchar();
     for (int j = 0; j < row_chunks; ++j) {
       _tile_gemm_64x256::compute(input[0][j], ic, weight_[i][j], acc_pad);
     }
-    // auto acc_pad_ = reinterpret_cast<int (*)[4][16][16]>(acc_pad);
-    // print_2d_matrix<int>((int*)acc_pad_[1][1], 16, 16, 16);
-    // getchar();
     _tile_gemm_64x256::quant_out(output[0][i], oc, acc_pad, bias[i], scale, post_op, o_scale);
   }
 

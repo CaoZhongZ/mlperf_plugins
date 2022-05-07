@@ -399,7 +399,9 @@ int main(int argc, char* argv[]) {
   std::cout << "row_tile : " << row_tile << std::endl;
   // test_tile_16x256(row_tile);
 
-  // intel_mlperf::performanc_gemm(64, 1024, 64);
-  intel_mlperf::accuracy_gemm(64, 1024, 64);
+  intel_mlperf::performance_linear(64, 1024, 64);
+  intel_mlperf::performance_gemm(64, 1024, 64);
+  
+  // intel_mlperf::accuracy_gemm(64, 1024, 64);
   return 0;
 }

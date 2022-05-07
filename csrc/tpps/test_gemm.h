@@ -25,9 +25,11 @@ void send_weight(void* weight, void* nweight, const size_t dim1, const size_t di
 void naive_linear(void* a, const size_t lda, void* b, const size_t ldb, void* c, const size_t ldc, 
                   void* bias, float scale, int sl, bool with_op = false, float scale2 = 1.0);
 
-void performanc_gemm(const int sl, const int ic, const int oc); 
+void performance_gemm(const int sl, const int ic, const int oc); 
 
 void accuracy_gemm(const int sl, const int ic, const int oc);
+
+void performance_linear(const int sl, const int ic, const int oc);
 
 
 }
