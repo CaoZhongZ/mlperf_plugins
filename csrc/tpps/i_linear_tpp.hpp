@@ -185,184 +185,6 @@ struct _tile_dot_product_16x256<2, col_tile, io_policy> {
   static constexpr size_t cache_footprint = A_footprint + B_footprint;
   static constexpr size_t lda = col_tile * 64;
 
-  inline static void avx_512_load(void *A, void *B) {
-    auto B_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(B);
-    auto A_ = reinterpret_cast<int8_t (*)[16][lda]>(A);
-
-    auto* ptr = B_[0][0][0];
-    asm volatile (
-      "vmovdqu8  (%0), %%zmm0;"
-      "vmovdqu8  64(%0), %%zmm1;"
-      "vmovdqu8  2 * 64(%0), %%zmm2;"
-      "vmovdqu8  3 * 64(%0), %%zmm3;"
-      "vmovdqu8  4 * 64(%0), %%zmm4;"
-      "vmovdqu8  5 * 64(%0), %%zmm5;"
-      "vmovdqu8  6 * 64(%0), %%zmm6;"
-      "vmovdqu8  7 * 64(%0), %%zmm7;"
-      "vmovdqu8  8 * 64(%0), %%zmm8;"
-      "vmovdqu8  9 * 64(%0), %%zmm9;"
-      "vmovdqu8  10 * 64(%0), %%zmm10;"
-      "vmovdqu8  11 * 64(%0), %%zmm11;"
-      "vmovdqu8  12 * 64(%0), %%zmm12;"
-      "vmovdqu8  13 * 64(%0), %%zmm13;"
-      "vmovdqu8  14 * 64(%0), %%zmm14;"
-      "vmovdqu8  15 * 64(%0), %%zmm15;"
-      : : "r" (ptr)
-    );
-
-    ptr = A_[0][0];
-    asm volatile (
-      "vmovdqu8  (%0), %%zmm0;"
-      "vmovdqu8  64(%0), %%zmm1;"
-      "vmovdqu8  2 * 64(%0), %%zmm2;"
-      "vmovdqu8  3 * 64(%0), %%zmm3;"
-      "vmovdqu8  4 * 64(%0), %%zmm4;"
-      "vmovdqu8  5 * 64(%0), %%zmm5;"
-      "vmovdqu8  6 * 64(%0), %%zmm6;"
-      "vmovdqu8  7 * 64(%0), %%zmm7;"
-      "vmovdqu8  8 * 64(%0), %%zmm8;"
-      "vmovdqu8  9 * 64(%0), %%zmm9;"
-      "vmovdqu8  10 * 64(%0), %%zmm10;"
-      "vmovdqu8  11 * 64(%0), %%zmm11;"
-      "vmovdqu8  12 * 64(%0), %%zmm12;"
-      "vmovdqu8  13 * 64(%0), %%zmm13;"
-      "vmovdqu8  14 * 64(%0), %%zmm14;"
-      "vmovdqu8  15 * 64(%0), %%zmm15;"
-      : : "r" (ptr)
-    );
-
-    ptr = A_[1][0];
-    asm volatile (
-      "vmovdqu8  (%0), %%zmm0;"
-      "vmovdqu8  64(%0), %%zmm1;"
-      "vmovdqu8  2 * 64(%0), %%zmm2;"
-      "vmovdqu8  3 * 64(%0), %%zmm3;"
-      "vmovdqu8  4 * 64(%0), %%zmm4;"
-      "vmovdqu8  5 * 64(%0), %%zmm5;"
-      "vmovdqu8  6 * 64(%0), %%zmm6;"
-      "vmovdqu8  7 * 64(%0), %%zmm7;"
-      "vmovdqu8  8 * 64(%0), %%zmm8;"
-      "vmovdqu8  9 * 64(%0), %%zmm9;"
-      "vmovdqu8  10 * 64(%0), %%zmm10;"
-      "vmovdqu8  11 * 64(%0), %%zmm11;"
-      "vmovdqu8  12 * 64(%0), %%zmm12;"
-      "vmovdqu8  13 * 64(%0), %%zmm13;"
-      "vmovdqu8  14 * 64(%0), %%zmm14;"
-      "vmovdqu8  15 * 64(%0), %%zmm15;"
-      : : "r" (ptr)
-    );
-
-    ptr = B_[1][0][0];
-    asm volatile (
-      "vmovdqu8  (%0), %%zmm0;"
-      "vmovdqu8  64(%0), %%zmm1;"
-      "vmovdqu8  2 * 64(%0), %%zmm2;"
-      "vmovdqu8  3 * 64(%0), %%zmm3;"
-      "vmovdqu8  4 * 64(%0), %%zmm4;"
-      "vmovdqu8  5 * 64(%0), %%zmm5;"
-      "vmovdqu8  6 * 64(%0), %%zmm6;"
-      "vmovdqu8  7 * 64(%0), %%zmm7;"
-      "vmovdqu8  8 * 64(%0), %%zmm8;"
-      "vmovdqu8  9 * 64(%0), %%zmm9;"
-      "vmovdqu8  10 * 64(%0), %%zmm10;"
-      "vmovdqu8  11 * 64(%0), %%zmm11;"
-      "vmovdqu8  12 * 64(%0), %%zmm12;"
-      "vmovdqu8  13 * 64(%0), %%zmm13;"
-      "vmovdqu8  14 * 64(%0), %%zmm14;"
-      "vmovdqu8  15 * 64(%0), %%zmm15;"
-      : : "r" (ptr)
-    );
-    
-  }
-
-  inline static void avx_512_store(void *S) {
-    auto S_ = reinterpret_cast<int (*)[16][16]>(S);
-
-    auto* ptr = S_[0][0];
-    asm volatile (
-      "vmovdqu32 %%zmm0, (%0);"
-      "vmovdqu32 %%zmm1, 16(%0);"
-      "vmovdqu32 %%zmm2, 2 * 16(%0);"
-      "vmovdqu32 %%zmm3, 3 * 16(%0);"
-      "vmovdqu32 %%zmm4, 4 * 16(%0);"
-      "vmovdqu32 %%zmm5, 5 * 16(%0);"
-      "vmovdqu32 %%zmm6, 6 * 16(%0);"
-      "vmovdqu32 %%zmm7, 7 * 16(%0);"
-      "vmovdqu32 %%zmm8, 8 * 16(%0);"
-      "vmovdqu32 %%zmm9, 9 * 16(%0);"
-      "vmovdqu32 %%zmm10, 10 * 16(%0);"
-      "vmovdqu32 %%zmm11, 11 * 16(%0);"
-      "vmovdqu32 %%zmm12, 12 * 16(%0);"
-      "vmovdqu32 %%zmm13, 13 * 16(%0);"
-      "vmovdqu32 %%zmm14, 14 * 16(%0);"
-      "vmovdqu32 %%zmm15, 15 * 16(%0);"
-      : : "r" (ptr)
-    );
-
-    ptr = S_[1][0];
-    asm volatile (
-      "vmovdqu32 %%zmm0, (%0);"
-      "vmovdqu32 %%zmm1, 16(%0);"
-      "vmovdqu32 %%zmm2, 2 * 16(%0);"
-      "vmovdqu32 %%zmm3, 3 * 16(%0);"
-      "vmovdqu32 %%zmm4, 4 * 16(%0);"
-      "vmovdqu32 %%zmm5, 5 * 16(%0);"
-      "vmovdqu32 %%zmm6, 6 * 16(%0);"
-      "vmovdqu32 %%zmm7, 7 * 16(%0);"
-      "vmovdqu32 %%zmm8, 8 * 16(%0);"
-      "vmovdqu32 %%zmm9, 9 * 16(%0);"
-      "vmovdqu32 %%zmm10, 10 * 16(%0);"
-      "vmovdqu32 %%zmm11, 11 * 16(%0);"
-      "vmovdqu32 %%zmm12, 12 * 16(%0);"
-      "vmovdqu32 %%zmm13, 13 * 16(%0);"
-      "vmovdqu32 %%zmm14, 14 * 16(%0);"
-      "vmovdqu32 %%zmm15, 15 * 16(%0);"
-      : : "r" (ptr)
-    );
-
-    ptr = S_[2][0];
-    asm volatile (
-      "vmovdqu32 %%zmm0, (%0);"
-      "vmovdqu32 %%zmm1, 16(%0);"
-      "vmovdqu32 %%zmm2, 2 * 16(%0);"
-      "vmovdqu32 %%zmm3, 3 * 16(%0);"
-      "vmovdqu32 %%zmm4, 4 * 16(%0);"
-      "vmovdqu32 %%zmm5, 5 * 16(%0);"
-      "vmovdqu32 %%zmm6, 6 * 16(%0);"
-      "vmovdqu32 %%zmm7, 7 * 16(%0);"
-      "vmovdqu32 %%zmm8, 8 * 16(%0);"
-      "vmovdqu32 %%zmm9, 9 * 16(%0);"
-      "vmovdqu32 %%zmm10, 10 * 16(%0);"
-      "vmovdqu32 %%zmm11, 11 * 16(%0);"
-      "vmovdqu32 %%zmm12, 12 * 16(%0);"
-      "vmovdqu32 %%zmm13, 13 * 16(%0);"
-      "vmovdqu32 %%zmm14, 14 * 16(%0);"
-      "vmovdqu32 %%zmm15, 15 * 16(%0);"
-      : : "r" (ptr)
-    );
-
-    ptr = S_[3][0];
-    asm volatile (
-      "vmovdqu32 %%zmm0, (%0);"
-      "vmovdqu32 %%zmm1, 16(%0);"
-      "vmovdqu32 %%zmm2, 2 * 16(%0);"
-      "vmovdqu32 %%zmm3, 3 * 16(%0);"
-      "vmovdqu32 %%zmm4, 4 * 16(%0);"
-      "vmovdqu32 %%zmm5, 5 * 16(%0);"
-      "vmovdqu32 %%zmm6, 6 * 16(%0);"
-      "vmovdqu32 %%zmm7, 7 * 16(%0);"
-      "vmovdqu32 %%zmm8, 8 * 16(%0);"
-      "vmovdqu32 %%zmm9, 9 * 16(%0);"
-      "vmovdqu32 %%zmm10, 10 * 16(%0);"
-      "vmovdqu32 %%zmm11, 11 * 16(%0);"
-      "vmovdqu32 %%zmm12, 12 * 16(%0);"
-      "vmovdqu32 %%zmm13, 13 * 16(%0);"
-      "vmovdqu32 %%zmm14, 14 * 16(%0);"
-      "vmovdqu32 %%zmm15, 15 * 16(%0);"
-      : : "r" (ptr)
-    );
-  }
-
   inline static void dot_prod(void *A, void *B) {
     auto B_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(B);
     auto A_ = reinterpret_cast<int8_t (*)[16][lda]>(A);
@@ -450,52 +272,6 @@ struct _tile_dot_product_16x256<2, col_tile, io_policy> {
     }
   }
 
-  inline static void single_quant_out(void *C, size_t ldc, void *s_0, float *bias, float scale, 
-                               bool post_op, float o_scale) {
-    auto s_0_ = reinterpret_cast<int (*)[2][16][16]>(s_0);
-
-    auto scale_ = _mm512_set1_ps(scale);
-    __m512 o_scale_;
-    if (post_op) {
-      o_scale_ = _mm512_set1_ps(o_scale);
-    }
-    auto bias_ = reinterpret_cast<float (*)[16]>(bias);
-
-    auto b0 = _mm512_loadu_ps(bias_[0]);
-    auto b1 = _mm512_loadu_ps(bias_[1]);
-
-    auto C_ = reinterpret_cast<int8_t (*)[16][ldc]>(C);
-    #pragma unroll (row_tile)
-    for (int t = 0; t < row_tile; ++ t) {
-
-      #pragma unroll (16)
-      for (int i = 0; i < 16; ++ i) {
-        auto i0 = _mm512_load_epi32(s_0_[t][0][i]);
-        auto i1 = _mm512_load_epi32(s_0_[t][1][i]);
-
-        auto f0 = _mm512_cvtepi32_ps(i0) + b0;
-        auto f1 = _mm512_cvtepi32_ps(i1) + b1;
-
-        if (post_op) {
-          auto o0 = _mm512_scale_minmax_gelu_i8_ps(f0, scale_, o_scale_);
-          auto o1 = _mm512_scale_minmax_gelu_i8_ps(f1, scale_, o_scale_);
-
-          // every 16 got output
-          _mm512_mask_cvtepi32_storeu_epi8(C_[t][i] + 0 , 0xffff, o0);
-          _mm512_mask_cvtepi32_storeu_epi8(C_[t][i] + 16, 0xffff, o1);
-        } else {
-          auto o0 = _mm512_scale_minmax_i8_ps(f0, scale_);
-          auto o1 = _mm512_scale_minmax_i8_ps(f1, scale_);
-
-          // every 16 got output
-          _mm512_mask_cvtepi32_storeu_epi8(C_[t][i] + 0 , 0xffff, o0);
-          _mm512_mask_cvtepi32_storeu_epi8(C_[t][i] + 16, 0xffff, o1);
-        }
-        
-      }
-    }
-  }
-
   inline static void compute(void *C, size_t ldc, void *A, void *B, float *bias, 
                              float scale, bool post_op = false, float o_scale = 1.0) {
     alignas (64) int scratch_0[row_tile][2][16][16];
@@ -512,9 +288,6 @@ struct _tile_dot_product_16x256<2, col_tile, io_policy> {
     }
 
     store(scratch_0);
-    auto C_ = reinterpret_cast<int8_t (*)[ldc]>(C);
-    auto bias_ = reinterpret_cast<float (*)[32]>(bias);
-    single_quant_out(C_[0], ldc, scratch_0, bias_[0], scale, post_op, o_scale);
     zero_accum();
 
 #   pragma unroll (col_tile)
@@ -523,8 +296,7 @@ struct _tile_dot_product_16x256<2, col_tile, io_policy> {
     }
 
     store(scratch_1);
-    single_quant_out(C_[0] + 32, ldc, scratch_1, bias_[1], scale, post_op, o_scale);
-    // quant_out(C, ldc, scratch_0, scratch_1, bias, scale, post_op, o_scale);
+    quant_out(C, ldc, scratch_0, scratch_1, bias, scale, post_op, o_scale);
   }
 };
 

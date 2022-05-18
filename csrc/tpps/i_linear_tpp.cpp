@@ -43,41 +43,37 @@ void i_linear::tile_dot_product_16x256(void *C, void *A, void *B, float *bias, f
   size_t roll_back = row_tile * 16 - sl;
 
   bool odd_tile = row_tile % 2;
-  size_t row_step = row_tile / 2 + odd_tile;
+  size_t row_step = row_tile / 2;
 
-  size_t chunk_step = (col_step + total_chunks - 1) / total_chunks;
-
+  // must divided total_chunks up
+  size_t chunk_step = col_step / total_chunks;
+  if (col_step % total_chunks != 0) {
+    printf("col_step must divide total_chunks up!\n");
+    return;
+  }
+  // enlarge the loopweitht size, for example, the weight step change to 512
   if (odd_tile) {
     for (size_t i = 0; i < chunk_step; i++) {
       for (size_t k = 0; k < total_chunks; k++) {
+        int cur_offset = cur_id + k;
+        int col_pos = cur_offset + (i - (int)(cur_offset >= total_chunks)) * total_chunks;
+        size_t row_pos = 0;
         for (size_t j = 0; j < row_step; j++) {
-          size_t rollback_ = (j == row_step - 1) * roll_back;
-          auto computer_   = (j == row_step - 1) ? this->compute_block_tbl_[1][col_idx] : this->compute_block_tbl_[2][col_idx];
-          auto row_pos = j * 32 - rollback_;
-          size_t col_pos = (cur_id + k) % total_chunks + i * total_chunks;
-          if (col_pos >= col_step) {
-            continue;
-          }
-          // if (cur_id == 1) {
-          //   printf("%d length sequence : %d / %d, innerfunction --> [%d, %d]\n", sl, cur_id, total_chunks, row_pos, col_pos);
-          // }
-          (this->*computer_)(C_[row_pos][col_pos], oc_, A_[row_pos], B_[col_pos], bias_[col_pos], scale, post_op_, o_scale);
+          row_pos = j * 32;
+          (this->*computer_2)(C_[row_pos][col_pos], oc_, A_[row_pos], B_[col_pos], bias_[col_pos], scale, post_op_, o_scale);
         }
+        row_pos += 32 - roll_back;
+        (this->*computer_1)(C_[row_pos][col_pos], oc_, A_[row_pos], B_[col_pos], bias_[col_pos], scale, post_op_, o_scale);
       }
     }
   } else {
     for (size_t i = 0; i < chunk_step; i++) {
       for (size_t k = 0; k < total_chunks; k++) {
+        int cur_offset = cur_id + k;
+        int col_pos = cur_offset + (i - (int)(cur_offset >= total_chunks)) * total_chunks;
         for (size_t j = 0; j < row_step; j++) {
           size_t rollback_ = (j == row_step - 1) * roll_back;
           auto row_pos = j * 32 - rollback_;
-          size_t col_pos = (cur_id + k) % total_chunks + i * total_chunks;
-          if (col_pos >= col_step) {
-            continue;
-          }
-          // if (cur_id == 1) {
-          //   printf("%d length sequence : %d / %d, innerfunction --> [%d, %d]\n", sl, cur_id, total_chunks, row_pos, col_pos);
-          // }
           (this->*computer_2)(C_[row_pos][col_pos], oc_, A_[row_pos], B_[col_pos], bias_[col_pos], scale, post_op_, o_scale);
         }
       }

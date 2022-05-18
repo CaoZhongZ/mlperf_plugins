@@ -248,6 +248,7 @@ template <int n_tile, int k_step> struct av_gemm_impl {
       loadb(b_[0][i], ldb);
       dot_prod();
     }
+    // quant only one step done
     store_quant(&c_[0][0], ldc, overlap, m2);
     zero_accum();
 

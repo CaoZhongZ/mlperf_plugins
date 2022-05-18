@@ -28,10 +28,11 @@ at::Tensor amx_mha(const at::Tensor &qkv, const at::Tensor &att_mask,
                              at::TensorOptions().dtype<int8_t>().memory_format(
                                  c10::MemoryFormat::Contiguous));
 
-  auto amx_status = amx_init();
-
-  if (!amx_status) {
-    printf("amx init failed!\n");
+  // TODO: release amx_init
+  // TODO: amx_init moved to SUT
+  // TODO: amx tile config and release need added here; context manager
+  auto amx_flag = amx_init();
+  if (!amx_flag) {
     return attention;
   }
 
@@ -49,8 +50,8 @@ at::Tensor amx_mha(const at::Tensor &qkv, const at::Tensor &att_mask,
 #pragma omp parallel for collapse(2)
   for (int i = 0; i < bs; i++) {         // batch size
     for (int j = 0; j < head_num; j++) { // head num
-      auto cur_q_ptr = &origin_ptr[i][0][0][j][0];
-      auto cur_a_ptr = &att_ptr[i][0][j][0];
+      auto cur_q_ptr = origin_ptr[i][0][0][j];
+      auto cur_a_ptr = att_ptr[i][0][j];
 
       amx_per_head(cur_q_ptr, stride, cur_a_ptr, qkv_block, sl, m1_,
                    oscale_, att_mask_p[i], m2_);

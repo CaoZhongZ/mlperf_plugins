@@ -52,7 +52,6 @@ at::Tensor amx_linear(
   size_t row_tile = (total_sl + 15) / 16;
   size_t roll_back = row_tile * 16 - total_sl;
 
-  int col_idx = col_tile == 16 ? 0 : 1;
   size_t os_ = col_step * 64;
   auto block_computer = i_linear(sl, hidden_size, os_, true, post_op);
   
@@ -65,6 +64,7 @@ at::Tensor amx_linear(
     // printf("------------ core_id : %d / %d\n", core_id, total_core_num);
     size_t start_ = total_sl * core_id / total_core_num;
     size_t chunk_sl_ = (total_sl * core_id + total_sl) / total_core_num - start_;
+    
     block_computer.tile_dot_product_16x256(output_[start_], input_[start_], weight_, bias_, scale_, o_scale_, chunk_sl_, col_step, core_id, total_core_num);
   }
 
