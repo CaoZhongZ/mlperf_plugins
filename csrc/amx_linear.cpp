@@ -36,10 +36,6 @@ at::Tensor amx_linear(
                           at::TensorOptions().dtype<int8_t>().memory_format(
                           c10::MemoryFormat::Contiguous));
 
-  auto amx_flag = amx_init();
-  if (!amx_flag) {
-    return output;
-  }
 
   auto input_ = reinterpret_cast<int8_t (*)[hidden_size]>(input.data_ptr());
   auto weight_ = reinterpret_cast<int8_t (*)[4][col_tile][16][64]>(weight.data_ptr());
@@ -59,6 +55,7 @@ at::Tensor amx_linear(
   // or only omp parallel 
   # pragma omp parallel 
   {
+    Tilecfg().set_config();
     auto total_core_num = omp_get_num_threads();
     auto core_id = omp_get_thread_num();
     // printf("------------ core_id : %d / %d\n", core_id, total_core_num);
@@ -66,6 +63,7 @@ at::Tensor amx_linear(
     size_t chunk_sl_ = (total_sl * core_id + total_sl) / total_core_num - start_;
     
     block_computer.tile_dot_product_16x256(output_[start_], input_[start_], weight_, bias_, scale_, o_scale_, chunk_sl_, col_step, core_id, total_core_num);
+    Tilecfg().release_config();
   }
 
   return output;

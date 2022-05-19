@@ -4,6 +4,7 @@
 #include <immintrin.h>
 #include <iostream>
 #include <string.h>
+#include <omp.h>
 
 #include "amx_mha.hpp"
 #include "i_mha_tpp.hpp"
@@ -31,10 +32,6 @@ at::Tensor amx_mha(const at::Tensor &qkv, const at::Tensor &att_mask,
   // TODO: release amx_init
   // TODO: amx_init moved to SUT
   // TODO: amx tile config and release need added here; context manager
-  auto amx_flag = amx_init();
-  if (!amx_flag) {
-    return attention;
-  }
 
   // create attention tensor
   auto att_ptr = reinterpret_cast<int8_t(*)[sl][head_num][head_size]>(
@@ -52,6 +49,14 @@ at::Tensor amx_mha(const at::Tensor &qkv, const at::Tensor &att_mask,
     for (int j = 0; j < head_num; j++) { // head num
       auto cur_q_ptr = origin_ptr[i][0][0][j];
       auto cur_a_ptr = att_ptr[i][0][j];
+
+      // auto total_core_num = omp_get_num_threads();
+      // auto core_id = omp_get_thread_num();
+      // printf("------------ core_id : %d / %d\n", core_id, total_core_num);
+
+      // if (core_id == 1) {
+      //   printf("%d - %ld   %d - %d\n", i, bs, j, head_num);
+      // }
 
       amx_per_head(cur_q_ptr, stride, cur_a_ptr, qkv_block, sl, m1_,
                    oscale_, att_mask_p[i], m2_);
