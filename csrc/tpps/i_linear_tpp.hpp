@@ -57,6 +57,15 @@ struct io_policy<col_tile, i_format::plain> {
     _mm512_mask_cvtepi32_storeu_epi8(C_[idx] + 32, 0xffff, o2);
     _mm512_mask_cvtepi32_storeu_epi8(C_[idx] + 48, 0xffff, o3);
   }
+
+  inline static void _mm512_coalescing_packs_store(void* C, size_t ldc, int idx, __m512i o0, __m512i o1, __m512i o2, __m512i o3) {
+    auto C_ = reinterpret_cast<int8_t (*)[ldc]>(C);
+    auto t0 = _mm512_packs_epi32(o0, o1);
+    auto t1 = _mm512_packs_epi32(o2, o3);
+    auto t2 = _mm512_packs_epi16(t0, t1);
+
+    _mm512_storeu_epi8(C_[idx], t2);
+  }
 };
 
 template <int row_tile, int col_tile, typename io_policy>
@@ -134,7 +143,7 @@ struct _tile_dot_product_16x256<1, col_tile, io_policy> {
           auto o3 = _mm512_scale_minmax_gelu_i8_ps(f3, scale_, o_scale_);
 
           // every 16 got output
-          io_policy::_mm512_coalescing_store(C_[t], ldc, i, o0, o1, o2, o3);
+          io_policy::_mm512_coalescing_packs_store(C_[t], ldc, i, o0, o1, o2, o3);
         } else {
           auto o0 = _mm512_scale_minmax_i8_ps(f0, scale_);
           auto o1 = _mm512_scale_minmax_i8_ps(f1, scale_);
@@ -142,7 +151,7 @@ struct _tile_dot_product_16x256<1, col_tile, io_policy> {
           auto o3 = _mm512_scale_minmax_i8_ps(f3, scale_);
 
           // every 16 got output
-          io_policy::_mm512_coalescing_store(C_[t], ldc, i, o0, o1, o2, o3);
+          io_policy::_mm512_coalescing_packs_store(C_[t], ldc, i, o0, o1, o2, o3);
         }
         
       }
@@ -257,7 +266,7 @@ struct _tile_dot_product_16x256<2, col_tile, io_policy> {
           auto o3 = _mm512_scale_minmax_gelu_i8_ps(f3, scale_, o_scale_);
 
           // every 16 got output
-          io_policy::_mm512_coalescing_store(C_[t], ldc, i, o0, o1, o2, o3);
+          io_policy::_mm512_coalescing_packs_store(C_[t], ldc, i, o0, o1, o2, o3);
         } else {
           auto o0 = _mm512_scale_minmax_i8_ps(f0, scale_);
           auto o1 = _mm512_scale_minmax_i8_ps(f1, scale_);
@@ -265,7 +274,7 @@ struct _tile_dot_product_16x256<2, col_tile, io_policy> {
           auto o3 = _mm512_scale_minmax_i8_ps(f3, scale_);
 
           // every 16 got output
-          io_policy::_mm512_coalescing_store(C_[t], ldc, i, o0, o1, o2, o3);
+          io_policy::_mm512_coalescing_packs_store(C_[t], ldc, i, o0, o1, o2, o3);
         }
         
       }
@@ -383,7 +392,7 @@ struct _tile_dot_product_16x256 <3, col_tile, io_policy> {
         auto o2 = _mm512_scale_minmax_i8_ps(scale_, f2);
         auto o3 = _mm512_scale_minmax_i8_ps(scale_, f3);
 
-        io_policy::_mm512_coalescing_store(C_[t], ldc, i, o0, o1, o2, o3);
+        io_policy::_mm512_coalescing_packs_store(C_[t], ldc, i, o0, o1, o2, o3);
       }
     }
   }
@@ -501,7 +510,7 @@ struct _tile_dot_product_16x256 <4, col_tile, io_policy> {
         auto o2 = _mm512_scale_minmax_i8_ps(scale_, f2);
         auto o3 = _mm512_scale_minmax_i8_ps(scale_, f3);
 
-        io_policy::_mm512_coalescing_store(C_[t], ldc, i, o0, o1, o2, o3);
+        io_policy::_mm512_coalescing_packs_store(C_[t], ldc, i, o0, o1, o2, o3);
       }
     }
   }
@@ -622,7 +631,7 @@ struct _tile_dot_product_16x256 <5, col_tile, io_policy> {
         auto o2 = _mm512_scale_minmax_i8_ps(scale_, f2);
         auto o3 = _mm512_scale_minmax_i8_ps(scale_, f3);
 
-        io_policy::_mm512_coalescing_store(C_[t], ldc, i, o0, o1, o2, o3);
+        io_policy::_mm512_coalescing_packs_store(C_[t], ldc, i, o0, o1, o2, o3);
       }
     }
   }
@@ -742,7 +751,7 @@ struct _tile_dot_product_16x256 <6, col_tile, io_policy> {
         auto o2 = _mm512_scale_minmax_i8_ps(scale_, f2);
         auto o3 = _mm512_scale_minmax_i8_ps(scale_, f3);
 
-        io_policy::_mm512_coalescing_store(C_[t], ldc, i, o0, o1, o2, o3);
+        io_policy::_mm512_coalescing_packs_store(C_[t], ldc, i, o0, o1, o2, o3);
       }
     }
   }
@@ -873,7 +882,7 @@ struct _tile_dot_product_16x256 {
         auto o2 = _mm512_scale_minmax_i8_ps(scale_, f2);
         auto o3 = _mm512_scale_minmax_i8_ps(scale_, f3);
 
-        io_policy::_mm512_coalescing_store(C_[t], ldc, i, o0, o1, o2, o3);
+        io_policy::_mm512_coalescing_packs_store(C_[t], ldc, i, o0, o1, o2, o3);
       }
     }
   }
