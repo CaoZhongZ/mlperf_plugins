@@ -60,11 +60,16 @@ struct io_policy<col_tile, i_format::plain> {
 
   inline static void _mm512_coalescing_packs_store(void* C, size_t ldc, int idx, __m512i o0, __m512i o1, __m512i o2, __m512i o3) {
     auto C_ = reinterpret_cast<int8_t (*)[ldc]>(C);
+    
+    auto _m512_idx = _mm512_set_epi64(7, 5, 3, 1, 6, 4, 2, 0);
     auto t0 = _mm512_packs_epi32(o0, o1);
     auto t1 = _mm512_packs_epi32(o2, o3);
-    auto t2 = _mm512_packs_epi16(t0, t1);
+    auto p0 = _mm512_permutexvar_epi64(_m512_idx, t0);
+    auto p1 = _mm512_permutexvar_epi64(_m512_idx, t1);
+    auto t2 = _mm512_packs_epi16(p0, p1);
+    auto p2 = _mm512_permutexvar_epi64(_m512_idx, t2);
 
-    _mm512_storeu_epi8(C_[idx], t2);
+    _mm512_storeu_epi8(C_[idx], p2);
   }
 };
 
