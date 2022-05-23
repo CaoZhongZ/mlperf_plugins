@@ -65,7 +65,7 @@ endif()
 target_compile_options(mlperf_plugins BEFORE PUBLIC ${TORCH_CXX_FLAGS} ${OpenMP_CXX_OPTIONS})
 target_include_directories(mlperf_plugins SYSTEM PUBLIC include ${TORCH_INCLUDE_DIRS})
 target_include_directories(mlperf_plugins PRIVATE onednn/include libxsmm/include csrc/tpps)
-target_link_directories(mlperf_plugins PRIVATE ${PROJECT_SOURCE_DIR}/libxsmm/lib csrc/tpps)
+target_link_directories(mlperf_plugins PUBLIC ${OpenMP_ROOT}/lib)
 target_link_libraries(dnnl PUBLIC ${OpenMP_CXX_LIBRARIES})
 target_link_libraries(mlperf_plugins "${TORCH_LIBRARIES}" dnnl ${OpenMP_CXX_LIBRARIES})
 

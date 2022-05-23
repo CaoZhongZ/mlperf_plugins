@@ -925,11 +925,12 @@ public:
   void compute_block(void* C, size_t ldc, void* A, void* B, float* bias, float scale, bool post_op = false, float o_scale = 1.0);
   void tile_dot_product_16x256(void *C, void *A, void *B, float *bias, float scale, float o_scale, 
                                const size_t sl, const size_t col_step, size_t cur_id=0, size_t total_chunks=1);
+
+  void tile_dot_product_16x256_shortage(void *C, void *A, void *B, float *bias, float scale, float o_scale, 
+                                        const size_t sl, const size_t col_step, size_t cur_id=0, size_t total_chunks=1);
   
   void tile_linear(const int row_tile, size_t roll_back, const int col_tile, 
                    void *C, void *A, void *B, float *bias, float scale, float o_scale);
-
-  void ref(void* output, void* input, void* weight, float* bias, float scale, float o_scale = 1.0);
 
   typedef void (i_linear::* compute_block_t) (
       void*, size_t, void*, void*, float*, float, bool, float);

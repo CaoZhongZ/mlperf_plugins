@@ -294,7 +294,7 @@ void test_tile_16x256(int row_tile) {
   free(wei400m);
 }
 
-void test_block_gemm(const size_t sl, const size_t input_f, const size_t output_f, bool accuracy, const int num_cores) {
+void test_block_gemm(const size_t sl, const size_t input_f, const size_t output_f, const int num_cores) {
   // size_t sl = 176;
   // size_t input_f = 1024;
   // size_t output_f = 1024;
@@ -332,53 +332,24 @@ void test_block_gemm(const size_t sl, const size_t input_f, const size_t output_
   // getchar();
   // intel_mlperf::print_2d_matrix<int8_t>((int8_t*)output, dim0, dim2, dim2);
   // getchar();
-  if (accuracy) {
-    auto weight = weight400m_[0];
-    intel_mlperf::set_data_act(input, sl, input_f);
-    // set_data_wei(weight, bias[0], col_tile);
-    for (int i = 0; i < col_step; i++) {
-      gemm_.ref(output[0][i], input, weight[i], bias[i], scale, o_scale);
-    }
-
-    auto ninput = new int[sl * input_f];
-    auto nweight = new int[input_f * output_f];
-    auto noutput = new int[sl * output_f];
-
-    intel_mlperf::send_input(input, ninput, sl, input_f);
-    intel_mlperf::send_weight(weight, nweight, input_f, output_f);
-    intel_mlperf::naive_linear(ninput, input_f, nweight, output_f, noutput, output_f, bias, scale, sl, post_op, o_scale);
-
-    // intel_mlperf::print_2d_matrix<int8_t>((int8_t*)output, 16, 16, 64);
-    // getchar();
-    // intel_mlperf::print_2d_matrix<int>((int*)noutput, 16, 16, 64);
-    // getchar();
-
-    intel_mlperf::compare_naive_output((int*)noutput, (int8_t*)output, sl, 64, 64, 64);
-
-    delete[] ninput;
-    delete[] nweight;
-    delete[] noutput;
-  } 
-  else {
-    printf("**************************** start test performance **********************\n");
-    int loop_num = 10000;
-    auto start = Time::now();
-    for (int i = 0; i < loop_num; i++) {
-#     pragma omp parallel for num_threads (num_cores)
-      for (int j = 0; j < block_num; j++) {
-        switch (input_f / 64) {
-        case (16):
-          gemm_.ref(output, input, weight400m_[j % block_num], bias[0], scale);
-          break;
-        case (64):
-          gemm_.ref(output, input, weight400m_[j % block_num], bias[0], scale);
-          break;
-        }
+  printf("**************************** start test performance **********************\n");
+  int loop_num = 10000;
+  auto start = Time::now();
+  for (int i = 0; i < loop_num; i++) {
+#   pragma omp parallel for num_threads (num_cores)
+    for (int j = 0; j < block_num; j++) {
+      switch (input_f / 64) {
+      case (16):
+        gemm_.ref(output, input, weight400m_[j % block_num], bias[0], scale);
+        break;
+      case (64):
+        gemm_.ref(output, input, weight400m_[j % block_num], bias[0], scale);
+        break;
       }
     }
-    auto during = std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start).count();
-    std::cout << sl << " x " << input_f << " x " << output_f << " : " << (float)during / loop_num << " ns " << std::endl;
   }
+  auto during = std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start).count();
+  std::cout << sl << " x " << input_f << " x " << output_f << " : " << (float)during / loop_num << " ns " << std::endl;
   delete[] weight400m;
 }
 
