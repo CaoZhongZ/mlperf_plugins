@@ -37,24 +37,27 @@ at::Tensor amx_linear(
                           c10::MemoryFormat::Contiguous));
 
 
-  auto input_ = reinterpret_cast<int8_t (*)[hidden_size]>(input.data_ptr());
-  auto weight_ = reinterpret_cast<int8_t (*)[4][col_tile][16][64]>(weight.data_ptr());
-  auto output_ = reinterpret_cast<int8_t (*)[col_step][64]>(output.data_ptr());
-  auto bias_ = reinterpret_cast<float (*)>(bias.data_ptr());
   auto scale_ = scale.toFloat();
   float o_scale_ = post_op ? o_scale.toFloat() : 1.0;
 
   auto total_sl = bs * sl;
-  size_t row_tile = (total_sl + 15) / 16;
-  size_t roll_back = row_tile * 16 - total_sl;
 
   size_t os_ = col_step * 64;
   auto block_computer = i_linear(sl, hidden_size, os_, true, post_op);
+
+  auto input_data_ptr = input.data_ptr();
+  auto weight_data_ptr = weight.data_ptr();
+  auto output_data_ptr = output.data_ptr();
+  auto bias_data_ptr = bias.data_ptr();
   
   // 4 loop
   // or only omp parallel 
   # pragma omp parallel 
   {
+    auto input_ = reinterpret_cast<int8_t (*)[hidden_size]>(input_data_ptr);
+    auto weight_ = reinterpret_cast<int8_t (*)[4][col_tile][16][64]>(weight_data_ptr);
+    auto output_ = reinterpret_cast<int8_t (*)[col_step][64]>(output_data_ptr);
+    auto bias_ = reinterpret_cast<float (*)>(bias_data_ptr);
     Tilecfg().set_config();
     auto total_core_num = omp_get_num_threads();
     auto core_id = omp_get_thread_num();
@@ -77,3 +80,4 @@ at::Tensor amx_linear(
 }
 
 }
+

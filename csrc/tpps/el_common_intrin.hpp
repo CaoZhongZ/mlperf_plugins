@@ -1,7 +1,7 @@
 #pragma once
 #include <immintrin.h>
 
-static inline __m512 _mm512_erf_ps(__m512 x) {
+static inline __m512 _mm512_mlperf_erf_ps(__m512 x) {
   auto a = _mm512_set1_ps(-0.2888f);
   auto b = _mm512_set1_ps(1.0217744f);
   auto c = _mm512_set1_ps(0.0962405432f);
@@ -22,7 +22,7 @@ static inline __m512 _mm512_erf_ps(__m512 x) {
 
 static inline __m512 _mm512_gelu_ps(__m512 x) {
   auto rsqrt_2 = _mm512_set1_ps(0.70710678);
-  auto y = _mm512_erf_ps(x * rsqrt_2) + _mm512_set1_ps(1);
+  auto y = _mm512_mlperf_erf_ps(x * rsqrt_2) + _mm512_set1_ps(1);
 
   return x * _mm512_set1_ps(0.5f) * y;
 }
