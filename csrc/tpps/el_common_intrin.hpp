@@ -179,6 +179,17 @@ static inline __m512 snd_order_poly_exp(__m512 z, __m512 f, const float c[]) {
   return exp;
 }
 
+static inline __m512h snd_order_poly_exp_ph(__m512h z, __m512h f, const _Float16 c[]) {
+  const auto c0 = _mm512_set1_ph(c[0]);
+  const auto c1 = _mm512_set1_ph(c[1]);
+  const auto c2 = _mm512_set1_ph(c[2]);
+
+  auto y = (f * c0 + c1) * f + c2;
+  auto exp = _mm512_scalef_ph(y, z);
+
+  return exp;
+}
+
 static inline __m256 third_order_poly_exp(__m256 z, __m256 f, const float c[]) {
   const auto c0 = _mm256_set1_ps(c[0]);
   const auto c1 = _mm256_set1_ps(c[1]);
@@ -225,6 +236,18 @@ static inline __m512 exp_ps_0_1(__m512 x) {
   auto f = x1 - z;
 
   return snd_order_poly_exp(z, f, _c);
+}
+
+// [0.5, 0.5)
+static inline __m512h exp_ph_0_1(__m512h x) {
+  const auto log2e = _mm512_set1_ph(1.442695f);
+  const _Float16 _c[] = {0.240226507f, 0.452920674f, 0.713483036f};
+
+  auto x1 = x * log2e + _mm512_set1_ph(0.5f);
+  auto z = _mm512_cvtepi16_ph(_mm512_cvt_roundph_epi16(x1, _MM_FROUND_TO_NEG_INF |_MM_FROUND_NO_EXC));
+  auto f = x1 - z;
+
+  return snd_order_poly_exp_ph(z, f, _c);
 }
 
 static inline __m256 exp_ps_zero_one_third(__m256 x) {
