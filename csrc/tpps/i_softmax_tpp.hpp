@@ -45,11 +45,11 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_i8_amx_tile_vnni {
     auto neg_large = _mm512_set1_epi32(-500000);
     auto vscale = _mm512_set1_ps(M);
 
-    __m512 vmax[N];
+    __m512i vmax[N];
 
 #pragma unroll(N)
     for (int i = 0; i < N; ++i) {
-      vmax[i] = _mm512_setzero_ps();
+      vmax[i] = _mm512_setzero_epi32();
     }
 
     size_t d2;
@@ -57,9 +57,38 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_i8_amx_tile_vnni {
 #pragma unroll(N)
       for (int i = 0; i < N; ++i) {
         auto l = _mm512_loadu_si512(pin[d2][i]);
+        vmax[i] = _mm512_max_epi32(l, vmax[i]);
+      }
+    }
+
+    if (att_tail) {
+      __mmask16 mask = (1 << att_tail) - 1;
+#pragma unroll(N)
+      for (int i = 0; i < N; ++i) {
+        auto l = _mm512_mask_loadu_epi32(neg_large, mask, pin[d2][i]);
+        vmax[i] = _mm512_max_epi32(l, vmax[i]);
+      }
+    }
+
+    __m512 vsum[N];
+    __m512 vmaxps[N];
+
+#pragma unroll(N)
+    for (int i = 0; i < N; ++i) {
+      auto tem = _mm512_cvtepi32_ps(vmax[i]) * vscale;
+      vmaxps[i] = _mm512_max_reduce_ps(tem);
+      vsum[i] = _mm512_setzero_ps();
+    }
+
+    for (d2 = 0; d2 < att_tile; ++d2) {
+#pragma unroll(N)
+      for (int i = 0; i < N; ++i) {
+        auto l = _mm512_loadu_si512(pin[d2][i]);
         auto f = _mm512_cvtepi32_ps(l) * vscale;
-        vmax[i] = _mm512_max_ps(f, vmax[i]);
-        _mm512_storeu_ps(dout[d2][i], f);
+        auto d = f - vmaxps[i];
+        auto e = exp_ps_0_1(d);
+        _mm512_storeu_ps(dout[d2][i], e);
+        vsum[i] += e;
       }
     }
 
@@ -69,27 +98,11 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_i8_amx_tile_vnni {
       for (int i = 0; i < N; ++i) {
         auto l = _mm512_mask_loadu_epi32(neg_large, mask, pin[d2][i]);
         auto f = _mm512_cvtepi32_ps(l) * vscale;
-        vmax[i] = _mm512_max_ps(f, vmax[i]);
-        _mm512_storeu_ps(dout[d2][i], f);
-      }
-    }
-
-    __m512 vsum[N];
-
-#pragma unroll(N)
-    for (int i = 0; i < N; ++i) {
-      vmax[i] = _mm512_max_reduce_ps(vmax[i]);
-      vsum[i] = _mm512_setzero_ps();
-    }
-
-    for (d2 = 0; d2 < att_tile + (att_tail > 0); ++d2) {
-#pragma unroll(N)
-      for (int i = 0; i < N; ++i) {
-        auto f = _mm512_loadu_ps(dout[d2][i]);
-        auto d = f - vmax[i];
+        auto d = f - vmaxps[i];
         auto e = exp_ps_0_1(d);
         _mm512_storeu_ps(dout[d2][i], e);
         vsum[i] += e;
+        vmax[i] = _mm512_max_epi32(l, vmax[i]);
       }
     }
 
