@@ -273,14 +273,18 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_fp16_i8_amx_tile_vnn
       }
     }
 
-    __m512 vsum[N];
+    __m512h vsum[N / 2];
     __m512 vmaxps[N];
 
 #pragma unroll(N)
     for (int i = 0; i < N; ++i) {
-      auto tem = _mm512_cvtepi32_ps(vmax[i])
+      auto tem = _mm512_cvtepi32_ps(vmax[i]);
       vmaxps[i] = _mm512_max_reduce_ps(tem) * vscale;
-      vsum[i] = _mm512_setzero_ps();
+    }
+
+#pragma unroll(N / 2)
+    for (int i = 0; i < N / 2; ++i) {
+      vsum[i] = _mm512_setzero_ph();
     }
 
     for (d2 = 0; d2 < att_tile; ++d2) {
@@ -301,21 +305,57 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_fp16_i8_amx_tile_vnn
         auto fp16_512d1 = _mm512_zextph256_ph512(fp16d1);
         auto fp16_512d2 = _mm512_zextph256_ph512(fp16d2);
 
-        
+        auto per_idx = _mm512_set_epi16(31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16,
+                                        63, 62, 61, 60, 59, 58, 57, 56, 55, 54, 53, 52, 51, 50, 49, 48);
 
+        auto cat_d = _mm512_permutex2var_ph(fp16_512d1, per_idx, fp16_512d2);
+        auto cat_e = exp_ph_0_1(cat_d);
+        _mm512_store_ph(dout[d2][2 * i], cat_e);
+
+        vsum[i] += cat_e;
       }
     }
 
-    auto voscale = _mm512_set1_ps(oscale);
+    if (att_tail) {
+      __mmask16 mask = (1 << att_tail) - 1;
+#pragma unroll(N / 2)
+      for (int i = 0; i < N / 2; ++i) {
+        auto l1 = _mm512_mask_loadu_epi32(neg_large, mask, pin[d2][2 * i]);
+        auto f = _mm512_cvtepi32_ps(l1) * vscale;
+        // d can be transposed to fp16
+        auto d = f - vmaxps[2 * i];
+        // fp16d is _mm256h
+        auto fp16d1 = _mm256_castsi256_ph(_mm512_cvtps_ph(d, _MM_FROUND_NO_EXC));
 
-#pragma unroll(N)
-    for (int i = 0; i < N; ++i) {
+        auto l2 = _mm512_mask_loadu_epi32(neg_large, mask, pin[d2][2 * i + 1]);
+        f = _mm512_cvtepi32_ps(l2) * vscale;
+        d = f - vmaxps[2 * i + 1];
+        auto fp16d2 = _mm256_castsi256_ph(_mm512_cvtps_ph(d, _MM_FROUND_NO_EXC));
+        // cat two _m256h to _m512h
+        auto fp16_512d1 = _mm512_zextph256_ph512(fp16d1);
+        auto fp16_512d2 = _mm512_zextph256_ph512(fp16d2);
+
+        auto per_idx = _mm512_set_epi16(31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16,
+                                        63, 62, 61, 60, 59, 58, 57, 56, 55, 54, 53, 52, 51, 50, 49, 48);
+
+        auto cat_d = _mm512_permutex2var_ph(fp16_512d1, per_idx, fp16_512d2);
+        auto cat_e = exp_ph_0_1(cat_d);
+        _mm512_store_ph(dout[d2][2 * i], cat_e);
+
+        vsum[i] += cat_e;
+      }
+    }
+    
+    auto voscale = _mm512_set1_ph(oscale);
+    #pragma unroll(N / 2)
+    for (int i = 0; i < N / 2; ++i) {
 #ifdef usercp
-      vsum[i] = voscale * _mm512_rcp14_ps(_mm512_add_reduce_ps(vsum[i]));
+      vsum[i] = voscale * _mm512_rcp_ph(_mm512_half_add_reduce_ph(vsum[i]));
 #else
-      vsum[i] = voscale / _mm512_add_reduce_ps(vsum[i]);
+      vsum[i] = voscale / _mm512_half_add_reduce_ph(vsum[i]);
 #endif
     }
+
     // if att_tile cannot be divided by 4?
     auto att_tile16_in_tile64 = att_tile / 4;
     auto att_tile16_in_tile64_tail = att_tile % 4;
@@ -324,110 +364,100 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_fp16_i8_amx_tile_vnn
 
     // Gather 4*16*16 int8_t tile into 16*64 tile
     for (d2 = 0; d2 < att_tile16_in_tile64; ++d2) {
-#pragma unroll(N)
-      for (int i = 0; i < N; ++i) {
-        auto l0 = _mm512_loadu_ps(dout[d2*4][i]);
-        auto i0 = _mm512_scale_minmax_i8_ps(l0, vsum[i]);
+#pragma unroll(N / 2)
+      for (int i = 0; i < N / 2; ++i) {
+        auto l0 = _mm512_loadu_ph(dout[d2*4][2 * i]);
+        auto i0 = _mm512_scale_minmax_i8_ph(l0, vsum[i]);
 
-        auto l1 = _mm512_loadu_ps(dout[d2*4+1][i]);
-        auto i1 = _mm512_scale_minmax_i8_ps(l1, vsum[i]);
+        auto l1 = _mm512_loadu_ph(dout[d2*4+1][2 * i]);
+        auto i1 = _mm512_scale_minmax_i8_ph(l1, vsum[i]);
 
-        auto l2 = _mm512_loadu_ps(dout[d2*4+2][i]);
-        auto i2 = _mm512_scale_minmax_i8_ps(l2, vsum[i]);
+        auto l2 = _mm512_loadu_ph(dout[d2*4+2][2 * i]);
+        auto i2 = _mm512_scale_minmax_i8_ph(l2, vsum[i]);
 
-        auto l3 = _mm512_loadu_ps(dout[d2*4+3][i]);
-        auto i3 = _mm512_scale_minmax_i8_ps(l3, vsum[i]);
+        auto l3 = _mm512_loadu_ph(dout[d2*4+3][2 * i]);
+        auto i3 = _mm512_scale_minmax_i8_ph(l3, vsum[i]);
 
-        // write combine?
-        _mm512_mask_cvtepi32_storeu_epi8(pout[d2][i][0], 0xffff, i0);
-        _mm512_mask_cvtepi32_storeu_epi8(pout[d2][i][1], 0xffff, i1);
-        _mm512_mask_cvtepi32_storeu_epi8(pout[d2][i][2], 0xffff, i2);
-        _mm512_mask_cvtepi32_storeu_epi8(pout[d2][i][3], 0xffff, i3);
+        _mm512_cvtepi16_epi8_shuffle_storeu(pout[d2][2 * i], 4 * i_tile_w, i0, i1, i2, i3);
       }
     }
     // Tail process
     switch (att_tile16_in_tile64_tail) {
     case 1:
-#pragma unroll(N)
-      for (int i = 0; i < N; ++i) {
-        auto l0 = _mm512_loadu_ps(dout[d2*4][i]);
-        auto i0 = _mm512_scale_minmax_i8_ps(l0, vsum[i]);
-        _mm512_mask_cvtepi32_storeu_epi8(pout[d2][i][0], 0xffff, i0);
-
+#pragma unroll(N / 2)
+      for (int i = 0; i < N / 2; ++i) {
+        auto l0 = _mm512_loadu_ph(dout[d2*4][2 * i]);
+        auto i0 = _mm512_scale_minmax_i8_ph(l0, vsum[i]);
+        
+        __m512i i1;
         if (att_tail) {
-          auto l1 = _mm512_loadu_ps(dout[d2*4+1][i]);
-          auto i1 = _mm512_scale_minmax_i8_ps(l1, vsum[i]);
-          _mm512_mask_cvtepi32_storeu_epi8(pout[d2][i][1], 0xffff, i1);
+          auto l1 = _mm512_loadu_ph(dout[d2*4+1][2 * i]);
+          i1 = _mm512_scale_minmax_i8_ph(l1, vsum[i]);
         } else {
-          auto i1 = _mm_set1_epi8(0);
-          _mm_storeu_si128((__m128i *)pout[d2][i][1], i1);
+          i1 = _mm512_setzero_si512();
         }
 
-        auto i2 = _mm256_set1_epi8(0);
-        _mm256_storeu_si256((__m256i *)pout[d2][i][2], i2);
+        auto i2 = _mm512_setzero_si512();
+        auto i3 = _mm512_setzero_si512();
+
+        _mm512_cvtepi16_epi8_shuffle_storeu(pout[d2][2 * i], 4 * i_tile_w, i0, i1, i2, i3);
       }
       break;
     case 2:
-#pragma unroll(N)
-      for (int i = 0; i < N; ++i) {
-        auto l0 = _mm512_loadu_ps(dout[d2*4][i]);
-        auto i0 = _mm512_scale_minmax_i8_ps(l0, vsum[i]);
-        auto l1 = _mm512_loadu_ps(dout[d2*4+1][i]);
-        auto i1 = _mm512_scale_minmax_i8_ps(l1, vsum[i]);
-        _mm512_mask_cvtepi32_storeu_epi8(pout[d2][i][0], 0xffff, i0);
-        _mm512_mask_cvtepi32_storeu_epi8(pout[d2][i][1], 0xffff, i1);
+#pragma unroll(N / 2)
+      for (int i = 0; i < N / 2; ++i) {
+        auto l0 = _mm512_loadu_ph(dout[d2*4][2 * i]);
+        auto i0 = _mm512_scale_minmax_i8_ph(l0, vsum[i]);
+        auto l1 = _mm512_loadu_ph(dout[d2*4+1][2 * i]);
+        auto i1 = _mm512_scale_minmax_i8_ph(l1, vsum[i]);
 
+        __m512i i2;
         if (att_tail) {
-          auto l2 = _mm512_loadu_ps(dout[d2*4+2][i]);
-          auto i2 = _mm512_scale_minmax_i8_ps(l2, vsum[i]);
-          _mm512_mask_cvtepi32_storeu_epi8(pout[d2][i][2], 0xffff, i2);
-          auto i3 = _mm_set1_epi8(0);
-        _mm_storeu_si128((__m128i *)pout[d2][i][3], i3);
+          auto l2 = _mm512_loadu_ph(dout[d2*4+2][2 * i]);
+          i2 = _mm512_scale_minmax_i8_ph(l2, vsum[i]);
         } else {
-          auto i2 = _mm256_set1_epi8(0);
-          _mm256_storeu_si256((__m256i *)pout[d2][i][2], i2);
+          i2 = _mm512_setzero_si512();
         }
+        auto i3 = _mm512_setzero_si512();
+        _mm512_cvtepi16_epi8_shuffle_storeu(pout[d2][2 * i], 4 * i_tile_w, i0, i1, i2, i3);
       }
       break;
     case 3:
-#pragma unroll(N)
-      for (int i = 0; i < N; ++i) {
-        auto l0 = _mm512_loadu_ps(dout[d2*4][i]);
-        auto i0 = _mm512_scale_minmax_i8_ps(l0, vsum[i]);
-        auto l1 = _mm512_loadu_ps(dout[d2*4+1][i]);
-        auto i1 = _mm512_scale_minmax_i8_ps(l1, vsum[i]);
-        auto l2 = _mm512_loadu_ps(dout[d2*4+2][i]);
-        auto i2 = _mm512_scale_minmax_i8_ps(l2, vsum[i]);
-        _mm512_mask_cvtepi32_storeu_epi8(pout[d2][i][0], 0xffff, i0);
-        _mm512_mask_cvtepi32_storeu_epi8(pout[d2][i][1], 0xffff, i1);
-        _mm512_mask_cvtepi32_storeu_epi8(pout[d2][i][2], 0xffff, i2);
+#pragma unroll(N / 2)
+      for (int i = 0; i < N / 2; ++i) {
+        auto l0 = _mm512_loadu_ph(dout[d2*4][2 * i]);
+        auto i0 = _mm512_scale_minmax_i8_ph(l0, vsum[i]);
+        auto l1 = _mm512_loadu_ph(dout[d2*4+1][2 * i]);
+        auto i1 = _mm512_scale_minmax_i8_ph(l1, vsum[i]);
+        auto l2 = _mm512_loadu_ph(dout[d2*4+2][2 * i]);
+        auto i2 = _mm512_scale_minmax_i8_ph(l2, vsum[i]);
 
+        __m512i i3;
         if (att_tail) {
-          auto l3 = _mm512_loadu_ps(dout[d2*4+3][i]);
-          auto i3 = _mm512_scale_minmax_i8_ps(l3, vsum[i]);
-          _mm512_mask_cvtepi32_storeu_epi8(pout[d2][i][3], 0xffff, i3);
+          auto l3 = _mm512_loadu_ph(dout[d2*4+3][2 * i]);
+          i3 = _mm512_scale_minmax_i8_ph(l3, vsum[i]);
         } else {
-          auto i3 = _mm_set1_epi8(0);
-          _mm_storeu_si128((__m128i *)pout[d2][i][3], i3);
+          i2 = _mm512_setzero_si512();
         }
+        _mm512_cvtepi16_epi8_shuffle_storeu(pout[d2][2 * i], 4 * i_tile_w, i0, i1, i2, i3);
       }
       break;
     default:
-#pragma unroll(N)
-      for (int i = 0; i < N; ++i) {
+#pragma unroll(N / 2)
+      for (int i = 0; i < N / 2; ++i) {
+        __m512i i0;
         if (att_tail) {
-          auto l0 = _mm512_loadu_ps(dout[d2*4][i]);
-          auto i0 = _mm512_scale_minmax_i8_ps(l0, vsum[i]);
-          _mm512_mask_cvtepi32_storeu_epi8(pout[d2][i][0], 0xffff, i0);
-
-          auto i1 = _mm_set1_epi8(0);
-          auto i2 = _mm256_set1_epi8(0);
-          _mm_storeu_si128((__m128i *)pout[d2][i][1], i1);
-          _mm256_storeu_si256((__m256i *)pout[d2][i][2], i2);
+          auto l0 = _mm512_loadu_ph(dout[d2*4][2 * i]);
+          i0 = _mm512_scale_minmax_i8_ph(l0, vsum[i]);
         } else {
-          auto i0 = _mm512_setzero_si512();
-          _mm512_storeu_si512(pout[d2][i], i0);
+          i0 = _mm512_setzero_si512();
         }
+
+        auto i1 = _mm512_setzero_si512();
+        auto i2 = _mm512_setzero_si512();
+        auto i3 = _mm512_setzero_si512();
+
+        _mm512_cvtepi16_epi8_shuffle_storeu(pout[d2][2 * i], 4 * i_tile_w, i0, i1, i2, i3);
       }
       break;
     }

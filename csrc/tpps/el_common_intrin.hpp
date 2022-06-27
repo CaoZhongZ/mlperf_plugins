@@ -50,6 +50,16 @@ static inline __m512i _mm512_scale_minmax_i8_ps(__m512 x, __m512 vS) {
   return _mm512_cvtps_epi32(c2);
 }
 
+static inline __m512i _mm512_scale_minmax_i8_ph(__m512h x, __m512h vS) {
+  auto max = _mm512_set1_ph(127.f);
+  auto min = _mm512_set1_ph(-127.f);
+
+  auto m = _mm512_roundscale_ph(x * vS, _MM_FROUND_TO_NEAREST_INT);
+  auto c1 = _mm512_min_ph(m, max);
+  auto c2 = _mm512_max_ph(c1, min);
+  return _mm512_cvtph_epi16(c2);
+}
+
 static inline void _mm512_mask_cvtepi32_storeu_epi8_compensate(void *base_addr,
                                                                __mmask16 k,
                                                                __m512i x,
@@ -109,6 +119,43 @@ static inline __m512 _mm512_add_reduce_ps(__m512 v) {
   auto perm3 = _mm512_shuffle_f32x4(m3, m3, _MM_SHUFFLE(1, 0, 3, 2));
   auto m4 = m3 + perm3;
   return m4;
+}
+
+static inline __m512h _mm512_half_add_reduce_ph(__m512h v) {
+  /*
+  do add reduce each half separately
+  */
+  // 1 round shuffle -> 16 bits
+  auto perm_idx = _mm512_set_epi16(1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14, 
+                                   17, 16, 19, 18, 21, 20, 23, 22, 25, 24, 27, 26, 29, 28, 31, 30);
+  auto perm0 = _mm512_permutexvar_ph(perm_idx, v);
+  auto m1 = v + perm0;
+  auto m1ps = _mm512_castph_ps(m1);
+  // 2 round shuffle -> 32 bits
+  auto perm1 = _mm512_permute_ps(m1ps, _MM_SHUFFLE(2, 3, 0, 1));
+  auto m2 = m1ps + perm1;
+
+  auto perm2 = _mm512_permute_ps(m2, _MM_SHUFFLE(1, 0, 3, 2));
+  auto m3 = m2 + perm2;
+
+  auto perm3 = _mm512_shuffle_f32x4(m3, m3, _MM_SHUFFLE(1, 0, 3, 2));
+  auto m4 = m3 + perm3;
+
+  return _mm512_castps_ph(m4);
+}
+
+static inline void _mm512_cvtepi16_epi8_shuffle_storeu(void* mem_addr, int ld, __m512i i0, __m512i i1, __m512i i2, __m512i i3) {
+  // shuffle again to store
+  auto i0_hor = _mm512_shuffle_i32x4(i0, i1, _MM_SHUFFLE(0, 1, 0, 1));
+  auto i1_hor = _mm512_shuffle_i32x4(i0, i1, _MM_SHUFFLE(2, 3, 2, 3));
+  auto i2_hor = _mm512_shuffle_i32x4(i2, i3, _MM_SHUFFLE(0, 1, 0, 1));
+  auto i3_hor = _mm512_shuffle_i32x4(i2, i3, _MM_SHUFFLE(2, 3, 2, 3));
+
+  auto pout = reinterpret_cast<int8_t(*)[ld]>(mem_addr);
+  _mm512_mask_cvtepi16_storeu_epi8(pout[0], 0xffff, i0_hor);
+  _mm512_mask_cvtepi16_storeu_epi8(pout[0] + 32, 0xffff, i2_hor);
+  _mm512_mask_cvtepi16_storeu_epi8(pout[1], 0xffff, i1_hor);
+  _mm512_mask_cvtepi16_storeu_epi8(pout[1] + 32, 0xffff, i3_hor);
 }
 
 inline static __m512 _mm512_loadu_i8_to_fp32(void const *mem_addr) {
