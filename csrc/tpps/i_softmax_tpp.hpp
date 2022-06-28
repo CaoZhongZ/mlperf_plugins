@@ -1,9 +1,43 @@
 #pragma once
+#include <iostream>
 #include <cstdlib>
 #include <immintrin.h>
 #include "el_common_intrin.hpp"
 
 namespace intel_mlperf {
+
+typedef unsigned short ushort;
+typedef unsigned int uint;
+
+class helper {
+public:
+  static void _mm512_print_ps(__m512 a) {
+    for (int i = 0; i < 16; ++i) {
+      std::cout << a[i] << std::endl;
+    }
+  }
+
+  static void _mm256_print_ph(__m256h a) {
+    auto aps = _mm512_cvtph_ps(_mm256_castph_si256(a));
+    for (int i = 0; i < 16; ++i) {
+      std::cout << aps[i] << std::endl;
+    }
+  }
+
+  static void _mm512_print_ph(__m512h a) {
+    _Float16 mem[32];
+    _mm512_storeu_ph((void*)mem, a);
+
+    auto f_half = _mm512_cvtph_ps(_mm256_loadu_ph((void*)mem));
+    auto s_half = _mm512_cvtph_ps(_mm256_loadu_ph((void*)&mem[16]));
+    for (int i = 0; i < 16; ++i) {
+      std::cout << f_half[i] << std::endl;
+    }
+    for (int i = 0; i < 16; ++i) {
+      std::cout << s_half[i] << std::endl;
+    }
+  }
+};
 
 template <int vec_length> struct avx_type;
 
@@ -265,7 +299,7 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_fp16_i8_amx_tile_vnn
 
 #pragma unroll(N)
     for (int i = 0; i < N; ++i) {
-      vmax[i] = _mm512_setzero_ps();
+      vmax[i] = _mm512_setzero_epi32();
     }
 
     size_t d2;
@@ -291,8 +325,8 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_fp16_i8_amx_tile_vnn
 
 #pragma unroll(N)
     for (int i = 0; i < N; ++i) {
-      auto tem = _mm512_cvtepi32_ps(vmax[i]);
-      vmaxps[i] = _mm512_max_reduce_ps(tem) * vscale;
+      auto tem = _mm512_cvtepi32_ps(vmax[i]) * vscale;
+      vmaxps[i] = _mm512_max_reduce_ps(tem);
     }
 
 #pragma unroll(N / 2)
@@ -303,6 +337,19 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_fp16_i8_amx_tile_vnn
     for (d2 = 0; d2 < att_tile; ++d2) {
 #pragma unroll(N / 2)
       for (int i = 0; i < N / 2; ++i) {
+        // just for testing
+        auto testl = _mm512_loadu_si512(pin[d2][i]);                                                                
+        auto testf = _mm512_cvtepi32_ps(testl) * vscale;                                                                
+        auto testd = testf - vmaxps[i];                                                                                 
+        auto teste = exp_ps_0_1(testd);
+
+        for (int j = 0; j < 16; ++j) {
+          auto ptr = reinterpret_cast<float(*)>(&teste);
+          std::cout << ptr[j] << "  ";
+        }
+        std::cout << std::endl;
+        getchar();
+
         auto l1 = _mm512_loadu_si512(pin[d2][2 * i]);
         auto f = _mm512_cvtepi32_ps(l1) * vscale;
         // d can be transposed to fp16
@@ -310,18 +357,38 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_fp16_i8_amx_tile_vnn
         // fp16d is _mm256h
         auto fp16d1 = _mm256_castsi256_ph(_mm512_cvtps_ph(d, _MM_FROUND_NO_EXC));
 
+        helper::_mm512_print_ps(d);
+        getchar();
+        helper::_mm256_print_ph(fp16d1);
+        getchar();
+
         auto l2 = _mm512_loadu_si512(pin[d2][2 * i + 1]);
         f = _mm512_cvtepi32_ps(l2) * vscale;
         d = f - vmaxps[2 * i + 1];
         auto fp16d2 = _mm256_castsi256_ph(_mm512_cvtps_ph(d, _MM_FROUND_NO_EXC));
+
+        helper::_mm512_print_ps(d);
+        getchar();
+        helper::_mm256_print_ph(fp16d2);
+        getchar();
+
         // cat two _m256h to _m512h
         auto fp16_512d1 = _mm512_zextph256_ph512(fp16d1);
         auto fp16_512d2 = _mm512_zextph256_ph512(fp16d2);
 
-        auto per_idx = _mm512_set_epi16(31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16,
-                                        63, 62, 61, 60, 59, 58, 57, 56, 55, 54, 53, 52, 51, 50, 49, 48);
+        helper::_mm512_print_ph(fp16_512d1);
+        getchar();
+        helper::_mm512_print_ph(fp16_512d2);
+        getchar();
+
+        auto per_idx = _mm512_set_epi16(47, 46, 45, 44, 43, 42, 41, 40, 39, 38, 37, 36, 35, 34, 33, 32,
+                                        15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
 
         auto cat_d = _mm512_permutex2var_ph(fp16_512d1, per_idx, fp16_512d2);
+
+        helper::_mm512_print_ph(cat_d);
+        getchar();
+
         auto cat_e = exp_ph_0_1(cat_d);
         _mm512_store_ph(dout[d2][2 * i], cat_e);
 
