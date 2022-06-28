@@ -243,6 +243,7 @@ struct _tile_dot_product_16x256<2, col_tile, io_policy> {
     }
     auto bias_ = reinterpret_cast<float (*)[16]>(bias);
 
+    // TODO: bias to half
     auto b0 = _mm512_loadu_ps(bias_[0]);
     auto b1 = _mm512_loadu_ps(bias_[1]);
     auto b2 = _mm512_loadu_ps(bias_[2]);
@@ -259,6 +260,7 @@ struct _tile_dot_product_16x256<2, col_tile, io_policy> {
         auto i2 = _mm512_load_epi32(s_1_[t][0][i]);
         auto i3 = _mm512_load_epi32(s_1_[t][1][i]);
 
+        // TODO: bias and another scale
         auto f0 = _mm512_cvtepi32_ps(i0) + b0;
         auto f1 = _mm512_cvtepi32_ps(i1) + b1;
         auto f2 = _mm512_cvtepi32_ps(i2) + b2;

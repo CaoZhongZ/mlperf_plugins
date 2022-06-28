@@ -301,18 +301,18 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_fp16_i8_amx_tile_vnn
     }
 
     for (d2 = 0; d2 < att_tile; ++d2) {
-#pragma unroll(N / 2)
-      for (int i = 0; i < N / 2; ++i) {
-        auto l1 = _mm512_loadu_si512(pin[d2][2 * i]);
+#pragma unroll(N)
+      for (int i = 0; i < N; i += 2) {
+        auto l1 = _mm512_loadu_si512(pin[d2][i]);
         auto f = _mm512_cvtepi32_ps(l1) * vscale;
         // d can be transposed to fp16
-        auto d = f - vmaxps[2 * i];
+        auto d = f - vmaxps[i];
         // fp16d is _mm256h
         auto fp16d1 = _mm256_castsi256_ph(_mm512_cvtps_ph(d, _MM_FROUND_NO_EXC));
 
-        auto l2 = _mm512_loadu_si512(pin[d2][2 * i + 1]);
+        auto l2 = _mm512_loadu_si512(pin[d2][i + 1]);
         f = _mm512_cvtepi32_ps(l2) * vscale;
-        d = f - vmaxps[2 * i + 1];
+        d = f - vmaxps[i + 1];
         auto fp16d2 = _mm256_castsi256_ph(_mm512_cvtps_ph(d, _MM_FROUND_NO_EXC));
 
         // cat two _m256h to _m512h
@@ -322,28 +322,29 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_fp16_i8_amx_tile_vnn
         auto per_idx = _mm512_set_epi16(47, 46, 45, 44, 43, 42, 41, 40, 39, 38, 37, 36, 35, 34, 33, 32,
                                         15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
 
+        // TODO: _mm512_shuffle_i64x2
         auto cat_d = _mm512_permutex2var_ph(fp16_512d1, per_idx, fp16_512d2);
         auto cat_e = exp_ph_0_1(cat_d);
 
-        _mm512_store_ph(dout[d2][2 * i], cat_e);
-        vsum[i] += cat_e;
+        _mm512_store_ph(dout[d2][i], cat_e);
+        vsum[i >> 1] += cat_e;
       }
     }
 
     if (att_tail) {
       __mmask16 mask = (1 << att_tail) - 1;
-#pragma unroll(N / 2)
-      for (int i = 0; i < N / 2; ++i) {
-        auto l1 = _mm512_mask_loadu_epi32(neg_large, mask, pin[d2][2 * i]);
+#pragma unroll(N)
+      for (int i = 0; i < N; i += 2) {
+        auto l1 = _mm512_mask_loadu_epi32(neg_large, mask, pin[d2][i]);
         auto f = _mm512_cvtepi32_ps(l1) * vscale;
         // d can be transposed to fp16
-        auto d = f - vmaxps[2 * i];
+        auto d = f - vmaxps[i];
         // fp16d is _mm256h
         auto fp16d1 = _mm256_castsi256_ph(_mm512_cvtps_ph(d, _MM_FROUND_NO_EXC));
 
-        auto l2 = _mm512_mask_loadu_epi32(neg_large, mask, pin[d2][2 * i + 1]);
+        auto l2 = _mm512_mask_loadu_epi32(neg_large, mask, pin[d2][i + 1]);
         f = _mm512_cvtepi32_ps(l2) * vscale;
-        d = f - vmaxps[2 * i + 1];
+        d = f - vmaxps[i + 1];
         auto fp16d2 = _mm256_castsi256_ph(_mm512_cvtps_ph(d, _MM_FROUND_NO_EXC));
         // cat two _m256h to _m512h
         auto fp16_512d1 = _mm512_zextph256_ph512(fp16d1);
@@ -354,9 +355,9 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_fp16_i8_amx_tile_vnn
 
         auto cat_d = _mm512_permutex2var_ph(fp16_512d1, per_idx, fp16_512d2);
         auto cat_e = exp_ph_0_1(cat_d);
-        _mm512_store_ph(dout[d2][2 * i], cat_e);
+        _mm512_store_ph(dout[d2][i], cat_e);
 
-        vsum[i] += cat_e;
+        vsum[i >> 1] += cat_e;
       }
     }
     
@@ -378,6 +379,7 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_fp16_i8_amx_tile_vnn
 
     // Gather 4*16*16 int8_t tile into 16*64 tile
     for (d2 = 0; d2 < att_tile16_in_tile64; ++d2) {
+    // TODO: N i += 2
 #pragma unroll(N / 2)
       for (int i = 0; i < N / 2; ++i) {
         auto l0 = _mm512_loadu_ph(dout[d2*4][2 * i]);

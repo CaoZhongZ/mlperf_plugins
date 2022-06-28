@@ -179,7 +179,8 @@ static inline __m512h _mm512_half_add_reduce_ph(__m512h v) {
   do add reduce each half separately
   */
   // 1 round shuffle -> 16 bits
- 
+  
+  // TODO: shuffle hi and lo
   auto perm_idx = _mm512_set_epi16(30, 31, 28, 29, 26, 27, 24, 25, 22, 23, 20, 21, 18, 19, 16, 17, 
                                    14, 15, 12, 13, 10, 11, 8, 9, 6, 7, 4, 5, 2, 3, 0, 1);
   auto perm0 = _mm512_permutexvar_ph(perm_idx, v);
