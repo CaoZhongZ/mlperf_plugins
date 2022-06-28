@@ -308,22 +308,18 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_fp16_i8_amx_tile_vnn
         // d can be transposed to fp16
         auto d = f - vmaxps[i];
         // fp16d is _mm256h
-        auto fp16d1 = _mm256_castsi256_ph(_mm512_cvtps_ph(d, _MM_FROUND_NO_EXC));
+        auto fp16d1 = _mm512_cvtps_ph(d, _MM_FROUND_NO_EXC);
 
         auto l2 = _mm512_loadu_si512(pin[d2][i + 1]);
         f = _mm512_cvtepi32_ps(l2) * vscale;
         d = f - vmaxps[i + 1];
-        auto fp16d2 = _mm256_castsi256_ph(_mm512_cvtps_ph(d, _MM_FROUND_NO_EXC));
+        auto fp16d2 = _mm512_cvtps_ph(d, _MM_FROUND_NO_EXC);
 
         // cat two _m256h to _m512h
-        auto fp16_512d1 = _mm512_zextph256_ph512(fp16d1);
-        auto fp16_512d2 = _mm512_zextph256_ph512(fp16d2);
+        auto fp16_512d1 = _mm512_zextsi256_si512(fp16d1);
+        auto fp16_512d2 = _mm512_zextsi256_si512(fp16d2);
 
-        auto per_idx = _mm512_set_epi16(47, 46, 45, 44, 43, 42, 41, 40, 39, 38, 37, 36, 35, 34, 33, 32,
-                                        15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
-
-        // TODO: _mm512_shuffle_i64x2
-        auto cat_d = _mm512_permutex2var_ph(fp16_512d1, per_idx, fp16_512d2);
+        auto cat_d = _mm512_castsi512_ph(_mm512_shuffle_i64x2(fp16_512d1, fp16_512d2, _MM_SHUFFLE(1, 0, 1, 0)));
         auto cat_e = exp_ph_0_1(cat_d);
 
         _mm512_store_ph(dout[d2][i], cat_e);
@@ -340,23 +336,21 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_fp16_i8_amx_tile_vnn
         // d can be transposed to fp16
         auto d = f - vmaxps[i];
         // fp16d is _mm256h
-        auto fp16d1 = _mm256_castsi256_ph(_mm512_cvtps_ph(d, _MM_FROUND_NO_EXC));
+        auto fp16d1 = _mm512_cvtps_ph(d, _MM_FROUND_NO_EXC);
 
         auto l2 = _mm512_mask_loadu_epi32(neg_large, mask, pin[d2][i + 1]);
         f = _mm512_cvtepi32_ps(l2) * vscale;
         d = f - vmaxps[i + 1];
-        auto fp16d2 = _mm256_castsi256_ph(_mm512_cvtps_ph(d, _MM_FROUND_NO_EXC));
+        auto fp16d2 = _mm512_cvtps_ph(d, _MM_FROUND_NO_EXC);
+
         // cat two _m256h to _m512h
-        auto fp16_512d1 = _mm512_zextph256_ph512(fp16d1);
-        auto fp16_512d2 = _mm512_zextph256_ph512(fp16d2);
+        auto fp16_512d1 = _mm512_zextsi256_si512(fp16d1);
+        auto fp16_512d2 = _mm512_zextsi256_si512(fp16d2);
 
-        auto per_idx = _mm512_set_epi16(47, 46, 45, 44, 43, 42, 41, 40, 39, 38, 37, 36, 35, 34, 33, 32,
-                                        15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
-
-        auto cat_d = _mm512_permutex2var_ph(fp16_512d1, per_idx, fp16_512d2);
+        auto cat_d = _mm512_castsi512_ph(_mm512_shuffle_i64x2(fp16_512d1, fp16_512d2, _MM_SHUFFLE(1, 0, 1, 0)));
         auto cat_e = exp_ph_0_1(cat_d);
-        _mm512_store_ph(dout[d2][i], cat_e);
 
+        _mm512_store_ph(dout[d2][i], cat_e);
         vsum[i >> 1] += cat_e;
       }
     }
@@ -380,35 +374,35 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_fp16_i8_amx_tile_vnn
     // Gather 4*16*16 int8_t tile into 16*64 tile
     for (d2 = 0; d2 < att_tile16_in_tile64; ++d2) {
     // TODO: N i += 2
-#pragma unroll(N / 2)
-      for (int i = 0; i < N / 2; ++i) {
-        auto l0 = _mm512_loadu_ph(dout[d2*4][2 * i]);
-        auto i0 = _mm512_scale_minmax_i8_ph(l0, vsum[i]);
+#pragma unroll(N)
+      for (int i = 0; i < N; i += 2) {
+        auto l0 = _mm512_loadu_ph(dout[d2*4][i]);
+        auto i0 = _mm512_scale_minmax_i8_ph(l0, vsum[i >> 1]);
 
-        auto l1 = _mm512_loadu_ph(dout[d2*4+1][2 * i]);
-        auto i1 = _mm512_scale_minmax_i8_ph(l1, vsum[i]);
+        auto l1 = _mm512_loadu_ph(dout[d2*4+1][i]);
+        auto i1 = _mm512_scale_minmax_i8_ph(l1, vsum[i >> 1]);
 
-        auto l2 = _mm512_loadu_ph(dout[d2*4+2][2 * i]);
-        auto i2 = _mm512_scale_minmax_i8_ph(l2, vsum[i]);
+        auto l2 = _mm512_loadu_ph(dout[d2*4+2][i]);
+        auto i2 = _mm512_scale_minmax_i8_ph(l2, vsum[i >> 1]);
 
-        auto l3 = _mm512_loadu_ph(dout[d2*4+3][2 * i]);
-        auto i3 = _mm512_scale_minmax_i8_ph(l3, vsum[i]);
+        auto l3 = _mm512_loadu_ph(dout[d2*4+3][i]);
+        auto i3 = _mm512_scale_minmax_i8_ph(l3, vsum[i >> 1]);
 
-        _mm512_cvtepi16_epi8_shuffle_storeu(pout[d2][2 * i], 4 * i_tile_w, i0, i1, i2, i3);
+        _mm512_cvtepi16_epi8_shuffle_storeu(pout[d2][i], 4 * i_tile_w, i0, i1, i2, i3);
       }
     }
     // Tail process
     switch (att_tile16_in_tile64_tail) {
     case 1:
-#pragma unroll(N / 2)
-      for (int i = 0; i < N / 2; ++i) {
-        auto l0 = _mm512_loadu_ph(dout[d2*4][2 * i]);
-        auto i0 = _mm512_scale_minmax_i8_ph(l0, vsum[i]);
+#pragma unroll(N)
+      for (int i = 0; i < N; i += 2) {
+        auto l0 = _mm512_loadu_ph(dout[d2*4][i]);
+        auto i0 = _mm512_scale_minmax_i8_ph(l0, vsum[i >> 1]);
         
         __m512i i1;
         if (att_tail) {
-          auto l1 = _mm512_loadu_ph(dout[d2*4+1][2 * i]);
-          i1 = _mm512_scale_minmax_i8_ph(l1, vsum[i]);
+          auto l1 = _mm512_loadu_ph(dout[d2*4+1][i]);
+          i1 = _mm512_scale_minmax_i8_ph(l1, vsum[i >> 1]);
         } else {
           i1 = _mm512_setzero_si512();
         }
@@ -416,55 +410,55 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_fp16_i8_amx_tile_vnn
         auto i2 = _mm512_setzero_si512();
         auto i3 = _mm512_setzero_si512();
 
-        _mm512_cvtepi16_epi8_shuffle_storeu(pout[d2][2 * i], 4 * i_tile_w, i0, i1, i2, i3);
+        _mm512_cvtepi16_epi8_shuffle_storeu(pout[d2][i], 4 * i_tile_w, i0, i1, i2, i3);
       }
       break;
     case 2:
-#pragma unroll(N / 2)
-      for (int i = 0; i < N / 2; ++i) {
-        auto l0 = _mm512_loadu_ph(dout[d2*4][2 * i]);
-        auto i0 = _mm512_scale_minmax_i8_ph(l0, vsum[i]);
-        auto l1 = _mm512_loadu_ph(dout[d2*4+1][2 * i]);
-        auto i1 = _mm512_scale_minmax_i8_ph(l1, vsum[i]);
+#pragma unroll(N)
+      for (int i = 0; i < N; i += 2) {
+        auto l0 = _mm512_loadu_ph(dout[d2*4][i]);
+        auto i0 = _mm512_scale_minmax_i8_ph(l0, vsum[i >> 1]);
+        auto l1 = _mm512_loadu_ph(dout[d2*4+1][i]);
+        auto i1 = _mm512_scale_minmax_i8_ph(l1, vsum[i >> 1]);
 
         __m512i i2;
         if (att_tail) {
-          auto l2 = _mm512_loadu_ph(dout[d2*4+2][2 * i]);
-          i2 = _mm512_scale_minmax_i8_ph(l2, vsum[i]);
+          auto l2 = _mm512_loadu_ph(dout[d2*4+2][i]);
+          i2 = _mm512_scale_minmax_i8_ph(l2, vsum[i >> 1]);
         } else {
           i2 = _mm512_setzero_si512();
         }
         auto i3 = _mm512_setzero_si512();
-        _mm512_cvtepi16_epi8_shuffle_storeu(pout[d2][2 * i], 4 * i_tile_w, i0, i1, i2, i3);
+        _mm512_cvtepi16_epi8_shuffle_storeu(pout[d2][i], 4 * i_tile_w, i0, i1, i2, i3);
       }
       break;
     case 3:
-#pragma unroll(N / 2)
-      for (int i = 0; i < N / 2; ++i) {
-        auto l0 = _mm512_loadu_ph(dout[d2*4][2 * i]);
-        auto i0 = _mm512_scale_minmax_i8_ph(l0, vsum[i]);
-        auto l1 = _mm512_loadu_ph(dout[d2*4+1][2 * i]);
-        auto i1 = _mm512_scale_minmax_i8_ph(l1, vsum[i]);
-        auto l2 = _mm512_loadu_ph(dout[d2*4+2][2 * i]);
-        auto i2 = _mm512_scale_minmax_i8_ph(l2, vsum[i]);
+#pragma unroll(N)
+      for (int i = 0; i < N; i += 2) {
+        auto l0 = _mm512_loadu_ph(dout[d2*4][i]);
+        auto i0 = _mm512_scale_minmax_i8_ph(l0, vsum[i >> 1]);
+        auto l1 = _mm512_loadu_ph(dout[d2*4+1][i]);
+        auto i1 = _mm512_scale_minmax_i8_ph(l1, vsum[i >> 1]);
+        auto l2 = _mm512_loadu_ph(dout[d2*4+2][i]);
+        auto i2 = _mm512_scale_minmax_i8_ph(l2, vsum[i >> 1]);
 
         __m512i i3;
         if (att_tail) {
-          auto l3 = _mm512_loadu_ph(dout[d2*4+3][2 * i]);
-          i3 = _mm512_scale_minmax_i8_ph(l3, vsum[i]);
+          auto l3 = _mm512_loadu_ph(dout[d2*4+3][i]);
+          i3 = _mm512_scale_minmax_i8_ph(l3, vsum[i >> 1]);
         } else {
           i3 = _mm512_setzero_si512();
         }
-        _mm512_cvtepi16_epi8_shuffle_storeu(pout[d2][2 * i], 4 * i_tile_w, i0, i1, i2, i3);
+        _mm512_cvtepi16_epi8_shuffle_storeu(pout[d2][i], 4 * i_tile_w, i0, i1, i2, i3);
       }
       break;
     default:
-#pragma unroll(N / 2)
-      for (int i = 0; i < N / 2; ++i) {
+#pragma unroll(N)
+      for (int i = 0; i < N; i += 2) {
         __m512i i0;
         if (att_tail) {
-          auto l0 = _mm512_loadu_ph(dout[d2*4][2 * i]);
-          i0 = _mm512_scale_minmax_i8_ph(l0, vsum[i]);
+          auto l0 = _mm512_loadu_ph(dout[d2*4][i]);
+          i0 = _mm512_scale_minmax_i8_ph(l0, vsum[i >> 1]);
         } else {
           i0 = _mm512_setzero_si512();
         }
@@ -473,7 +467,7 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_fp16_i8_amx_tile_vnn
         auto i2 = _mm512_setzero_si512();
         auto i3 = _mm512_setzero_si512();
 
-        _mm512_cvtepi16_epi8_shuffle_storeu(pout[d2][2 * i], 4 * i_tile_w, i0, i1, i2, i3);
+        _mm512_cvtepi16_epi8_shuffle_storeu(pout[d2][i], 4 * i_tile_w, i0, i1, i2, i3);
       }
       break;
     }
