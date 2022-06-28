@@ -1,5 +1,58 @@
 #pragma once
+#include <iostream>
 #include <immintrin.h>
+
+class helper {
+public:
+  static void _mm512_print_epi32(__m512i a) {
+    auto ptr = reinterpret_cast<int(*)>(&a);
+    for (int i = 0; i < 16; ++i) {
+      std::cout << ptr[i] << "  ";
+    }
+    std::cout << std::endl;
+  }
+
+  static void _mm512_print_epi16(__m512i a) {
+    auto ptr = reinterpret_cast<short(*)>(&a);
+    for (int i = 0; i < 32; ++i) {
+      std::cout << ptr[i] << "  ";
+    }
+    std::cout << std::endl;
+  }
+
+  static void _mm512_print_epi8(__m512i a) {
+    for (int i = 0; i < 64; ++i) {
+      std::cout << a[i] << std::endl;
+    }
+  }
+
+  static void _mm512_print_ps(__m512 a) {
+    for (int i = 0; i < 16; ++i) {
+      std::cout << a[i] << std::endl;
+    }
+  }
+
+  static void _mm256_print_ph(__m256h a) {
+    auto aps = _mm512_cvtph_ps(_mm256_castph_si256(a));
+    for (int i = 0; i < 16; ++i) {
+      std::cout << aps[i] << std::endl;
+    }
+  }
+
+  static void _mm512_print_ph(__m512h a) {
+    _Float16 mem[32];
+    _mm512_storeu_ph((void*)mem, a);
+
+    auto f_half = _mm512_cvtph_ps(_mm256_loadu_ph((void*)mem));
+    auto s_half = _mm512_cvtph_ps(_mm256_loadu_ph((void*)&mem[16]));
+    for (int i = 0; i < 16; ++i) {
+      std::cout << f_half[i] << std::endl;
+    }
+    for (int i = 0; i < 16; ++i) {
+      std::cout << s_half[i] << std::endl;
+    }
+  }
+};
 
 static inline __m512 _mm512_mlperf_erf_ps(__m512 x) {
   auto a = _mm512_set1_ps(-0.2888f);
@@ -126,36 +179,38 @@ static inline __m512h _mm512_half_add_reduce_ph(__m512h v) {
   do add reduce each half separately
   */
   // 1 round shuffle -> 16 bits
-  auto perm_idx = _mm512_set_epi16(1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14, 
-                                   17, 16, 19, 18, 21, 20, 23, 22, 25, 24, 27, 26, 29, 28, 31, 30);
+ 
+  auto perm_idx = _mm512_set_epi16(30, 31, 28, 29, 26, 27, 24, 25, 22, 23, 20, 21, 18, 19, 16, 17, 
+                                   14, 15, 12, 13, 10, 11, 8, 9, 6, 7, 4, 5, 2, 3, 0, 1);
   auto perm0 = _mm512_permutexvar_ph(perm_idx, v);
   auto m1 = v + perm0;
   auto m1ps = _mm512_castph_ps(m1);
   // 2 round shuffle -> 32 bits
   auto perm1 = _mm512_permute_ps(m1ps, _MM_SHUFFLE(2, 3, 0, 1));
-  auto m2 = m1ps + perm1;
-
-  auto perm2 = _mm512_permute_ps(m2, _MM_SHUFFLE(1, 0, 3, 2));
-  auto m3 = m2 + perm2;
-
-  auto perm3 = _mm512_shuffle_f32x4(m3, m3, _MM_SHUFFLE(1, 0, 3, 2));
-  auto m4 = m3 + perm3;
-
-  return _mm512_castps_ph(m4);
+  auto m2 = m1 + _mm512_castps_ph(perm1);
+  auto m2ps = _mm512_castph_ps(m2);
+  
+  auto perm2 = _mm512_permute_ps(m2ps, _MM_SHUFFLE(1, 0, 3, 2));
+  auto m3 = m2 + _mm512_castps_ph(perm2);
+  auto m3ps = _mm512_castph_ps(m3);
+  
+  auto perm3 = _mm512_shuffle_f32x4(m3ps, m3ps, _MM_SHUFFLE(2, 3, 0, 1));
+  auto m4 = m3 + _mm512_castps_ph(perm3);
+  return m4;
 }
 
 static inline void _mm512_cvtepi16_epi8_shuffle_storeu(void* mem_addr, int ld, __m512i i0, __m512i i1, __m512i i2, __m512i i3) {
   // shuffle again to store
-  auto i0_hor = _mm512_shuffle_i32x4(i0, i1, _MM_SHUFFLE(0, 1, 0, 1));
-  auto i1_hor = _mm512_shuffle_i32x4(i0, i1, _MM_SHUFFLE(2, 3, 2, 3));
-  auto i2_hor = _mm512_shuffle_i32x4(i2, i3, _MM_SHUFFLE(0, 1, 0, 1));
-  auto i3_hor = _mm512_shuffle_i32x4(i2, i3, _MM_SHUFFLE(2, 3, 2, 3));
+  auto i0_hor = _mm512_shuffle_i32x4(i0, i1, _MM_SHUFFLE(1, 0, 1, 0));
+  auto i1_hor = _mm512_shuffle_i32x4(i0, i1, _MM_SHUFFLE(3, 2, 3, 2));
+  auto i2_hor = _mm512_shuffle_i32x4(i2, i3, _MM_SHUFFLE(1, 0, 1, 0));
+  auto i3_hor = _mm512_shuffle_i32x4(i2, i3, _MM_SHUFFLE(3, 2, 3, 2));
 
   auto pout = reinterpret_cast<int8_t(*)[ld]>(mem_addr);
-  _mm512_mask_cvtepi16_storeu_epi8(pout[0], 0xffff, i0_hor);
-  _mm512_mask_cvtepi16_storeu_epi8(pout[0] + 32, 0xffff, i2_hor);
-  _mm512_mask_cvtepi16_storeu_epi8(pout[1], 0xffff, i1_hor);
-  _mm512_mask_cvtepi16_storeu_epi8(pout[1] + 32, 0xffff, i3_hor);
+  _mm512_mask_cvtepi16_storeu_epi8(pout[0], 0xffffffff, i0_hor);
+  _mm512_mask_cvtepi16_storeu_epi8(pout[0] + 32, 0xffffffff, i2_hor);
+  _mm512_mask_cvtepi16_storeu_epi8(pout[1], 0xffffffff, i1_hor);
+  _mm512_mask_cvtepi16_storeu_epi8(pout[1] + 32, 0xffffffff, i3_hor);
 }
 
 inline static __m512 _mm512_loadu_i8_to_fp32(void const *mem_addr) {
