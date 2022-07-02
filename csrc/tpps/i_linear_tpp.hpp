@@ -71,6 +71,20 @@ struct io_policy<col_tile, i_format::plain> {
 
     _mm512_storeu_epi8(C_[idx], p2);
   }
+
+  inline static void _mm512_coalescing_packs_store_epi16(void* C, size_t ldc, int idx, __m512i o0, __m512i o1, __m512i o2, __m512i o3) {
+    auto C_ = reinterpret_cast<int8_t (*)[ldc]>(C);
+    
+    auto _m512_idx = _mm512_set_epi64(7, 5, 3, 1, 6, 4, 2, 0);
+    auto t0 = _mm512_packs_epi16(o0, o1);
+    auto t1 = _mm512_packs_epi16(o2, o3);
+
+    auto p0 = _mm512_permutexvar_epi64(_m512_idx, t0);
+    auto p1 = _mm512_permutexvar_epi64(_m512_idx, t1);
+
+    _mm512_storeu_epi8(C_[idx], p0);
+    _mm512_storeu_epi8(C_[idx + 1], p1);
+  }
 };
 
 template <int row_tile, int col_tile, typename io_policy>
@@ -282,6 +296,81 @@ struct _tile_dot_product_16x256<2, col_tile, io_policy> {
 
           // every 16 got output
           io_policy::_mm512_coalescing_packs_store(C_[t], ldc, i, o0, o1, o2, o3);
+        }
+        
+      }
+    }
+  }
+
+  inline static void quant_out_fp16(void *C, size_t ldc, void *s_0, void *s_1, float *bias, float scale, 
+                                    bool post_op, float o_scale) {
+    auto s_0_ = reinterpret_cast<int (*)[2][16][16]>(s_0);
+    auto s_1_ = reinterpret_cast<int (*)[2][16][16]>(s_1);
+
+    auto scale_ = _mm512_set1_ph(scale);
+    __m512 o_scale_;
+    if (post_op) {
+      o_scale_ = _mm512_set1_ph(o_scale);
+    }
+    // TODO: wait for model bias to fp16
+    auto bias_ = reinterpret_cast<float (*)[16]>(bias);
+
+    // TODO: when model bias is fp16, this step could be optimized
+    auto b0 = _mm512_loadu_ps(bias_[0]);
+    auto b1 = _mm512_loadu_ps(bias_[1]);
+    auto b2 = _mm512_loadu_ps(bias_[2]);
+    auto b3 = _mm512_loadu_ps(bias_[3]);
+    auto fp16_b0 = _mm512_cvtps_ph(b0, _MM_FROUND_NO_EXC);
+    auto fp16_b1 = _mm512_cvtps_ph(b1, _MM_FROUND_NO_EXC);
+    auto fp16_b2 = _mm512_cvtps_ph(b2, _MM_FROUND_NO_EXC);
+    auto fp16_b3 = _mm512_cvtps_ph(b3, _MM_FROUND_NO_EXC);
+    auto fp16_512_b0 = _mm512_zextsi256_si512(fp16_b0);
+    auto fp16_512_b1 = _mm512_zextsi256_si512(fp16_b1);
+    auto fp16_512_b2 = _mm512_zextsi256_si512(fp16_b2);
+    auto fp16_512_b3 = _mm512_zextsi256_si512(fp16_b3);
+    auto bias32_0 = _mm512_castsi512_ph(_mm512_shuffle_i64x2(fp16_512_b0, fp16_512_b1, _MM_SHUFFLE(1, 0, 1, 0)));
+    auto bias32_1 = _mm512_castsi512_ph(_mm512_shuffle_i64x2(fp16_512_b2, fp16_512_b3, _MM_SHUFFLE(1, 0, 1, 0)));
+
+    auto C_ = reinterpret_cast<int8_t (*)[16 * ldc]>(C);
+    #pragma unroll (row_tile)
+    for (int t = 0; t < row_tile; ++ t) {
+
+      #pragma unroll (8)
+      for (int i = 0; i < 16; i += 2) {
+        auto i00 = _mm512_load_epi32(s_0_[t][0][i]);
+        auto i01 = _mm512_load_epi32(s_0_[t][0][i + 1]);
+
+        auto i10 = _mm512_load_epi32(s_0_[t][1][i]);
+        auto i11 = _mm512_load_epi32(s_0_[t][1][i + 1]);
+
+        auto i20 = _mm512_load_epi32(s_1_[t][0][i]);
+        auto i21 = _mm512_load_epi32(s_1_[t][0][i + 1]);
+
+        auto i30 = _mm512_load_epi32(s_1_[t][1][i]);
+        auto i31 = _mm512_load_epi32(s_1_[t][1][i + 1]);
+
+        // TODO: bias and another scale
+        auto f0 = _mm512_concat_cvtepi32_ph(i00, i10) + bias32_0;
+        auto f1 = _mm512_concat_cvtepi32_ph(i20, i30) + bias32_1;
+        auto f2 = _mm512_concat_cvtepi32_ph(i01, i11) + bias32_0;
+        auto f3 = _mm512_concat_cvtepi32_ph(i21, i31) + bias32_1;
+
+        if (post_op) {
+          auto o0 = _mm512_scale_minmax_gelu_i8_ps(f0, scale_, o_scale_);
+          auto o1 = _mm512_scale_minmax_gelu_i8_ps(f1, scale_, o_scale_);
+          auto o2 = _mm512_scale_minmax_gelu_i8_ps(f2, scale_, o_scale_);
+          auto o3 = _mm512_scale_minmax_gelu_i8_ps(f3, scale_, o_scale_);
+
+          // every 16 got output
+          io_policy::_mm512_coalescing_packs_store(C_[t], ldc, i, o0, o1, o2, o3);
+        } else {
+          auto o0 = _mm512_scale_minmax_i8_ph(f0, scale_);
+          auto o1 = _mm512_scale_minmax_i8_ph(f1, scale_);
+          auto o2 = _mm512_scale_minmax_i8_ph(f2, scale_);
+          auto o3 = _mm512_scale_minmax_i8_ph(f3, scale_);
+
+          // every 16 got output
+          io_policy::_mm512_coalescing_packs_store_epi16(C_[t], ldc, i, o0, o1, o2, o3);
         }
         
       }

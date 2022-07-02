@@ -128,7 +128,7 @@ at::Tensor i_residual_layernorm_ (
     auto* pb = reinterpret_cast<float *>(b);
     auto* pout = reinterpret_cast<int8_t (*)[reduce_l]>(out);
 
-    i_residual_layernorm_tpp<16>::ref(
+    i_residual_layernorm_tpp<32>::ref_fp16(
         pout[i], psrc1[i], psrc2[i],
         pw, pb, scale_1.toFloat(), scale_2.toFloat(),
         oscale.toFloat(), reduce_l, eps.value_or(1e-12).toFloat(), _o_off);
