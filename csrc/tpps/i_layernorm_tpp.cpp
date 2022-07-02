@@ -1,4 +1,5 @@
 #include <cstdlib>
+#include <float.h>
 
 #include "i_layernorm_tpp.hpp"
 #include "el_common_intrin.hpp"
@@ -296,7 +297,8 @@ void i_residual_layernorm_tpp<32>::ref_fp16(int8_t *out, int8_t *src1, int8_t *s
     auto gamma = w * r_vvar;
     auto o = (f - vmean) * gamma + b;
     auto i = _mm512_scale_minmax_i8_ph(o, voscale);
-    _mm512_mask_cvtepi16_storeu_epi8_compensate(&pout[d], 0xffffffff, i, vo_off);
+    // _mm512_mask_cvtepi16_storeu_epi8_compensate(&pout[d], 0xffffffff, i, vo_off);
+    _mm512_mask_cvtepi16_storeu_epi8(&pout[d], 0xffffffff, i);
   }
 
   if (d < rl) {
@@ -316,7 +318,8 @@ void i_residual_layernorm_tpp<32>::ref_fp16(int8_t *out, int8_t *src1, int8_t *s
     auto gamma = w * r_vvar;
     auto o = (f - vmean) * gamma + b;
     auto i = _mm512_scale_minmax_i8_ph(o, voscale);
-    _mm512_mask_cvtepi16_storeu_epi8_compensate(&pout[d], k, i, vo_off);
+    // _mm512_mask_cvtepi16_storeu_epi8_compensate(&pout[d], k, i, vo_off);
+    _mm512_mask_cvtepi16_storeu_epi8(&pout[d], 0xffffffff, i);
   }
 }
 

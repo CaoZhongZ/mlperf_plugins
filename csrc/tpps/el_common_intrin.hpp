@@ -334,8 +334,8 @@ inline static __m512 _mm512_mean_reduce_ps(__m512 v, int64_t N) {
 
 inline static __m512 _mm512_mean_reduce_ph(__m512h v, int64_t N) {
   auto rN = _mm512_set1_ph(1. / N);
-  auto vsum = _mm512_add_reduce_ph(v);
-  return vsum * rN;
+  // auto vsum = _mm512_add_reduce_ph(v);
+  return _mm512_add_reduce_ph(v * rN);
 }
 
 static inline __m256 snd_order_poly_exp(__m256 z, __m256 f, const float c[]) {
