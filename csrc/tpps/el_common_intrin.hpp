@@ -123,12 +123,12 @@ static inline void _mm512_mask_cvtepi32_storeu_epi8_compensate(void *base_addr,
 }
 
 static inline void _mm512_mask_cvtepi16_storeu_epi8_compensate(void *base_addr,
-                                                               __mmask16 k,
+                                                               __mmask32 k,
                                                                __m512i x,
-                                                               __m128i off) {
-  auto z = _mm512_cvtepi32_epi8(x);
+                                                               __m256i off) {
+  auto z = _mm512_cvtepi16_epi8(x);
   auto o = z ^ off;
-  _mm_mask_storeu_epi8(base_addr, k, o);
+  _mm256_mask_storeu_epi8(base_addr, k, o);
 }
 
 static inline __m256 _mm256_max_reduce_ps(__m256 v) {
@@ -183,7 +183,7 @@ static inline __m512 _mm512_add_reduce_ps(__m512 v) {
   return m4;
 }
 
-static inline __m512 _mm512_add_reduce_ph(__m512h v) {
+static inline __m512h _mm512_add_reduce_ph(__m512h v) {
   /*
   do add reduce half pricision
   */
@@ -204,8 +204,8 @@ static inline __m512 _mm512_add_reduce_ph(__m512h v) {
   auto perm3 = _mm512_shuffle_f32x4(m3ps, m3ps, _MM_SHUFFLE(2, 3, 0, 1));
   auto m4 = m3 + _mm512_castps_ph(perm3);
   auto m4ps = _mm512_castph_ps(m4);
-  
-  auto perm4 = _mm512_shuffle_f32x4(m4ps, m4ps, _MM_SHUFFLE(2, 3, 0, 1));
+
+  auto perm4 = _mm512_shuffle_f32x4(m4ps, m4ps, _MM_SHUFFLE(1, 0, 3, 2));
   auto m5 = m4 + _mm512_castps_ph(perm4);
   return m5;
 }
