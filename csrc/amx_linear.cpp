@@ -9,6 +9,7 @@
 #include "amx_linear.hpp"
 #include "i_linear_tpp.hpp"
 #include "amx_config.hpp"
+#include "amx_init.hpp"
 
 namespace intel_mlperf {
 
@@ -49,6 +50,8 @@ at::Tensor amx_linear(
   auto weight_data_ptr = weight.data_ptr();
   auto output_data_ptr = output.data_ptr();
   auto bias_data_ptr = bias.data_ptr();
+
+  bool flag = amx_init::amx_init();
   
   // 4 loop
   // or only omp parallel 
