@@ -226,7 +226,7 @@ void i_residual_layernorm_tpp<16>::ref(int8_t *out, int8_t *src1, int8_t *src2,
 
 template <>
 void i_residual_layernorm_tpp<32>::ref_fp16(int8_t *out, int8_t *src1, int8_t *src2,
-                                            float *weight, float *bias, float s1,
+                                            _Float16 *weight, _Float16 *bias, float s1,
                                             float s2, float oscale, int64_t rl,
                                             float eps, int8_t o_off) {
   auto *pin1 = reinterpret_cast<int8_t *>(src1);
@@ -286,13 +286,8 @@ void i_residual_layernorm_tpp<32>::ref_fp16(int8_t *out, int8_t *src1, int8_t *s
   for (d = 0; d < rl / 32 * 32; d += 32) {
     auto f = _mm512_load_ph(&f_saved[d]);
     // TODO: weight should be fp16?
-    auto w1 = _mm512_loadu_ps(&weight[d]);
-    auto w2 = _mm512_loadu_ps(&weight[d + 16]);
-    auto w = _mm512_concat_cvteps_ph(w1, w2);
-
-    auto b1 = _mm512_loadu_ps(&bias[d]);
-    auto b2 = _mm512_loadu_ps(&bias[d + 16]);
-    auto b = _mm512_concat_cvteps_ph(b1, b2);
+    auto w = _mm512_loadu_ph(&weight[d]);
+    auto b = _mm512_loadu_ph(&bias[d]);
 
     auto gamma = w * r_vvar;
     auto o = (f - vmean) * gamma + b;

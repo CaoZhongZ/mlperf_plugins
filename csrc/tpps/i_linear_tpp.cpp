@@ -9,7 +9,7 @@ namespace intel_mlperf {
 
 template <int row_tile, int col_tile>
 void i_linear::compute_block(void* C, size_t ldc, void* A, void* B, float* bias, float scale, bool post_op, float o_scale) {
-  _tile_dot_product_16x256<row_tile, col_tile, io_policy<col_tile, i_format::plain>>::compute(C, ldc, A, B, bias, scale, post_op, o_scale);  
+  _tile_dot_product_16x256<row_tile, col_tile, io_policy<col_tile, i_format::plain>>::compute_fp16(C, ldc, A, B, (_Float16*)bias, scale, post_op, o_scale);  
 }
 
 const i_linear::compute_block_t i_linear::compute_block_tbl_ [3][2] = {

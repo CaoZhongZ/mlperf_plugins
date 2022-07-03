@@ -73,11 +73,37 @@ static inline __m512 _mm512_mlperf_erf_ps(__m512 x) {
   return _mm512_castsi512_ps(z);
 }
 
+static inline __m512h _mm512_mlperf_erf_ph(__m512h x) {
+  auto a = _mm512_set1_ph(-0.2888f);
+  auto b = _mm512_set1_ph(1.0217744f);
+  auto c = _mm512_set1_ph(0.0962405432f);
+
+  auto nb = _mm512_set1_ph(1.769f);
+  auto m = _mm512_set1_epi16(0x8000);
+
+  auto ix = _mm512_castph_si512(x);
+  auto s = _mm512_and_si512(m, ix);
+  auto abs = _mm512_abs_ph(x);
+
+  auto v = _mm512_min_ph(abs, nb);
+  auto y = (a * v + b) * v + c;
+  auto z = _mm512_or_si512(_mm512_castph_si512(y), s);
+
+  return _mm512_castsi512_ph(z);
+}
+
 static inline __m512 _mm512_gelu_ps(__m512 x) {
   auto rsqrt_2 = _mm512_set1_ps(0.70710678);
   auto y = _mm512_mlperf_erf_ps(x * rsqrt_2) + _mm512_set1_ps(1);
 
   return x * _mm512_set1_ps(0.5f) * y;
+}
+
+static inline __m512h _mm512_gelu_ph(__m512h x) {
+  auto rsqrt_2 = _mm512_set1_ph(0.70710678);
+  auto y = _mm512_mlperf_erf_ph(x * rsqrt_2) + _mm512_set1_ph(1);
+
+  return x * _mm512_set1_ph(0.5f) * y;
 }
 
 static inline __m512i _mm512_scale_minmax_gelu_i8_ps(__m512 x, __m512 vS, __m512 vS2) {
@@ -91,6 +117,19 @@ static inline __m512i _mm512_scale_minmax_gelu_i8_ps(__m512 x, __m512 vS, __m512
   auto c1 = _mm512_min_ps(m, max);
   auto c2 = _mm512_max_ps(c1, min);
   return _mm512_cvtps_epi32(c2);
+}
+
+static inline __m512i _mm512_scale_minmax_gelu_i8_ph(__m512h x, __m512h vS, __m512h vS2) {
+  auto max = _mm512_set1_ph(127.f);
+  auto min = _mm512_set1_ph(-127.f);
+
+  auto r = x * vS;
+  auto g = _mm512_gelu_ph(r);
+  auto m = _mm512_roundscale_ph(g * vS2, _MM_FROUND_TO_NEAREST_INT);
+
+  auto c1 = _mm512_min_ph(m, max);
+  auto c2 = _mm512_max_ph(c1, min);
+  return _mm512_cvtph_epi16(c2);
 }
 
 static inline __m512i _mm512_scale_minmax_i8_ps(__m512 x, __m512 vS) {
