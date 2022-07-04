@@ -266,8 +266,8 @@ struct _tile_dot_product_16x256<1, col_tile, io_policy> {
     quant_out(C, ldc, scratch_0, scratch_1, bias, scale, post_op, o_scale);
   }
 
-  inline static void compute_fp16(void *C, size_t ldc, void *A, void *B, _Float16 *bias, float scale, 
-                             bool post_op = false, float o_scale = 1.0) {
+  inline static void compute_fp16(void *C, size_t ldc, void *A, void *B, _Float16 *bias, 
+                                  float scale, bool post_op = false, float o_scale = 1.0) {
     alignas (64) int scratch_0[row_tile][2][16][16];
     alignas (64) int scratch_1[row_tile][2][16][16];
 
@@ -1126,6 +1126,38 @@ public:
 
   typedef void (i_linear::* compute_block_t) (
       void*, size_t, void*, void*, float*, float, bool, float);
+  static const compute_block_t compute_block_tbl_ [3][2];
+protected:
+  
+  // using compute_block_t = void (*)(void*, size_t, void*, void*, float*, float);
+
+  size_t sl_;
+  size_t ic_;
+  size_t oc_;
+  bool has_bias_;
+  bool post_op_;
+
+  // output division
+  size_t cols_in_tile_;
+};
+
+class i_linear_fp16 {
+public:
+  i_linear_fp16(size_t sequence_length, size_t input_feature, size_t output_feature, bool bias, bool post_op)
+      : sl_(sequence_length), ic_(input_feature), oc_(output_feature), has_bias_(bias), post_op_(post_op) {
+        cols_in_tile_ = input_feature / 64;
+  }
+
+  template <int row_tile, int col_tile>
+  void compute_block(void* C, size_t ldc, void* A, void* B, _Float16* bias, float scale, bool post_op = false, float o_scale = 1.0);
+  void tile_dot_product_16x256(void *C, void *A, void *B, _Float16 *bias, float scale, float o_scale, 
+                               const size_t sl, const size_t col_step, size_t cur_id=0, size_t total_chunks=1);
+
+  void tile_dot_product_16x256_shortage(void *C, void *A, void *B, _Float16 *bias, float scale, float o_scale, 
+                                        const size_t sl, const size_t col_step, size_t cur_id=0, size_t total_chunks=1);
+  
+  typedef void (i_linear_fp16::* compute_block_t) (
+      void*, size_t, void*, void*, _Float16*, float, bool, float);
   static const compute_block_t compute_block_tbl_ [3][2];
 protected:
   
