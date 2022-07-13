@@ -3,5 +3,10 @@ __pycache__
 csrc/*.bk
 csrc/tpps/*.bk
 csrc/tpps/*.a
-csrc/tpps/main
-
+csrc/tpps/xxx.exe
+csrc/tpps/*.log
+csrc/tpps/*.o
+csrc/tpps/perf.data
+csrc/tpps/perf.data.old
+csrc/tpps/r000macc
+csrc/tpps/r001hpc

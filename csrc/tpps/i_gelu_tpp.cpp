@@ -4,32 +4,6 @@
 
 namespace intel_mlperf {
 
-static inline __m512 _mm512_erf_ps(__m512 x) {
-  auto a = _mm512_set1_ps(-0.2888f);
-  auto b = _mm512_set1_ps(1.0217744f);
-  auto c = _mm512_set1_ps(0.0962405432f);
-
-  auto nb = _mm512_set1_ps(1.769f);
-  auto m = _mm512_set1_epi32(0x80000000);
-
-  auto ix = _mm512_castps_si512(x);
-  auto s = _mm512_and_epi32(m, ix);
-  auto abs = _mm512_abs_ps(x);
-
-  auto v = _mm512_min_ps(abs, nb);
-  auto y = (a * v + b) * v + c;
-  auto z = _mm512_or_epi32(_mm512_castps_si512(y), s);
-
-  return _mm512_castsi512_ps(z);
-}
-
-static inline __m512 _mm512_gelu_ps(__m512 x) {
-  auto rsqrt_2 = _mm512_set1_ps(0.70710678);
-  auto y = _mm512_erf_ps(x * rsqrt_2) + _mm512_set1_ps(1);
-
-  return x * _mm512_set1_ps(0.5f) * y;
-}
-
 // Cover only to N [1, 16]
 // User's responsibility for tail access
 //

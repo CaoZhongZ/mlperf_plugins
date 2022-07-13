@@ -1,15 +1,33 @@
-CXX=icpc
-CXXFLAGS=-fPIC -fopenmp -xHOST -fma -O3 -std=c++14 -Wall -Dusercp
+# CXX=icpc
+# CXXFLAGS=-fPIC -fopenmp -xHOST -fma -O3 -std=c++14 -Wall -Dusercp
 
-kernels=i_gelu_tpp.cpp i_layernorm_tpp.cpp i_mha_tpp.cpp i_softmax_tpp.cpp i_gelu_tpp.hpp \
-				i_layernorm_tpp.hpp i_mha_tpp.hpp  i_softmax_tpp.hpp
+CXX = g++
+CXXFLAGS = -fPIC -fopenmp -march=native -mfma -O3 -std=c++14 -Wall -Dusercp
 
-all : libtpps.a
+INCLUDES = -I/home/baodi/anaconda3/envs/bert_inf/include
+LFLAGS = -L/home/baodi/anaconda3/envs/bert_inf/lib
 
-libtpps.a : $(kernels:.cpp=.o)
-	ar rcs $@ $^
+SRCS = main.cpp helper.cpp amx_config.cpp i_linear_tpp.cpp
 
-main : main.cpp
+OBJS = $(SRCS:.cpp=.o)
+
+MAIN = xxx.exe
+
+.PHONY: depend clean
+
+all: $(MAIN)
+	@echo Simple compiler name xxx.exe has been compiled
+$(MAIN): $(OBJS)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -o $(MAIN) $(OBJS) $(LFLAGS)
+
+# libtpps.a : $(kernels:.cpp=.o)
+# 	ar rcs $@ $^
+
+.cpp.o:
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean :
-	rm -f *.a *.o
+	$(RM) *.o *~ $(MAIN)
+
+# depend: $(SRCS)
+# 	makedepend $(INCLUDES) $^
