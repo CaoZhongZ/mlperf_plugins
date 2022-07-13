@@ -1,3 +1,6 @@
 [submodule "onednn"]
 	path = onednn
 	url = https://github.com/CaoZhongZ/libraries.performance.math.onednn.git
+[submodule "libxsmm"]
+	path = libxsmm
+	url = https://github.com/libxsmm/libxsmm.git
