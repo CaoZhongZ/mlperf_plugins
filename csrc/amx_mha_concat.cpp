@@ -22,7 +22,7 @@ at::Tensor amx_mha_concat(const at::Tensor &qkv, const at::Tensor &att_mask,
   assert(bs == 1);
   auto sl = qkv_sizes[1];
   auto stride = qkv_sizes[2];
-  auto real_bs = att_mask.sizes()[0];
+  auto real_bs = att_mask.sizes()[0] - 1;
 
   auto qkv_block = stride / 3;
   int head_size = 64;
@@ -46,10 +46,11 @@ at::Tensor amx_mha_concat(const at::Tensor &qkv, const at::Tensor &att_mask,
 #pragma omp parallel for collapse(2)
   for (int i = 0; i < real_bs; i++) {         // batch size
     for (int j = 0; j < head_num; j++) { // head num
+      auto sl = att_mask_p[i + 1] - att_mask_p[i];
       auto att_ptr = reinterpret_cast<int8_t(*)[head_num][head_size]>(att_data_ptr);
       auto origin_ptr = reinterpret_cast<int8_t(*)[3][head_num][head_size]>(qkv_data_ptr);
-      auto cur_q_ptr = origin_ptr[i * att_mask_p[i]][0][j];
-      auto cur_a_ptr = att_ptr[i * att_mask_p[i]][j];
+      auto cur_q_ptr = origin_ptr[att_mask_p[i]][0][j];
+      auto cur_a_ptr = att_ptr[att_mask_p[i]][j];
 
       // auto total_core_num = omp_get_num_threads();
       // auto core_id = omp_get_thread_num();
@@ -59,8 +60,8 @@ at::Tensor amx_mha_concat(const at::Tensor &qkv, const at::Tensor &att_mask,
       //   printf("%d - %ld   %d - %d\n", i, bs, j, head_num);
       // }
 
-      amx_per_head(cur_q_ptr, stride, cur_a_ptr, qkv_block, att_mask_p[i], m1_,
-                   oscale_, att_mask_p[i], m2_);
+      amx_per_head(cur_q_ptr, stride, cur_a_ptr, qkv_block, sl, m1_,
+                   oscale_, sl, m2_);
     }
   }
   return attention;
