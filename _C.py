@@ -25,3 +25,4 @@ i_layernorm = torch.ops.intel_mlperf.i_layernorm
 i_residual_layernorm = torch.ops.intel_mlperf.i_residual_layernorm
 i_residual_layernorm_ = torch.ops.intel_mlperf.i_residual_layernorm_
 i_residual_layernorm_cin_ = torch.ops.intel_mlperf.i_residual_layernorm_cin_
+amx_mha = torch.ops.intel_mlperf.amx_mha

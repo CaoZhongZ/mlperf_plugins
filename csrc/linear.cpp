@@ -9,6 +9,7 @@
 #include <numeric>
 #include <immintrin.h>
 #include <unordered_map>
+#include <fstream>
 #include "cpu.hpp"
 #include "linear.hpp"
 #include "lru_cache.hpp"
@@ -219,6 +220,10 @@ at::Tensor prepack_linear_weight (
     return weight;
 
   auto w_sz = dims_from(weight.sizes());
+  // for (auto& id : w_sz)
+  // {
+  //   std::cout << id << std::endl;
+  // }
   memory::dims synthetic_input_sz {128, w_sz[1]};
   memory::dims synthetic_output_sz {128, w_sz[0]};
 
@@ -416,8 +421,8 @@ at::Tensor linear(
       {DNNL_ARG_SCRATCHPAD, m_scratch}
     });
   }
+  return output;  
 
-  return output;
 }
 
 //
