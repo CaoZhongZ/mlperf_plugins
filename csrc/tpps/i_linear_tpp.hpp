@@ -71,6 +71,20 @@ struct io_policy<col_tile, i_format::plain> {
 
     _mm512_storeu_epi8(C_[idx], p2);
   }
+
+  inline static void _mm512_coalescing_packs_store_epi16(void* C, size_t ldc, int idx, __m512i o0, __m512i o1, __m512i o2, __m512i o3) {
+    auto C_ = reinterpret_cast<int8_t (*)[ldc]>(C);
+    
+    auto _m512_idx = _mm512_set_epi64(7, 5, 3, 1, 6, 4, 2, 0);
+    auto t0 = _mm512_packs_epi16(o0, o1);
+    auto t1 = _mm512_packs_epi16(o2, o3);
+
+    auto p0 = _mm512_permutexvar_epi64(_m512_idx, t0);
+    auto p1 = _mm512_permutexvar_epi64(_m512_idx, t1);
+
+    _mm512_storeu_epi8(C_[idx], p0);
+    _mm512_storeu_epi8(C_[idx + 1], p1);
+  }
 };
 
 template <int row_tile, int col_tile, typename io_policy>
@@ -163,6 +177,68 @@ struct _tile_dot_product_16x256<1, col_tile, io_policy> {
     }
   }
 
+  inline static void quant_out_fp16(void *C, size_t ldc, void *s_0, void *s_1, _Float16 *bias, float scale, 
+                                    bool post_op, float o_scale) {
+    auto s_0_ = reinterpret_cast<int (*)[2][16][16]>(s_0);
+    auto s_1_ = reinterpret_cast<int (*)[2][16][16]>(s_1);
+
+    auto scale_ = _mm512_set1_ph(scale);
+    __m512 o_scale_;
+    if (post_op) {
+      o_scale_ = _mm512_set1_ph(o_scale);
+    }
+    // TODO: wait for model bias to fp16
+    auto bias_ = reinterpret_cast<_Float16 (*)[32]>(bias);
+
+    // TODO: when model bias is fp16, this step could be optimized
+    auto bias32_0 = _mm512_loadu_ph(bias_[0]);
+    auto bias32_1 = _mm512_loadu_ph(bias_[1]);
+
+    auto C_ = reinterpret_cast<int8_t (*)[16 * ldc]>(C);
+    #pragma unroll (row_tile)
+    for (int t = 0; t < row_tile; ++ t) {
+
+      #pragma unroll (8)
+      for (int i = 0; i < 16; i += 2) {
+        // TODO: bias and another scale
+        auto i00 = _mm512_load_epi32(s_0_[t][0][i]);
+        auto i10 = _mm512_load_epi32(s_0_[t][1][i]);
+        auto f0 = _mm512_concat_cvtepi32_ph(i00, i10) + bias32_0;
+
+        auto i20 = _mm512_load_epi32(s_1_[t][0][i]);
+        auto i30 = _mm512_load_epi32(s_1_[t][1][i]);
+        auto f1 = _mm512_concat_cvtepi32_ph(i20, i30) + bias32_1;
+        
+        auto i01 = _mm512_load_epi32(s_0_[t][0][i + 1]);
+        auto i11 = _mm512_load_epi32(s_0_[t][1][i + 1]);
+        auto f2 = _mm512_concat_cvtepi32_ph(i01, i11) + bias32_0;
+
+        auto i21 = _mm512_load_epi32(s_1_[t][0][i + 1]);
+        auto i31 = _mm512_load_epi32(s_1_[t][1][i + 1]);
+        auto f3 = _mm512_concat_cvtepi32_ph(i21, i31) + bias32_1;
+
+        if (post_op) {
+          auto o0 = _mm512_scale_minmax_gelu_i8_ph(f0, scale_, o_scale_);
+          auto o1 = _mm512_scale_minmax_gelu_i8_ph(f1, scale_, o_scale_);
+          auto o2 = _mm512_scale_minmax_gelu_i8_ph(f2, scale_, o_scale_);
+          auto o3 = _mm512_scale_minmax_gelu_i8_ph(f3, scale_, o_scale_);
+
+          // every 16 got output
+          io_policy::_mm512_coalescing_packs_store_epi16(C_[t], ldc, i, o0, o1, o2, o3);
+        } else {
+          auto o0 = _mm512_scale_minmax_i8_ph(f0, scale_);
+          auto o1 = _mm512_scale_minmax_i8_ph(f1, scale_);
+          auto o2 = _mm512_scale_minmax_i8_ph(f2, scale_);
+          auto o3 = _mm512_scale_minmax_i8_ph(f3, scale_);
+
+          // every 16 got output
+          io_policy::_mm512_coalescing_packs_store_epi16(C_[t], ldc, i, o0, o1, o2, o3);
+        }
+        
+      }
+    }
+  }
+
   inline static void compute(void *C, size_t ldc, void *A, void *B, float *bias, float scale, 
                              bool post_op = false, float o_scale = 1.0) {
     alignas (64) int scratch_0[row_tile][2][16][16];
@@ -188,6 +264,33 @@ struct _tile_dot_product_16x256<1, col_tile, io_policy> {
 
     store(scratch_1);
     quant_out(C, ldc, scratch_0, scratch_1, bias, scale, post_op, o_scale);
+  }
+
+  inline static void compute_fp16(void *C, size_t ldc, void *A, void *B, _Float16 *bias, 
+                                  float scale, bool post_op = false, float o_scale = 1.0) {
+    alignas (64) int scratch_0[row_tile][2][16][16];
+    alignas (64) int scratch_1[row_tile][2][16][16];
+
+    auto A_ = reinterpret_cast<typename io_policy::tile_array>(A);
+    auto B_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(B);
+
+    zero_accum();
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      dot_prod(A_[i], B_[0][i]);
+    }
+
+    store(scratch_0);
+    zero_accum();
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      dot_prod(A_[i], B_[2][i]);
+    }
+
+    store(scratch_1);
+    quant_out_fp16(C, ldc, scratch_0, scratch_1, bias, scale, post_op, o_scale);
   }
 };
 
@@ -243,7 +346,6 @@ struct _tile_dot_product_16x256<2, col_tile, io_policy> {
     }
     auto bias_ = reinterpret_cast<float (*)[16]>(bias);
 
-    // TODO: bias to half
     auto b0 = _mm512_loadu_ps(bias_[0]);
     auto b1 = _mm512_loadu_ps(bias_[1]);
     auto b2 = _mm512_loadu_ps(bias_[2]);
@@ -260,7 +362,6 @@ struct _tile_dot_product_16x256<2, col_tile, io_policy> {
         auto i2 = _mm512_load_epi32(s_1_[t][0][i]);
         auto i3 = _mm512_load_epi32(s_1_[t][1][i]);
 
-        // TODO: bias and another scale
         auto f0 = _mm512_cvtepi32_ps(i0) + b0;
         auto f1 = _mm512_cvtepi32_ps(i1) + b1;
         auto f2 = _mm512_cvtepi32_ps(i2) + b2;
@@ -282,6 +383,68 @@ struct _tile_dot_product_16x256<2, col_tile, io_policy> {
 
           // every 16 got output
           io_policy::_mm512_coalescing_packs_store(C_[t], ldc, i, o0, o1, o2, o3);
+        }
+        
+      }
+    }
+  }
+
+  inline static void quant_out_fp16(void *C, size_t ldc, void *s_0, void *s_1, _Float16 *bias, float scale, 
+                                    bool post_op, float o_scale) {
+    auto s_0_ = reinterpret_cast<int (*)[2][16][16]>(s_0);
+    auto s_1_ = reinterpret_cast<int (*)[2][16][16]>(s_1);
+
+    auto scale_ = _mm512_set1_ph(scale);
+    __m512h o_scale_;
+    if (post_op) {
+      o_scale_ = _mm512_set1_ph(o_scale);
+    }
+    // TODO: wait for model bias to fp16
+    auto bias_ = reinterpret_cast<_Float16 (*)[32]>(bias);
+
+    // TODO: when model bias is fp16, this step could be optimized
+    auto bias32_0 = _mm512_loadu_ph(bias_[0]);
+    auto bias32_1 = _mm512_loadu_ph(bias_[1]);
+
+    auto C_ = reinterpret_cast<int8_t (*)[16 * ldc]>(C);
+    #pragma unroll (row_tile)
+    for (int t = 0; t < row_tile; ++ t) {
+
+      #pragma unroll (8)
+      for (int i = 0; i < 16; i += 2) {
+        // TODO: bias and another scale
+        auto i00 = _mm512_load_epi32(s_0_[t][0][i]);
+        auto i10 = _mm512_load_epi32(s_0_[t][1][i]);
+        auto f0 = _mm512_concat_cvtepi32_ph(i00, i10) + bias32_0;
+
+        auto i20 = _mm512_load_epi32(s_1_[t][0][i]);
+        auto i30 = _mm512_load_epi32(s_1_[t][1][i]);
+        auto f1 = _mm512_concat_cvtepi32_ph(i20, i30) + bias32_1;
+        
+        auto i01 = _mm512_load_epi32(s_0_[t][0][i + 1]);
+        auto i11 = _mm512_load_epi32(s_0_[t][1][i + 1]);
+        auto f2 = _mm512_concat_cvtepi32_ph(i01, i11) + bias32_0;
+
+        auto i21 = _mm512_load_epi32(s_1_[t][0][i + 1]);
+        auto i31 = _mm512_load_epi32(s_1_[t][1][i + 1]);
+        auto f3 = _mm512_concat_cvtepi32_ph(i21, i31) + bias32_1;
+
+        if (post_op) {
+          auto o0 = _mm512_scale_minmax_gelu_i8_ph(f0, scale_, o_scale_);
+          auto o1 = _mm512_scale_minmax_gelu_i8_ph(f1, scale_, o_scale_);
+          auto o2 = _mm512_scale_minmax_gelu_i8_ph(f2, scale_, o_scale_);
+          auto o3 = _mm512_scale_minmax_gelu_i8_ph(f3, scale_, o_scale_);
+
+          // every 16 got output
+          io_policy::_mm512_coalescing_packs_store_epi16(C_[t], ldc, i, o0, o1, o2, o3);
+        } else {
+          auto o0 = _mm512_scale_minmax_i8_ph(f0, scale_);
+          auto o1 = _mm512_scale_minmax_i8_ph(f1, scale_);
+          auto o2 = _mm512_scale_minmax_i8_ph(f2, scale_);
+          auto o3 = _mm512_scale_minmax_i8_ph(f3, scale_);
+
+          // every 16 got output
+          io_policy::_mm512_coalescing_packs_store_epi16(C_[t], ldc, i, o0, o1, o2, o3);
         }
         
       }
@@ -313,6 +476,33 @@ struct _tile_dot_product_16x256<2, col_tile, io_policy> {
 
     store(scratch_1);
     quant_out(C, ldc, scratch_0, scratch_1, bias, scale, post_op, o_scale);
+  }
+
+  inline static void compute_fp16(void *C, size_t ldc, void *A, void *B, _Float16 *bias, 
+                                  float scale, bool post_op = false, float o_scale = 1.0) {
+    alignas (64) int scratch_0[row_tile][2][16][16];
+    alignas (64) int scratch_1[row_tile][2][16][16];
+
+    auto A_ = reinterpret_cast<typename io_policy::tile_array>(A);
+    auto B_ = reinterpret_cast<int8_t (*)[col_tile][16][64]>(B);
+
+    zero_accum();
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      dot_prod(A_[i], B_[0][i]);
+    }
+
+    store(scratch_0);
+    zero_accum();
+
+#   pragma unroll (col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      dot_prod(A_[i], B_[2][i]);
+    }
+
+    store(scratch_1);
+    quant_out_fp16(C, ldc, scratch_0, scratch_1, bias, scale, post_op, o_scale);
   }
 };
 
@@ -936,6 +1126,38 @@ public:
 
   typedef void (i_linear::* compute_block_t) (
       void*, size_t, void*, void*, float*, float, bool, float);
+  static const compute_block_t compute_block_tbl_ [3][2];
+protected:
+  
+  // using compute_block_t = void (*)(void*, size_t, void*, void*, float*, float);
+
+  size_t sl_;
+  size_t ic_;
+  size_t oc_;
+  bool has_bias_;
+  bool post_op_;
+
+  // output division
+  size_t cols_in_tile_;
+};
+
+class i_linear_fp16 {
+public:
+  i_linear_fp16(size_t sequence_length, size_t input_feature, size_t output_feature, bool bias, bool post_op)
+      : sl_(sequence_length), ic_(input_feature), oc_(output_feature), has_bias_(bias), post_op_(post_op) {
+        cols_in_tile_ = input_feature / 64;
+  }
+
+  template <int row_tile, int col_tile>
+  void compute_block(void* C, size_t ldc, void* A, void* B, _Float16* bias, float scale, bool post_op = false, float o_scale = 1.0);
+  void tile_dot_product_16x256(void *C, void *A, void *B, _Float16 *bias, float scale, float o_scale, 
+                               const size_t sl, const size_t col_step, size_t cur_id=0, size_t total_chunks=1);
+
+  void tile_dot_product_16x256_shortage(void *C, void *A, void *B, _Float16 *bias, float scale, float o_scale, 
+                                        const size_t sl, const size_t col_step, size_t cur_id=0, size_t total_chunks=1);
+  
+  typedef void (i_linear_fp16::* compute_block_t) (
+      void*, size_t, void*, void*, _Float16*, float, bool, float);
   static const compute_block_t compute_block_tbl_ [3][2];
 protected:
   

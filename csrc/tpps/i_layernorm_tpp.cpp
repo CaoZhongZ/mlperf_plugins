@@ -1,4 +1,5 @@
 #include <cstdlib>
+#include <float.h>
 
 #include "i_layernorm_tpp.hpp"
 #include "el_common_intrin.hpp"
@@ -220,6 +221,100 @@ void i_residual_layernorm_tpp<16>::ref(int8_t *out, int8_t *src1, int8_t *src2,
     auto o = (f - vmean) * gamma + b;
     auto i = _mm512_scale_minmax_i8_ps(o, voscale);
     _mm512_mask_cvtepi32_storeu_epi8_compensate(&pout[d], k, i, vo_off);
+  }
+}
+
+template <>
+void i_residual_layernorm_tpp<32>::ref_fp16(int8_t *out, int8_t *src1, int8_t *src2,
+                                            _Float16 *weight, _Float16 *bias, float s1,
+                                            float s2, float oscale, int64_t rl,
+                                            float eps, int8_t o_off) {
+  auto *pin1 = reinterpret_cast<int8_t *>(src1);
+  auto *pin2 = reinterpret_cast<int8_t *>(src2);
+
+  int64_t d;
+
+  auto vsum = _mm512_setzero_ph();
+  auto vsum2 = _mm512_setzero_ph();
+  auto vS1 = _mm512_set1_ph(s1);
+  auto vS2 = _mm512_set1_ph(s2);
+
+  auto rl_32 = (rl + 31) / 32 * 32;
+
+  alignas(64) _Float16 f_saved[rl_32];
+
+  // Pass 1
+  for (d = 0; d < rl / 32 * 32; d += 32) {
+    auto f1 = _mm512_loadu_i8_to_fp16(&pin1[d]);
+    auto f2 = _mm512_loadu_i8_to_fp16(&pin2[d]);
+
+    auto s = vS1 * f1 + vS2 * f2;
+    auto ss = s * s;
+    _mm512_store_ph(&f_saved[d], s);
+
+    vsum += s;
+    vsum2 += ss;
+  }
+
+  // Tail
+  if (d < rl) {
+    auto rem = rl - d;
+    __mmask32 k = (1 << rem) - 1;
+    auto zeros = _mm256_setzero_ph();
+    auto f1 = _mm512_mask_loadu_i8_to_fp16(zeros, k, &pin1[d]);
+    auto f2 = _mm512_mask_loadu_i8_to_fp16(zeros, k, &pin2[d]);
+
+    auto s = vS1 * f1 + vS2 * f2;
+    auto ss = s * s;
+    _mm512_store_ph(&f_saved[d], s);
+
+    vsum += s;
+    vsum2 += ss;
+  }
+
+  auto veps = _mm512_set1_ph(eps);
+
+  auto vmean = _mm512_mean_reduce_ph(vsum, rl);
+  auto vmean2 = _mm512_mean_reduce_ph(vsum2, rl);
+  auto vvar2 = vmean2 - vmean * vmean + veps;
+
+  auto r_vvar = _mm512_rsqrt_ph(vvar2);
+  auto voscale = _mm512_set1_ph(oscale);
+  auto vo_off = _mm256_set1_epi8(o_off);
+  auto *pout = reinterpret_cast<int8_t *>(out);
+  // pass 2
+  for (d = 0; d < rl / 32 * 32; d += 32) {
+    auto f = _mm512_load_ph(&f_saved[d]);
+    // TODO: weight should be fp16?
+    auto w = _mm512_loadu_ph(&weight[d]);
+    auto b = _mm512_loadu_ph(&bias[d]);
+
+    auto gamma = w * r_vvar;
+    auto o = (f - vmean) * gamma + b;
+    auto i = _mm512_scale_minmax_i8_ph(o, voscale);
+    // _mm512_mask_cvtepi16_storeu_epi8_compensate(&pout[d], 0xffffffff, i, vo_off);
+    _mm512_mask_cvtepi16_storeu_epi8(&pout[d], 0xffffffff, i);
+  }
+
+  if (d < rl) {
+    auto rem = rl - d;
+    __mmask32 k = (1 << rem) - 1;
+    auto zero = _mm512_setzero_ph();
+    auto f = _mm512_load_ph(&f_saved[d]);
+    // TODO: weight should be fp16?
+    auto w1 = _mm512_mask_loadu_ps(zero, k, &weight[d]);
+    auto w2 = _mm512_mask_loadu_ps(zero, k, &weight[d + 16]);
+    auto w = _mm512_concat_cvteps_ph(w1, w2);
+
+    auto b1 = _mm512_mask_loadu_ps(zero, k, &bias[d]);
+    auto b2 = _mm512_mask_loadu_ps(zero, k, &bias[d + 16]);
+    auto b = _mm512_concat_cvteps_ph(b1, b2);
+
+    auto gamma = w * r_vvar;
+    auto o = (f - vmean) * gamma + b;
+    auto i = _mm512_scale_minmax_i8_ph(o, voscale);
+    // _mm512_mask_cvtepi16_storeu_epi8_compensate(&pout[d], k, i, vo_off);
+    _mm512_mask_cvtepi16_storeu_epi8(&pout[d], 0xffffffff, i);
   }
 }
 

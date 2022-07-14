@@ -73,11 +73,37 @@ static inline __m512 _mm512_mlperf_erf_ps(__m512 x) {
   return _mm512_castsi512_ps(z);
 }
 
+static inline __m512h _mm512_mlperf_erf_ph(__m512h x) {
+  auto a = _mm512_set1_ph(-0.2888f);
+  auto b = _mm512_set1_ph(1.0217744f);
+  auto c = _mm512_set1_ph(0.0962405432f);
+
+  auto nb = _mm512_set1_ph(1.769f);
+  auto m = _mm512_set1_epi16(0x8000);
+
+  auto ix = _mm512_castph_si512(x);
+  auto s = _mm512_and_si512(m, ix);
+  auto abs = _mm512_abs_ph(x);
+
+  auto v = _mm512_min_ph(abs, nb);
+  auto y = (a * v + b) * v + c;
+  auto z = _mm512_or_si512(_mm512_castph_si512(y), s);
+
+  return _mm512_castsi512_ph(z);
+}
+
 static inline __m512 _mm512_gelu_ps(__m512 x) {
   auto rsqrt_2 = _mm512_set1_ps(0.70710678);
   auto y = _mm512_mlperf_erf_ps(x * rsqrt_2) + _mm512_set1_ps(1);
 
   return x * _mm512_set1_ps(0.5f) * y;
+}
+
+static inline __m512h _mm512_gelu_ph(__m512h x) {
+  auto rsqrt_2 = _mm512_set1_ph(0.70710678);
+  auto y = _mm512_mlperf_erf_ph(x * rsqrt_2) + _mm512_set1_ph(1);
+
+  return x * _mm512_set1_ph(0.5f) * y;
 }
 
 static inline __m512i _mm512_scale_minmax_gelu_i8_ps(__m512 x, __m512 vS, __m512 vS2) {
@@ -91,6 +117,19 @@ static inline __m512i _mm512_scale_minmax_gelu_i8_ps(__m512 x, __m512 vS, __m512
   auto c1 = _mm512_min_ps(m, max);
   auto c2 = _mm512_max_ps(c1, min);
   return _mm512_cvtps_epi32(c2);
+}
+
+static inline __m512i _mm512_scale_minmax_gelu_i8_ph(__m512h x, __m512h vS, __m512h vS2) {
+  auto max = _mm512_set1_ph(127.f);
+  auto min = _mm512_set1_ph(-127.f);
+
+  auto r = x * vS;
+  auto g = _mm512_gelu_ph(r);
+  auto m = _mm512_roundscale_ph(g * vS2, _MM_FROUND_TO_NEAREST_INT);
+
+  auto c1 = _mm512_min_ph(m, max);
+  auto c2 = _mm512_max_ph(c1, min);
+  return _mm512_cvtph_epi16(c2);
 }
 
 static inline __m512i _mm512_scale_minmax_i8_ps(__m512 x, __m512 vS) {
@@ -120,6 +159,15 @@ static inline void _mm512_mask_cvtepi32_storeu_epi8_compensate(void *base_addr,
   auto z = _mm512_cvtepi32_epi8(x);
   auto o = z ^ off;
   _mm_mask_storeu_epi8(base_addr, k, o);
+}
+
+static inline void _mm512_mask_cvtepi16_storeu_epi8_compensate(void *base_addr,
+                                                               __mmask32 k,
+                                                               __m512i x,
+                                                               __m256i off) {
+  auto z = _mm512_cvtepi16_epi8(x);
+  auto o = z ^ off;
+  _mm256_mask_storeu_epi8(base_addr, k, o);
 }
 
 static inline __m256 _mm256_max_reduce_ps(__m256 v) {
@@ -174,6 +222,33 @@ static inline __m512 _mm512_add_reduce_ps(__m512 v) {
   return m4;
 }
 
+static inline __m512h _mm512_add_reduce_ph(__m512h v) {
+  /*
+  do add reduce half pricision
+  */
+  auto perm_idx = _mm512_set_epi16(30, 31, 28, 29, 26, 27, 24, 25, 22, 23, 20, 21, 18, 19, 16, 17, 
+                                   14, 15, 12, 13, 10, 11, 8, 9, 6, 7, 4, 5, 2, 3, 0, 1);
+  auto perm0 = _mm512_permutexvar_ph(perm_idx, v);
+  auto m1 = v + perm0;
+  auto m1ps = _mm512_castph_ps(m1);
+  // 2 round shuffle -> 32 bits
+  auto perm1 = _mm512_permute_ps(m1ps, _MM_SHUFFLE(2, 3, 0, 1));
+  auto m2 = m1 + _mm512_castps_ph(perm1);
+  auto m2ps = _mm512_castph_ps(m2);
+  
+  auto perm2 = _mm512_permute_ps(m2ps, _MM_SHUFFLE(1, 0, 3, 2));
+  auto m3 = m2 + _mm512_castps_ph(perm2);
+  auto m3ps = _mm512_castph_ps(m3);
+  
+  auto perm3 = _mm512_shuffle_f32x4(m3ps, m3ps, _MM_SHUFFLE(2, 3, 0, 1));
+  auto m4 = m3 + _mm512_castps_ph(perm3);
+  auto m4ps = _mm512_castph_ps(m4);
+
+  auto perm4 = _mm512_shuffle_f32x4(m4ps, m4ps, _MM_SHUFFLE(1, 0, 3, 2));
+  auto m5 = m4 + _mm512_castps_ph(perm4);
+  return m5;
+}
+
 static inline __m512h _mm512_half_add_reduce_ph(__m512h v) {
   /*
   do add reduce each half separately
@@ -214,10 +289,38 @@ static inline void _mm512_cvtepi16_epi8_shuffle_storeu(void* mem_addr, int ld, _
   _mm512_mask_cvtepi16_storeu_epi8(pout[1] + 32, 0xffffffff, i3_hor);
 }
 
+static inline __m512h _mm512_concat_cvtepi32_ph(__m512i i0, __m512i i1) {
+  // shuffle again to store
+  auto i0h = _mm512_cvtepi32_ph(i0);
+  auto i1h = _mm512_cvtepi32_ph(i1);
+  // use _mm512_castph256_ph512?
+  auto i0_512h = _mm512_zextsi256_si512(_mm256_castph_si256(i0h));
+  auto i1_512h = _mm512_zextsi256_si512(_mm256_castph_si256(i1h));
+
+  return _mm512_castsi512_ph(_mm512_shuffle_i64x2(i0_512h, i1_512h, _MM_SHUFFLE(1, 0, 1, 0)));
+}
+
+static inline __m512h _mm512_concat_cvteps_ph(__m512 i0, __m512 i1) {
+  // shuffle again to store
+  auto i0h = _mm512_cvtps_ph(i0, _MM_FROUND_NO_EXC);
+  auto i1h = _mm512_cvtps_ph(i1, _MM_FROUND_NO_EXC);
+  // use _mm512_castph256_ph512?
+  auto i0_512h = _mm512_zextsi256_si512(i0h);
+  auto i1_512h = _mm512_zextsi256_si512(i1h);
+
+  return _mm512_castsi512_ph(_mm512_shuffle_i64x2(i0_512h, i1_512h, _MM_SHUFFLE(1, 0, 1, 0)));
+}
+
 inline static __m512 _mm512_loadu_i8_to_fp32(void const *mem_addr) {
   auto l = _mm_loadu_si128((__m128i *)mem_addr);
   auto i = _mm512_cvtepi8_epi32(l);
   return _mm512_cvtepi32_ps(i);
+}
+
+inline static __m512 _mm512_loadu_i8_to_fp16(void const *mem_addr) {
+  auto l = _mm256_lddqu_si256((__m256i *)mem_addr);
+  auto i = _mm512_cvtepi8_epi16(l);
+  return _mm512_cvtepi16_ph(i);
 }
 
 inline static __m512 _mm512_loadu_c8_to_fp32(void const *mem_addr) {
@@ -228,11 +331,18 @@ inline static __m512 _mm512_loadu_c8_to_fp32(void const *mem_addr) {
   return _mm512_cvtepi32_ps(i);
 }
 
-inline static __m512 _mm512_mask_loadu_i8_to_fp32(__m128i src, __mmask64 k,
+inline static __m512 _mm512_mask_loadu_i8_to_fp32(__m128i src, __mmask16 k,
                                                   void const *mem_addr) {
   auto l = _mm_mask_loadu_epi8(src, k, mem_addr);
   auto i = _mm512_cvtepi8_epi32(l);
   return _mm512_cvtepi32_ps(i);
+}
+
+inline static __m512 _mm512_mask_loadu_i8_to_fp16(__m256i src, __mmask32 k,
+                                                  void const *mem_addr) {
+  auto l = _mm256_mask_loadu_epi8(src, k, mem_addr);
+  auto i = _mm512_cvtepi8_epi16(l);
+  return _mm512_cvtepi16_ph(i);
 }
 
 inline static __m512 _mm512_mask_loadu_c8_to_fp32(__m128i src, __mmask64 k,
@@ -259,6 +369,12 @@ inline static __m512 _mm512_mean_reduce_ps(__m512 v, int64_t N) {
   auto rN = _mm512_set1_ps(1. / N);
   auto vsum = _mm512_add_reduce_ps(v);
   return vsum * rN;
+}
+
+inline static __m512 _mm512_mean_reduce_ph(__m512h v, int64_t N) {
+  auto rN = _mm512_set1_ph(1. / N);
+  // auto vsum = _mm512_add_reduce_ph(v);
+  return _mm512_add_reduce_ph(v * rN);
 }
 
 static inline __m256 snd_order_poly_exp(__m256 z, __m256 f, const float c[]) {

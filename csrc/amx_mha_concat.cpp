@@ -9,7 +9,6 @@
 #include "amx_mha.hpp"
 #include "i_mha_tpp.hpp"
 #include "amx_config.hpp"
-#include "amx_init.hpp"
 
 namespace intel_mlperf {
 
@@ -22,7 +21,7 @@ at::Tensor amx_mha_concat(const at::Tensor &qkv, const at::Tensor &att_mask, con
   assert(bs == 1);
   auto sl = qkv_sizes[1];
   auto stride = qkv_sizes[2];
-  auto real_bs = length_ids.sizes()[0] - 1;
+  auto real_bs = att_mask.sizes()[0];
 
   auto qkv_block = stride / 3;
   int head_size = 64;
@@ -42,12 +41,10 @@ at::Tensor amx_mha_concat(const at::Tensor &qkv, const at::Tensor &att_mask, con
   auto m2_ = m2.toFloat();
   auto oscale_ = oscale.toFloat();
 
-  auto flag = amx_init::amx_init();
-
 #pragma omp parallel for collapse(2)
-  for (int i = 0; i < real_bs; i++) {         // batch size
-    for (int j = 0; j < head_num; j++) { // head num
-      auto sl = length_p[i + 1] - length_p[i];
+  for (int j = 0; j < head_num; j++) { // head num
+    for (int i = 0; i < real_bs; i++) {         // batch size
+      auto sl_ = length_p[i + 1] - length_p[i];
 
       auto att_ptr = reinterpret_cast<int8_t(*)[head_num][head_size]>(att_data_ptr);
       auto origin_ptr = reinterpret_cast<int8_t(*)[3][head_num][head_size]>(qkv_data_ptr);
@@ -62,7 +59,7 @@ at::Tensor amx_mha_concat(const at::Tensor &qkv, const at::Tensor &att_mask, con
       //   printf("%d - %ld   %d - %d\n", i, bs, j, head_num);
       // }
 
-      amx_per_head(cur_q_ptr, stride, cur_a_ptr, qkv_block, sl, m1_,
+      amx_per_head(cur_q_ptr, stride, cur_a_ptr, qkv_block, sl_, m1_,
                    oscale_, att_mask_p[i], m2_);
     }
   }
