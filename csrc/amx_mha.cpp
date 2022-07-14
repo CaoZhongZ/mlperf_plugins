@@ -9,6 +9,7 @@
 #include "amx_mha.hpp"
 #include "i_mha_tpp.hpp"
 #include "amx_config.hpp"
+#include "amx_init.hpp"
 
 namespace intel_mlperf {
 
@@ -41,6 +42,7 @@ at::Tensor amx_mha(const at::Tensor &qkv, const at::Tensor &att_mask,
   auto m1_ = m1.toFloat();
   auto m2_ = m2.toFloat();
   auto oscale_ = oscale.toFloat();
+  amx_init::amx_init();
 
 #pragma omp parallel for collapse(2)
   for (int i = 0; i < bs; i++) {         // batch size

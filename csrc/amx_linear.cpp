@@ -9,6 +9,7 @@
 #include "amx_linear.hpp"
 #include "i_linear_tpp.hpp"
 #include "amx_config.hpp"
+#include "amx_init.hpp"
 
 namespace intel_mlperf {
 
@@ -55,6 +56,7 @@ at::Tensor amx_linear(
   
   // 4 loop
   // or only omp parallel 
+  amx_init::amx_init();
   switch (bias_dtype)
   {
   case (1):
