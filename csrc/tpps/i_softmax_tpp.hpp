@@ -1,4 +1,5 @@
 #pragma once
+#include <iostream>
 #include <cstdlib>
 #include <immintrin.h>
 #include "el_common_intrin.hpp"
@@ -45,11 +46,11 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_i8_amx_tile_vnni {
     auto neg_large = _mm512_set1_epi32(-500000);
     auto vscale = _mm512_set1_ps(M);
 
-    __m512 vmax[N];
+    __m512i vmax[N];
 
 #pragma unroll(N)
     for (int i = 0; i < N; ++i) {
-      vmax[i] = _mm512_setzero_ps();
+      vmax[i] = _mm512_setzero_epi32();
     }
 
     size_t d2;
@@ -57,9 +58,38 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_i8_amx_tile_vnni {
 #pragma unroll(N)
       for (int i = 0; i < N; ++i) {
         auto l = _mm512_loadu_si512(pin[d2][i]);
+        vmax[i] = _mm512_max_epi32(l, vmax[i]);
+      }
+    }
+
+    if (att_tail) {
+      __mmask16 mask = (1 << att_tail) - 1;
+#pragma unroll(N)
+      for (int i = 0; i < N; ++i) {
+        auto l = _mm512_mask_loadu_epi32(neg_large, mask, pin[d2][i]);
+        vmax[i] = _mm512_max_epi32(l, vmax[i]);
+      }
+    }
+
+    __m512 vsum[N];
+    __m512 vmaxps[N];
+
+#pragma unroll(N)
+    for (int i = 0; i < N; ++i) {
+      auto tem = _mm512_cvtepi32_ps(vmax[i]) * vscale;
+      vmaxps[i] = _mm512_max_reduce_ps(tem);
+      vsum[i] = _mm512_setzero_ps();
+    }
+
+    for (d2 = 0; d2 < att_tile; ++d2) {
+#pragma unroll(N)
+      for (int i = 0; i < N; ++i) {
+        auto l = _mm512_loadu_si512(pin[d2][i]);
         auto f = _mm512_cvtepi32_ps(l) * vscale;
-        vmax[i] = _mm512_max_ps(f, vmax[i]);
-        _mm512_storeu_ps(dout[d2][i], f);
+        auto d = f - vmaxps[i];
+        auto e = exp_ps_0_1(d);
+        _mm512_storeu_ps(dout[d2][i], e);
+        vsum[i] += e;
       }
     }
 
@@ -69,24 +99,7 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_i8_amx_tile_vnni {
       for (int i = 0; i < N; ++i) {
         auto l = _mm512_mask_loadu_epi32(neg_large, mask, pin[d2][i]);
         auto f = _mm512_cvtepi32_ps(l) * vscale;
-        vmax[i] = _mm512_max_ps(f, vmax[i]);
-        _mm512_storeu_ps(dout[d2][i], f);
-      }
-    }
-
-    __m512 vsum[N];
-
-#pragma unroll(N)
-    for (int i = 0; i < N; ++i) {
-      vmax[i] = _mm512_max_reduce_ps(vmax[i]);
-      vsum[i] = _mm512_setzero_ps();
-    }
-
-    for (d2 = 0; d2 < att_tile + (att_tail > 0); ++d2) {
-#pragma unroll(N)
-      for (int i = 0; i < N; ++i) {
-        auto f = _mm512_loadu_ps(dout[d2][i]);
-        auto d = f - vmax[i];
+        auto d = f - vmaxps[i];
         auto e = exp_ps_0_1(d);
         _mm512_storeu_ps(dout[d2][i], e);
         vsum[i] += e;
@@ -220,11 +233,251 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_i8_amx_tile_vnni {
     }
     // set other position of len_pad out of att_len to zero
     auto len_pad64_tile = len_pad64 / 64;
+    auto i0 = _mm512_setzero_si512();
     d2++;
     for ( ; d2 < len_pad64_tile; ++d2) {
 #pragma unroll(N)
       for (int i = 0; i < N; ++i) {
-        auto i0 = _mm512_setzero_si512();
+        _mm512_storeu_si512(pout[d2][i], i0);
+      }
+    }
+  }
+};
+
+template <int N = 16> struct i32_scale_attlen_softmax_scale_fp16_i8_amx_tile_vnni {
+  constexpr static size_t i_tile_w = 16;
+  constexpr static size_t i_tile_h = 16;
+  inline static void run(void *out, void *in, int32_t att_len, float M,
+                         float oscale, size_t len_pad64) {
+    auto pin = reinterpret_cast<int32_t(*)[i_tile_h][i_tile_w]>(in);
+
+    auto att_tile = att_len / i_tile_w;
+    auto att_tail = att_len - att_tile * i_tile_w;
+
+    // Scratch for max subtraction
+    alignas(64) _Float16 dout[att_tile + (att_tail > 0)][N][i_tile_w];
+
+    auto neg_large = _mm512_set1_epi32(-500000);
+    auto vscale = _mm512_set1_ps(M);
+
+    __m512i vmax[N];
+    
+
+#pragma unroll(N)
+    for (int i = 0; i < N; ++i) {
+      vmax[i] = _mm512_setzero_epi32();
+    }
+
+    size_t d2;
+    for (d2 = 0; d2 < att_tile; ++d2) {
+#pragma unroll(N)
+      for (int i = 0; i < N; ++i) {
+        auto l = _mm512_loadu_si512(pin[d2][i]);
+        vmax[i] = _mm512_max_epi32(l, vmax[i]);
+      }
+    }
+
+    if (att_tail) {
+      __mmask16 mask = (1 << att_tail) - 1;
+#pragma unroll(N)
+      for (int i = 0; i < N; ++i) {
+        auto l = _mm512_mask_loadu_epi32(neg_large, mask, pin[d2][i]);
+        vmax[i] = _mm512_max_epi32(l, vmax[i]);
+      }
+    }
+
+    __m512h vsum[N / 2];
+    __m512 vmaxps[N];
+
+#pragma unroll(N)
+    for (int i = 0; i < N; ++i) {
+      auto tem = _mm512_cvtepi32_ps(vmax[i]) * vscale;
+      vmaxps[i] = _mm512_max_reduce_ps(tem);
+    }
+
+#pragma unroll(N / 2)
+    for (int i = 0; i < N / 2; ++i) {
+      vsum[i] = _mm512_setzero_ph();
+    }
+
+    for (d2 = 0; d2 < att_tile; ++d2) {
+#pragma unroll(N)
+      for (int i = 0; i < N; i += 2) {
+        auto l1 = _mm512_loadu_si512(pin[d2][i]);
+        auto f = _mm512_cvtepi32_ps(l1) * vscale;
+        // d can be transposed to fp16
+        auto d = f - vmaxps[i];
+        // fp16d is _mm256h
+        auto fp16d1 = _mm512_cvtps_ph(d, _MM_FROUND_NO_EXC);
+
+        auto l2 = _mm512_loadu_si512(pin[d2][i + 1]);
+        f = _mm512_cvtepi32_ps(l2) * vscale;
+        d = f - vmaxps[i + 1];
+        auto fp16d2 = _mm512_cvtps_ph(d, _MM_FROUND_NO_EXC);
+
+        // cat two _m256h to _m512h
+        auto fp16_512d1 = _mm512_zextsi256_si512(fp16d1);
+        auto fp16_512d2 = _mm512_zextsi256_si512(fp16d2);
+
+        auto cat_d = _mm512_castsi512_ph(_mm512_shuffle_i64x2(fp16_512d1, fp16_512d2, _MM_SHUFFLE(1, 0, 1, 0)));
+        auto cat_e = exp_ph_0_1(cat_d);
+
+        _mm512_store_ph(dout[d2][i], cat_e);
+        vsum[i >> 1] += cat_e;
+      }
+    }
+
+    if (att_tail) {
+      __mmask16 mask = (1 << att_tail) - 1;
+#pragma unroll(N)
+      for (int i = 0; i < N; i += 2) {
+        auto l1 = _mm512_mask_loadu_epi32(neg_large, mask, pin[d2][i]);
+        auto f = _mm512_cvtepi32_ps(l1) * vscale;
+        // d can be transposed to fp16
+        auto d = f - vmaxps[i];
+        // fp16d is _mm256h
+        auto fp16d1 = _mm512_cvtps_ph(d, _MM_FROUND_NO_EXC);
+
+        auto l2 = _mm512_mask_loadu_epi32(neg_large, mask, pin[d2][i + 1]);
+        f = _mm512_cvtepi32_ps(l2) * vscale;
+        d = f - vmaxps[i + 1];
+        auto fp16d2 = _mm512_cvtps_ph(d, _MM_FROUND_NO_EXC);
+
+        // cat two _m256h to _m512h
+        auto fp16_512d1 = _mm512_zextsi256_si512(fp16d1);
+        auto fp16_512d2 = _mm512_zextsi256_si512(fp16d2);
+
+        auto cat_d = _mm512_castsi512_ph(_mm512_shuffle_i64x2(fp16_512d1, fp16_512d2, _MM_SHUFFLE(1, 0, 1, 0)));
+        auto cat_e = exp_ph_0_1(cat_d);
+
+        _mm512_store_ph(dout[d2][i], cat_e);
+        vsum[i >> 1] += cat_e;
+      }
+    }
+    
+    auto voscale = _mm512_set1_ph(oscale);
+    #pragma unroll(N / 2)
+    for (int i = 0; i < N / 2; ++i) {
+#ifdef usercp
+      vsum[i] = voscale * _mm512_rcp_ph(_mm512_half_add_reduce_ph(vsum[i]));
+#else
+      vsum[i] = voscale / _mm512_half_add_reduce_ph(vsum[i]);
+#endif
+    }
+
+    // if att_tile cannot be divided by 4?
+    auto att_tile16_in_tile64 = att_tile / 4;
+    auto att_tile16_in_tile64_tail = att_tile % 4;
+
+    auto pout = reinterpret_cast<int8_t(*)[i_tile_h][4][i_tile_w]>(out);
+
+    // Gather 4*16*16 int8_t tile into 16*64 tile
+    for (d2 = 0; d2 < att_tile16_in_tile64; ++d2) {
+    // TODO: N i += 2
+#pragma unroll(N)
+      for (int i = 0; i < N; i += 2) {
+        auto l0 = _mm512_loadu_ph(dout[d2*4][i]);
+        auto i0 = _mm512_scale_minmax_i8_ph(l0, vsum[i >> 1]);
+
+        auto l1 = _mm512_loadu_ph(dout[d2*4+1][i]);
+        auto i1 = _mm512_scale_minmax_i8_ph(l1, vsum[i >> 1]);
+
+        auto l2 = _mm512_loadu_ph(dout[d2*4+2][i]);
+        auto i2 = _mm512_scale_minmax_i8_ph(l2, vsum[i >> 1]);
+
+        auto l3 = _mm512_loadu_ph(dout[d2*4+3][i]);
+        auto i3 = _mm512_scale_minmax_i8_ph(l3, vsum[i >> 1]);
+
+        _mm512_cvtepi16_epi8_shuffle_storeu(pout[d2][i], 4 * i_tile_w, i0, i1, i2, i3);
+      }
+    }
+    // Tail process
+    switch (att_tile16_in_tile64_tail) {
+    case 1:
+#pragma unroll(N)
+      for (int i = 0; i < N; i += 2) {
+        auto l0 = _mm512_loadu_ph(dout[d2*4][i]);
+        auto i0 = _mm512_scale_minmax_i8_ph(l0, vsum[i >> 1]);
+        
+        __m512i i1;
+        if (att_tail) {
+          auto l1 = _mm512_loadu_ph(dout[d2*4+1][i]);
+          i1 = _mm512_scale_minmax_i8_ph(l1, vsum[i >> 1]);
+        } else {
+          i1 = _mm512_setzero_si512();
+        }
+
+        auto i2 = _mm512_setzero_si512();
+        auto i3 = _mm512_setzero_si512();
+
+        _mm512_cvtepi16_epi8_shuffle_storeu(pout[d2][i], 4 * i_tile_w, i0, i1, i2, i3);
+      }
+      break;
+    case 2:
+#pragma unroll(N)
+      for (int i = 0; i < N; i += 2) {
+        auto l0 = _mm512_loadu_ph(dout[d2*4][i]);
+        auto i0 = _mm512_scale_minmax_i8_ph(l0, vsum[i >> 1]);
+        auto l1 = _mm512_loadu_ph(dout[d2*4+1][i]);
+        auto i1 = _mm512_scale_minmax_i8_ph(l1, vsum[i >> 1]);
+
+        __m512i i2;
+        if (att_tail) {
+          auto l2 = _mm512_loadu_ph(dout[d2*4+2][i]);
+          i2 = _mm512_scale_minmax_i8_ph(l2, vsum[i >> 1]);
+        } else {
+          i2 = _mm512_setzero_si512();
+        }
+        auto i3 = _mm512_setzero_si512();
+        _mm512_cvtepi16_epi8_shuffle_storeu(pout[d2][i], 4 * i_tile_w, i0, i1, i2, i3);
+      }
+      break;
+    case 3:
+#pragma unroll(N)
+      for (int i = 0; i < N; i += 2) {
+        auto l0 = _mm512_loadu_ph(dout[d2*4][i]);
+        auto i0 = _mm512_scale_minmax_i8_ph(l0, vsum[i >> 1]);
+        auto l1 = _mm512_loadu_ph(dout[d2*4+1][i]);
+        auto i1 = _mm512_scale_minmax_i8_ph(l1, vsum[i >> 1]);
+        auto l2 = _mm512_loadu_ph(dout[d2*4+2][i]);
+        auto i2 = _mm512_scale_minmax_i8_ph(l2, vsum[i >> 1]);
+
+        __m512i i3;
+        if (att_tail) {
+          auto l3 = _mm512_loadu_ph(dout[d2*4+3][i]);
+          i3 = _mm512_scale_minmax_i8_ph(l3, vsum[i >> 1]);
+        } else {
+          i3 = _mm512_setzero_si512();
+        }
+        _mm512_cvtepi16_epi8_shuffle_storeu(pout[d2][i], 4 * i_tile_w, i0, i1, i2, i3);
+      }
+      break;
+    default:
+#pragma unroll(N)
+      for (int i = 0; i < N; i += 2) {
+        __m512i i0;
+        if (att_tail) {
+          auto l0 = _mm512_loadu_ph(dout[d2*4][i]);
+          i0 = _mm512_scale_minmax_i8_ph(l0, vsum[i >> 1]);
+        } else {
+          i0 = _mm512_setzero_si512();
+        }
+
+        auto i1 = _mm512_setzero_si512();
+        auto i2 = _mm512_setzero_si512();
+        auto i3 = _mm512_setzero_si512();
+
+        _mm512_cvtepi16_epi8_shuffle_storeu(pout[d2][i], 4 * i_tile_w, i0, i1, i2, i3);
+      }
+      break;
+    }
+    // set other position of len_pad out of att_len to zero
+    auto len_pad64_tile = len_pad64 / 64;
+    auto i0 = _mm512_setzero_si512();
+    d2++;
+    for ( ; d2 < len_pad64_tile; ++d2) {
+#pragma unroll(N)
+      for (int i = 0; i < N; ++i) {
         _mm512_storeu_si512(pout[d2][i], i0);
       }
     }

@@ -36,56 +36,79 @@ at::Tensor amx_linear(
                           at::TensorOptions().dtype<int8_t>().memory_format(
                           c10::MemoryFormat::Contiguous));
 
-  auto amx_flag = amx_init();
-  if (!amx_flag) {
-    return output;
-  }
 
-  auto input_ = reinterpret_cast<int8_t (*)[hidden_size]>(input.data_ptr());
-  auto weight_ = reinterpret_cast<int8_t (*)[4][col_tile][16][64]>(weight.data_ptr());
-  auto output_ = reinterpret_cast<int8_t (*)[col_step][64]>(output.data_ptr());
-  auto bias_ = reinterpret_cast<float (*)[64]>(bias.data_ptr());
   auto scale_ = scale.toFloat();
   float o_scale_ = post_op ? o_scale.toFloat() : 1.0;
 
   auto total_sl = bs * sl;
-  size_t row_tile = (total_sl + 15) / 16;
-  size_t roll_back = row_tile * 16 - total_sl;
 
-  // ic_tile
-  int col_idx = col_tile == 16 ? 0 : 1;
-  auto block_computer = i_linear(total_sl, hidden_size, col_step * 64, true, post_op);
-  auto computer_2 = block_computer.compute_block_tbl_[2][col_idx];
-  auto computer_1 = block_computer.compute_block_tbl_[1][col_idx];
+  size_t os_ = col_step * 64;
+  auto block_computer = i_linear(sl, hidden_size, os_, true, post_op);
+  auto block_computer_fp16 = i_linear_fp16(sl, hidden_size, os_, true, post_op);
 
-  // outside if
-  // outside row_tile / 2 
+  auto input_data_ptr = input.data_ptr();
+  auto weight_data_ptr = weight.data_ptr();
+  auto output_data_ptr = output.data_ptr();
+  auto bias_data_ptr = bias.data_ptr();
 
-  auto num_thread = omp_get_number_thread();
-  auto step = col_step / num_thread;
-# pragma omp parallel for collapse(3)
-  for (size_t j = 0; j < row_tile / 2; j++) {
-    for (size_t i = 0; i < step; i++) {
-      for (size_t k = 0; k < num_thread; ++k) {
-        auto cid = omp_getthreadnum();
-        auto start_weight_idx = i * num_thread + k + cid;
-      }
-      
-      if (row_tile % 2 == 0) {
-        int cur_pos = (j == row_tile / 2 - 1) ? j * 32 - roll_back : j * 32;
-        (block_computer.*computer_2)(output_[cur_pos][i], col_step * 64, input_[cur_pos], weight_[i], bias_[i], scale_, post_op, o_scale_);
+  int bias_dtype = bias.options().dtype().name() == "c10::Half" ? 1 : 0;
+  
+  // 4 loop
+  // or only omp parallel 
+  switch (bias_dtype)
+  {
+  case (1):
+    # pragma omp parallel 
+    {
+      auto input_ = reinterpret_cast<int8_t (*)[hidden_size]>(input_data_ptr);
+      auto weight_ = reinterpret_cast<int8_t (*)[4][col_tile][16][64]>(weight_data_ptr);
+      auto output_ = reinterpret_cast<int8_t (*)[col_step][64]>(output_data_ptr);
+      auto bias_ = reinterpret_cast<_Float16 (*)>(bias_data_ptr);
+      Tilecfg().set_config();
+      auto total_core_num = omp_get_num_threads();
+      auto core_id = omp_get_thread_num();
+      // printf("------------ core_id : %d / %d\n", core_id, total_core_num);
+      size_t start_ = total_sl * core_id / total_core_num;
+      size_t chunk_sl_ = (total_sl * core_id + total_sl) / total_core_num - start_;
+      size_t minimum_sl = 32 * total_core_num;
+
+      // block_computer.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, o_scale_, total_sl, col_step, core_id, total_core_num);  
+      if (total_sl < minimum_sl) {
+        block_computer_fp16.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, o_scale_, total_sl, col_step, core_id, total_core_num);  
       } else {
-        int cur_pos = j * 32;
-        (block_computer.*computer_2)(output_[cur_pos][i], col_step * 64, input_[cur_pos], weight_[i], bias_[i], scale_, post_op, o_scale_);
-        if (j == row_tile / 2 - 1) {
-          cur_pos += 32 - roll_back;
-          (block_computer.*computer_1)(output_[cur_pos][i], col_step * 64, input_[cur_pos], weight_[i], bias_[i], scale_, post_op, o_scale_);
-        }
+        block_computer_fp16.tile_dot_product_16x256(output_[start_], input_[start_], weight_, bias_, scale_, o_scale_, chunk_sl_, col_step, core_id, total_core_num);
       }
+      Tilecfg().release_config();
     }
-  }
+    break;
+  default:
+    # pragma omp parallel 
+    {
+      auto input_ = reinterpret_cast<int8_t (*)[hidden_size]>(input_data_ptr);
+      auto weight_ = reinterpret_cast<int8_t (*)[4][col_tile][16][64]>(weight_data_ptr);
+      auto output_ = reinterpret_cast<int8_t (*)[col_step][64]>(output_data_ptr);
+      auto bias_ = reinterpret_cast<float (*)>(bias_data_ptr);
+      Tilecfg().set_config();
+      auto total_core_num = omp_get_num_threads();
+      auto core_id = omp_get_thread_num();
+      // printf("------------ core_id : %d / %d\n", core_id, total_core_num);
+      size_t start_ = total_sl * core_id / total_core_num;
+      size_t chunk_sl_ = (total_sl * core_id + total_sl) / total_core_num - start_;
+      size_t minimum_sl = 32 * total_core_num;
 
+      // block_computer.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, o_scale_, total_sl, col_step, core_id, total_core_num);  
+      if (total_sl < minimum_sl) {
+        block_computer.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, o_scale_, total_sl, col_step, core_id, total_core_num);  
+      }
+      else {
+        block_computer.tile_dot_product_16x256(output_[start_], input_[start_], weight_, bias_, scale_, o_scale_, chunk_sl_, col_step, core_id, total_core_num);
+      }
+      Tilecfg().release_config();
+    }
+    break;
+  }
   return output;
 }
 
 }
+

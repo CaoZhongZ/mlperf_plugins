@@ -1,3 +1,5 @@
+#pragma once
+
 #include <immintrin.h>
 
 template <int dst> inline void __tile_loadd(void* src, int stride);

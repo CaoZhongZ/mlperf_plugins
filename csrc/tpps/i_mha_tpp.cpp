@@ -160,10 +160,10 @@ template <int row_tile, int col_tile> struct qk_gemm_impl {
     auto c_len_pad64 = c_int8_p64_ctile * 64;
     auto c_int8_ = reinterpret_cast<int8_t (*)[c_int8_p64_ctile][16][64]>(c_int8);
 
-    i32_scale_attlen_softmax_scale_i8_amx_tile_vnni<16>::run(c_int8_[0], c_[0], len, M, oscale, c_len_pad64);
+    i32_scale_attlen_softmax_scale_fp16_i8_amx_tile_vnni<16>::run(c_int8_[0], c_[0], len, M, oscale, c_len_pad64);
 
     if (row_tile == 2) {
-      i32_scale_attlen_softmax_scale_i8_amx_tile_vnni<16>::run(c_int8_[1], c_[1], len, M, oscale, c_len_pad64);
+      i32_scale_attlen_softmax_scale_fp16_i8_amx_tile_vnni<16>::run(c_int8_[1], c_[1], len, M, oscale, c_len_pad64);
     }
   }
 };
@@ -248,6 +248,7 @@ template <int n_tile, int k_step> struct av_gemm_impl {
       loadb(b_[0][i], ldb);
       dot_prod();
     }
+    // quant only one step done
     store_quant(&c_[0][0], ldc, overlap, m2);
     zero_accum();
 
