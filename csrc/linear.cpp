@@ -368,7 +368,7 @@ at::Tensor linear(
     /* TODO: adjust weight md according to padded input */
     auto weight_md = md_from(weight, _src_sz);
     auto bias_md = bias ? md_from(bias.value()) : memory::desc();
-    memory::desc dst_md(_dst_sz, scale ? dt::s8 : dt::s32, tag::ab);
+    memory::desc dst_md(_dst_sz, scale ? dt::f32 : dt::s32, tag::ab);
 
     // Singnaling skip compensation in BRGEMM
     prop_kind prop = zero ? prop_kind::forward_training
@@ -411,7 +411,7 @@ at::Tensor linear(
   auto output = at::empty(
       dst_sz,
       at::TensorOptions()
-        .dtype(cast(scale ? dt::s8 : dt::s32))
+        .dtype(cast(scale ? dt::f32 : dt::s32))
         .memory_format(c10::MemoryFormat::Contiguous)
   );
 
