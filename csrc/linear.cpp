@@ -180,6 +180,30 @@ memory::desc md_from(const at::Tensor& tensor, behavior b = behavior::plain) {
   throw std::exception();
 }
 
+memory::desc md_from(const at::Tensor & weight, memory::dims src_sz, behavior b = behavior::plain) {
+  auto m_sz = dims_from(weight.sizes());
+  auto m_strides = dims_from(weight.strides());
+  auto data_type = cast(weight.scalar_type());
+
+  if (b == behavior::query) {
+    return memory::desc(m_sz, data_type, tag::any);
+  } else {
+    // Warning: Encoding conflict possible!
+    if (match_prepacked_weight_tag(m_sz) != tag::undef) {  // block
+      size_t A = 0, B = 1, a = 3, b[2] = {2,4};
+      auto dim0 = m_sz[A] * m_sz[a];
+      auto dim1 = m_sz[B] * m_sz[b[0]] * m_sz[b[1]];
+      if (src_sz[1] != dim1)  // if padded weight
+        dim1 = src_sz[1];
+      return memory::desc({dim0, dim1}, data_type, tag::any/* TODO:specify detail information */);
+    } else {
+      return memory::desc(m_sz, data_type, m_strides);
+    }
+  }
+
+  throw std::exception();
+}
+
 memory memory_from(const at::Tensor& tensor) {
   auto md = md_from(tensor);
   return memory (md, g_cpu(), tensor.data_ptr());
@@ -200,7 +224,7 @@ const memory::desc* get_scratch_md(primitive compute) {
 }
 
 memory::dims block_to_plain(memory::desc& desc) {
-  auto basic_dims = desc.dims();
+  auto basic_dims = std::vector<long>(desc.data.padded_dims, desc.data.padded_dims+desc.dims().size());
   auto &b_desc = desc.data.format_desc.blocking;
   for (int i = 0; i < b_desc.inner_nblks; ++i) {
     auto logic_dim = b_desc.inner_idxs[i];
@@ -341,8 +365,8 @@ at::Tensor linear(
   if (i_compute == cached.end()) {
     auto src_md = md_from(_input);
 
-    /* TODO: adjust weight md according to input */
-    auto weight_md = md_from(weight);
+    /* TODO: adjust weight md according to padded input */
+    auto weight_md = md_from(weight, _src_sz);
     auto bias_md = bias ? md_from(bias.value()) : memory::desc();
     memory::desc dst_md(_dst_sz, scale ? dt::s8 : dt::s32, tag::ab);
 
