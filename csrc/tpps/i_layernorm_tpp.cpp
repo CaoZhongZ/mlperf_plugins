@@ -260,7 +260,7 @@ void i_residual_layernorm_tpp<32>::ref_fp16(int8_t *out, int8_t *src1, int8_t *s
   if (d < rl) {
     auto rem = rl - d;
     __mmask32 k = (1 << rem) - 1;
-    auto zeros = _mm256_setzero_ph();
+    auto zeros = _mm256_setzero_si256();
     auto f1 = _mm512_mask_loadu_i8_to_fp16(zeros, k, &pin1[d]);
     auto f2 = _mm512_mask_loadu_i8_to_fp16(zeros, k, &pin2[d]);
 
@@ -302,16 +302,11 @@ void i_residual_layernorm_tpp<32>::ref_fp16(int8_t *out, int8_t *src1, int8_t *s
     auto zero = _mm512_setzero_ph();
     auto f = _mm512_load_ph(&f_saved[d]);
     // TODO: weight should be fp16?
-    auto w1 = _mm512_mask_loadu_ps(zero, k, &weight[d]);
-    auto w2 = _mm512_mask_loadu_ps(zero, k, &weight[d + 16]);
-    auto w = _mm512_concat_cvteps_ph(w1, w2);
+    auto w = _mm512_mask_loadu_epi16(_mm512_castph_si512(zero), k, &weight[d]);
+    auto b = _mm512_mask_loadu_epi16(_mm512_castph_si512(zero), k, &bias[d]);
 
-    auto b1 = _mm512_mask_loadu_ps(zero, k, &bias[d]);
-    auto b2 = _mm512_mask_loadu_ps(zero, k, &bias[d + 16]);
-    auto b = _mm512_concat_cvteps_ph(b1, b2);
-
-    auto gamma = w * r_vvar;
-    auto o = (f - vmean) * gamma + b;
+    auto gamma = _mm512_castsi512_ph(w) * r_vvar; 
+    auto o = (f - vmean) * gamma + _mm512_castsi512_ph(b);
     auto i = _mm512_scale_minmax_i8_ph(o, voscale);
     // _mm512_mask_cvtepi16_storeu_epi8_compensate(&pout[d], k, i, vo_off);
     _mm512_mask_cvtepi16_storeu_epi8(&pout[d], 0xffffffff, i);

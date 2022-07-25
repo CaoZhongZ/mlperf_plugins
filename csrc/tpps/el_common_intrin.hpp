@@ -43,8 +43,8 @@ public:
     _Float16 mem[32];
     _mm512_storeu_ph((void*)mem, a);
 
-    auto f_half = _mm512_cvtph_ps(_mm256_loadu_ph((void*)mem));
-    auto s_half = _mm512_cvtph_ps(_mm256_loadu_ph((void*)&mem[16]));
+    auto f_half = _mm512_cvtph_ps(_mm256_castph_si256(_mm256_loadu_ph((void*)mem)));
+    auto s_half = _mm512_cvtph_ps(_mm256_castph_si256(_mm256_loadu_ph((void*)&mem[16])));
     for (int i = 0; i < 16; ++i) {
       std::cout << f_half[i] << std::endl;
     }
@@ -317,7 +317,7 @@ inline static __m512 _mm512_loadu_i8_to_fp32(void const *mem_addr) {
   return _mm512_cvtepi32_ps(i);
 }
 
-inline static __m512 _mm512_loadu_i8_to_fp16(void const *mem_addr) {
+inline static __m512h _mm512_loadu_i8_to_fp16(void const *mem_addr) {
   auto l = _mm256_lddqu_si256((__m256i *)mem_addr);
   auto i = _mm512_cvtepi8_epi16(l);
   return _mm512_cvtepi16_ph(i);
@@ -338,7 +338,7 @@ inline static __m512 _mm512_mask_loadu_i8_to_fp32(__m128i src, __mmask16 k,
   return _mm512_cvtepi32_ps(i);
 }
 
-inline static __m512 _mm512_mask_loadu_i8_to_fp16(__m256i src, __mmask32 k,
+inline static __m512h _mm512_mask_loadu_i8_to_fp16(__m256i src, __mmask32 k,
                                                   void const *mem_addr) {
   auto l = _mm256_mask_loadu_epi8(src, k, mem_addr);
   auto i = _mm512_cvtepi8_epi16(l);
@@ -371,7 +371,7 @@ inline static __m512 _mm512_mean_reduce_ps(__m512 v, int64_t N) {
   return vsum * rN;
 }
 
-inline static __m512 _mm512_mean_reduce_ph(__m512h v, int64_t N) {
+inline static __m512h _mm512_mean_reduce_ph(__m512h v, int64_t N) {
   auto rN = _mm512_set1_ph(1. / N);
   // auto vsum = _mm512_add_reduce_ph(v);
   return _mm512_add_reduce_ph(v * rN);
