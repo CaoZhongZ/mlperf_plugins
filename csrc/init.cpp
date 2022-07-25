@@ -8,8 +8,7 @@
 #include "softmax.hpp"
 #include "activation.hpp"
 #include "normalization.hpp"
-#include "preemphasis.hpp"
-#include "frame_splicing.hpp"
+#include "lstm_postop.hpp"
 
 TORCH_LIBRARY(intel_mlperf, m) {
   m.def(
@@ -70,14 +69,17 @@ TORCH_LIBRARY(intel_mlperf, m) {
       "i_layernorm(Tensor input, Tensor weight, Tensor bias, Scalar oscale, Scalar ? eps, Scalar ? o_off) -> Tensor",
       intel_mlperf::i_layernorm);
   m.def(
-      "i_layernorm_unpad(Tensor input, Tensor weight, Tensor bias, Tensor length, Scalar ? eps, Scalar ? unbiased) -> Tensor",
-      intel_mlperf::i_layernorm_unpad);
+      "tanh(Tensor _0) -> Tensor",
+      intel_mlperf::tanh);
   m.def(
-      "preemphasis(Tensor input, Scalar ? coeff) -> Tensor",
-      intel_mlperf::preemphasis);
+      "sigmoid(Tensor _0) -> Tensor",
+      intel_mlperf::sigmoid);
   m.def(
-      "frame_splicing(Tensor input, Scalar factor) -> Tensor",
-      intel_mlperf::frame_splicing);
+      "tanh_f16(Tensor _0) -> Tensor",
+      intel_mlperf::tanh_f16);
+  m.def(
+      "lstm_postop(Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Scalar? _5, Scalar? _6, bool _7) -> Tensor[]",
+      intel_mlperf::lstm_postop);
 }
 
 namespace intel_mlperf {
