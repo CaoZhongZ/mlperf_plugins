@@ -38,10 +38,10 @@ add_subdirectory(onednn)
 # Bert Torch inference SUT
 set(tpps_src csrc/tpps/i_softmax_tpp.cpp csrc/tpps/i_gelu_tpp.cpp csrc/tpps/i_linear_tpp.cpp
   csrc/tpps/i_layernorm_tpp.cpp csrc/tpps/i_mha_tpp.cpp csrc/tpps/preemphasis_tpp.cpp
-  csrc/tpps/frame_splicing_tpp.cpp)
+  csrc/tpps/frame_splicing_tpp.cpp csrc/tpps/tanh_tpp.cpp csrc/tpps/sigmoid_tpp.cpp csrc/tpps/lstm_postop_tpp.cpp)
 set(plugin_src csrc/init.cpp csrc/amx_init.cpp csrc/linear.cpp csrc/cpu.cpp csrc/softmax.cpp
   csrc/amx_mha.cpp csrc/amx_mha_concat.cpp csrc/amx_linear.cpp csrc/activation.cpp csrc/normalization.cpp
-  csrc/preemphasis.cpp csrc/frame_splicing.cpp)
+  csrc/preemphasis.cpp csrc/frame_splicing.cpp csrc/lstm_postop)
 
 if (BUILD_TPPS_INTREE)
   list(APPEND plugin_src ${tpps_src})

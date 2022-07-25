@@ -2,6 +2,14 @@
 #include <torch/torch.h>
 
 namespace intel_mlperf {
+at::Tensor sigmoid (
+    const at::Tensor& input);
+
+at::Tensor tanh (
+    const at::Tensor& input);
+
+at::Tensor tanh_f16 (
+    const at::Tensor& input);
 
 at::Tensor i_gelu (
     const at::Tensor& input,

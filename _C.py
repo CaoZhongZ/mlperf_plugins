@@ -30,3 +30,7 @@ amx_mha = torch.ops.intel_mlperf.amx_mha
 amx_mha_concat = torch.ops.intel_mlperf.amx_mha_concat
 amx_linear = torch.ops.intel_mlperf.amx_linear
 preemphasis = torch.ops.intel_mlperf.preemphasis
+tanh = torch.ops.intel_mlperf.tanh
+sigmoid = torch.ops.intel_mlperf.sigmoid
+tanh_f16 = torch.ops.intel_mlperf.tanh_f16
+lstm_postop = torch.ops.intel_mlperf.lstm_postop
