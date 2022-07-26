@@ -8,6 +8,7 @@
 #include "softmax.hpp"
 #include "activation.hpp"
 #include "normalization.hpp"
+#include "preemphasis.hpp"
 
 TORCH_LIBRARY(intel_mlperf, m) {
   m.def(
@@ -67,6 +68,9 @@ TORCH_LIBRARY(intel_mlperf, m) {
   m.def(
       "i_layernorm(Tensor input, Tensor weight, Tensor bias, Scalar oscale, Scalar ? eps, Scalar ? o_off) -> Tensor",
       intel_mlperf::i_layernorm);
+  m.def(
+      "preemphasis(Tensor input, Scalar ? coeff) -> Tensor",
+      intel_mlperf::preemphasis);
 }
 
 namespace intel_mlperf {
