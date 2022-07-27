@@ -222,6 +222,21 @@ static inline __m512 _mm512_add_reduce_ps(__m512 v) {
   return m4;
 }
 
+static inline __m512 _mm512_add_reduce_ph_v2(__m512h v) {
+  /*
+  do add reduce use single pricision to provent overflow
+  */
+  auto half0_256h = _mm256_castps_ph(_mm512_extractf32x8_ps(_mm512_castph_ps(v), 0));
+  auto half1_256h = _mm256_castps_ph(_mm512_extractf32x8_ps(_mm512_castph_ps(v), 1));
+
+  auto half0_512s = _mm512_cvtph_ps(_mm256_castph_si256(half0_256h));
+  auto half1_512s = _mm512_cvtph_ps(_mm256_castph_si256(half1_256h));
+
+  auto r0 = _mm512_add_reduce_ps(half0_512s);
+  auto r1 = _mm512_add_reduce_ps(half1_512s);
+  return r0 + r1;
+}
+
 static inline __m512h _mm512_add_reduce_ph(__m512h v) {
   /*
   do add reduce half pricision
@@ -317,7 +332,7 @@ inline static __m512 _mm512_loadu_i8_to_fp32(void const *mem_addr) {
   return _mm512_cvtepi32_ps(i);
 }
 
-inline static __m512 _mm512_loadu_i8_to_fp16(void const *mem_addr) {
+inline static __m512h _mm512_loadu_i8_to_fp16(void const *mem_addr) {
   auto l = _mm256_lddqu_si256((__m256i *)mem_addr);
   auto i = _mm512_cvtepi8_epi16(l);
   return _mm512_cvtepi16_ph(i);
@@ -338,7 +353,7 @@ inline static __m512 _mm512_mask_loadu_i8_to_fp32(__m128i src, __mmask16 k,
   return _mm512_cvtepi32_ps(i);
 }
 
-inline static __m512 _mm512_mask_loadu_i8_to_fp16(__m256i src, __mmask32 k,
+inline static __m512h _mm512_mask_loadu_i8_to_fp16(__m256i src, __mmask32 k,
                                                   void const *mem_addr) {
   auto l = _mm256_mask_loadu_epi8(src, k, mem_addr);
   auto i = _mm512_cvtepi8_epi16(l);
