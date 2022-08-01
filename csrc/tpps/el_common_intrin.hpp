@@ -22,21 +22,24 @@ public:
 
   static void _mm512_print_epi8(__m512i a) {
     for (int i = 0; i < 64; ++i) {
-      std::cout << a[i] << std::endl;
+      std::cout << a[i] << "  ";
     }
+    std::cout << std::endl;
   }
 
   static void _mm512_print_ps(__m512 a) {
     for (int i = 0; i < 16; ++i) {
-      std::cout << a[i] << std::endl;
+      std::cout << a[i] << "  ";
     }
+    std::cout << std::endl;
   }
 
   static void _mm256_print_ph(__m256h a) {
     auto aps = _mm512_cvtph_ps(_mm256_castph_si256(a));
     for (int i = 0; i < 16; ++i) {
-      std::cout << aps[i] << std::endl;
+      std::cout << aps[i] << "  ";
     }
+    std::cout << std::endl;
   }
 
   static void _mm512_print_ph(__m512h a) {
@@ -46,11 +49,13 @@ public:
     auto f_half = _mm512_cvtph_ps(_mm256_loadu_ph((void*)mem));
     auto s_half = _mm512_cvtph_ps(_mm256_loadu_ph((void*)&mem[16]));
     for (int i = 0; i < 16; ++i) {
-      std::cout << f_half[i] << std::endl;
+      std::cout << f_half[i] << "  ";
     }
+    std::cout << std::endl;
     for (int i = 0; i < 16; ++i) {
-      std::cout << s_half[i] << std::endl;
+      std::cout << s_half[i] << "  ";
     }
+    std::cout << std::endl;
   }
 };
 

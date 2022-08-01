@@ -22,6 +22,7 @@ i_identity = torch.ops.intel_mlperf.i_identity
 i_identity_cin = torch.ops.intel_mlperf.i_identity_cin
 i_identity_ = torch.ops.intel_mlperf.i_identity_
 i_layernorm = torch.ops.intel_mlperf.i_layernorm
+i_layernorm_unpad = torch.ops.intel_mlperf.i_layernorm_unpad
 i_residual_layernorm = torch.ops.intel_mlperf.i_residual_layernorm
 i_residual_layernorm_ = torch.ops.intel_mlperf.i_residual_layernorm_
 i_residual_layernorm_cin_ = torch.ops.intel_mlperf.i_residual_layernorm_cin_

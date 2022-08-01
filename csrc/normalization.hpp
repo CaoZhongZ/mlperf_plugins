@@ -44,4 +44,12 @@ at::Tensor i_layernorm (
     const c10::optional<at::Scalar>& eps,
     const c10::optional<at::Scalar>& o_off);
 
+at::Tensor i_layernorm_unpad (
+    const at::Tensor& input,
+    const at::Tensor& weight,
+    const at::Tensor& bias,
+    const at::Tensor& length,
+    const c10::optional<at::Scalar>& eps,
+    const c10::optional<at::Scalar>& unbiased);
+
 }
