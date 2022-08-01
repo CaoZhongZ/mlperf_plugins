@@ -5,6 +5,38 @@
 #include <c10/core/TensorOptions.h>
 
 namespace intel_mlperf {
+at::Tensor i_layernorm_unpad(const at::Tensor &input, const at::Tensor &weight,
+                            const at::Tensor &bias, const at::Tensor &length,
+                            const c10::optional<at::Scalar> &eps,
+                            const c10::optional<at::Scalar> &unbiased) {
+  auto in_sz = input.sizes();
+  auto batch = in_sz[0];
+  auto inner = in_sz[1];
+  auto output =
+      at::empty(in_sz, at::TensorOptions().dtype<float>().memory_format(
+                           c10::MemoryFormat::Contiguous));
+
+  auto in = input.accessor<float, 3>();
+  auto w = weight.accessor<float, 3>();
+  auto b = bias.accessor<float, 3>();
+  auto out = output.accessor<float, 3>();
+  auto len = length.accessor<int64_t, 1>();
+  auto data_type = input.scalar_type();
+
+  if (data_type == c10::ScalarType::Float) {
+#pragma omp parallel for collapse(2)
+    for (auto i = 0; i < batch; ++i) {
+      for (auto j = 0; j < inner; ++j) {
+        i_layernorm_tpp<16>::ref(
+            &out[i][j][0], &in[i][j][0], &w[i][j][0], &b[i][j][0], len[i],
+            eps.value_or(1e-12).toFloat(), unbiased.value_or(false).toBool());
+      }
+    }
+  } // throw here
+
+  return output;
+}
+
 at::Tensor i_layernorm (
     const at::Tensor& input,
     const at::Tensor& weight,
