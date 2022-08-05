@@ -386,7 +386,7 @@ inline static __m512 _mm512_mean_reduce_ps(__m512 v, int64_t N) {
   return vsum * rN;
 }
 
-inline static __m512 _mm512_mean_reduce_ph(__m512h v, int64_t N) {
+inline static __m512h _mm512_mean_reduce_ph(__m512h v, int64_t N) {
   auto rN = _mm512_set1_ph(1. / N);
   // auto vsum = _mm512_add_reduce_ph(v);
   return _mm512_add_reduce_ph(v * rN);
