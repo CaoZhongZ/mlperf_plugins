@@ -22,7 +22,7 @@ at::Tensor amx_mha_concat(const at::Tensor &qkv, const at::Tensor &att_mask, con
   assert(bs == 1);
   auto sl = qkv_sizes[1];
   auto stride = qkv_sizes[2];
-  auto real_bs = att_mask.sizes()[0];
+  auto real_bs = att_mask.sizes()[1];
 
   auto qkv_block = stride / 3;
   int head_size = 64;

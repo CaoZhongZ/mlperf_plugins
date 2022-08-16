@@ -183,7 +183,7 @@ struct _tile_dot_product_16x256<1, col_tile, io_policy> {
     auto s_1_ = reinterpret_cast<int (*)[2][16][16]>(s_1);
 
     auto scale_ = _mm512_set1_ph(scale);
-    __m512 o_scale_;
+    __m512h o_scale_;
     if (post_op) {
       o_scale_ = _mm512_set1_ph(o_scale);
     }
