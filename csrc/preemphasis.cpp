@@ -7,6 +7,9 @@
 namespace intel_mlperf {
 at::Tensor preemphasis(const at::Tensor &input,
                        const c10::optional<at::Scalar> &coeff) {
+  if (!input.is_contiguous()) {
+    throw std::runtime_error("Input should be contiguous.");
+  }
   auto in_sz = input.sizes();
   auto output =
       at::empty(in_sz, at::TensorOptions().dtype<float>().memory_format(

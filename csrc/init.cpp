@@ -9,6 +9,7 @@
 #include "activation.hpp"
 #include "normalization.hpp"
 #include "preemphasis.hpp"
+#include "frame_splicing.hpp"
 
 TORCH_LIBRARY(intel_mlperf, m) {
   m.def(
@@ -74,6 +75,9 @@ TORCH_LIBRARY(intel_mlperf, m) {
   m.def(
       "preemphasis(Tensor input, Scalar ? coeff) -> Tensor",
       intel_mlperf::preemphasis);
+  m.def(
+      "frame_splicing(Tensor input, Scalar factor) -> Tensor",
+      intel_mlperf::frame_splicing);
 }
 
 namespace intel_mlperf {
