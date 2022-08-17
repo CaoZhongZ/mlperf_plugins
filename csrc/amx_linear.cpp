@@ -6,10 +6,15 @@
 #include <string.h>
 #include <omp.h>
 
+// tile reset in outer function
+#define OUTER_TILE_RESET 1
+
 #include "amx_linear.hpp"
 #include "i_linear_tpp.hpp"
 #include "amx_config.hpp"
 #include "amx_init.hpp"
+
+#include "utils/balancer.hpp"
 
 namespace intel_mlperf {
 
@@ -44,8 +49,6 @@ at::Tensor amx_linear(
   auto total_sl = bs * sl;
 
   size_t os_ = col_step * 64;
-  auto block_computer = i_linear(sl, hidden_size, os_, true, post_op);
-  auto block_computer_fp16 = i_linear_fp16(sl, hidden_size, os_, true, post_op);
 
   auto input_data_ptr = input.data_ptr();
   auto weight_data_ptr = weight.data_ptr();
@@ -57,55 +60,83 @@ at::Tensor amx_linear(
   // 4 loop
   // or only omp parallel 
   amx_init::amx_init();
+
+  // schedule parallel tasks, into a function
+  auto total_core_num = omp_get_num_threads();
+  auto chunk = std::ldiv(total_sl, total_core_num);
+  size_t minimum_sl = 32 * total_core_num;
+
   switch (bias_dtype)
   {
   case (1):
+    auto block_computer_fp16 = i_linear_fp16(sl, hidden_size, os_, true, post_op);
+
     # pragma omp parallel 
     {
       auto input_ = reinterpret_cast<int8_t (*)[hidden_size]>(input_data_ptr);
       auto weight_ = reinterpret_cast<int8_t (*)[4][col_tile][16][64]>(weight_data_ptr);
       auto output_ = reinterpret_cast<int8_t (*)[col_step][64]>(output_data_ptr);
       auto bias_ = reinterpret_cast<_Float16 (*)>(bias_data_ptr);
-      Tilecfg().set_config();
-      auto total_core_num = omp_get_num_threads();
-      auto core_id = omp_get_thread_num();
-      // printf("------------ core_id : %d / %d\n", core_id, total_core_num);
-      size_t start_ = total_sl * core_id / total_core_num;
-      size_t chunk_sl_ = (total_sl * core_id + total_sl) / total_core_num - start_;
-      size_t minimum_sl = 32 * total_core_num;
 
-      // block_computer.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, o_scale_, total_sl, col_step, core_id, total_core_num);  
+      auto core_id = omp_get_thread_num();
+
+#if defined(OUTER_TILE_RESET)
+      Tilecfg().set_config();
+#endif
+      // printf("------------ core_id : %d / %d\n", core_id, total_core_num);
+      auto balanced = balance(chunk, core_id, total_core_num);
+      size_t start_ = balanced.start;
+      size_t chunk_sl_ = balanced.load;
+
       if (total_sl < minimum_sl) {
-        block_computer_fp16.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, o_scale_, total_sl, col_step, core_id, total_core_num);  
+        block_computer_fp16.tile_dot_product_16x256_shortage(
+            output_, input_, weight_, bias_, scale_, o_scale_, total_sl, col_step,
+            core_id, total_core_num);
       } else {
-        block_computer_fp16.tile_dot_product_16x256(output_[start_], input_[start_], weight_, bias_, scale_, o_scale_, chunk_sl_, col_step, core_id, total_core_num);
+        block_computer_fp16.tile_dot_product_16x256(
+            output_[start_], input_[start_], weight_, bias_, scale_, o_scale_, chunk_sl_, col_step,
+            core_id, total_core_num);
       }
+
+#if defined(OUTER_TILE_RESET)
       Tilecfg().release_config();
+#endif
     }
     break;
   default:
+    auto block_computer = i_linear(sl, hidden_size, os_, true, post_op);
+
     # pragma omp parallel 
     {
       auto input_ = reinterpret_cast<int8_t (*)[hidden_size]>(input_data_ptr);
       auto weight_ = reinterpret_cast<int8_t (*)[4][col_tile][16][64]>(weight_data_ptr);
       auto output_ = reinterpret_cast<int8_t (*)[col_step][64]>(output_data_ptr);
       auto bias_ = reinterpret_cast<float (*)>(bias_data_ptr);
-      Tilecfg().set_config();
-      auto total_core_num = omp_get_num_threads();
-      auto core_id = omp_get_thread_num();
-      // printf("------------ core_id : %d / %d\n", core_id, total_core_num);
-      size_t start_ = total_sl * core_id / total_core_num;
-      size_t chunk_sl_ = (total_sl * core_id + total_sl) / total_core_num - start_;
-      size_t minimum_sl = 32 * total_core_num;
 
-      // block_computer.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, o_scale_, total_sl, col_step, core_id, total_core_num);  
+      auto core_id = omp_get_thread_num();
+
+#if defined(OUTER_TILE_RESET)
+      Tilecfg().set_config();
+#endif
+
+      // printf("------------ core_id : %d / %d\n", core_id, total_core_num);
+      auto balanced = balance(chunk, core_id, total_core_num);
+      size_t start_ = balanced.start;
+      size_t chunk_sl_ = balanced.load;
+
       if (total_sl < minimum_sl) {
-        block_computer.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, o_scale_, total_sl, col_step, core_id, total_core_num);  
+        block_computer.tile_dot_product_16x256_shortage(
+            output_, input_, weight_, bias_, scale_, o_scale_, total_sl, col_step,
+            core_id, total_core_num);
+      } else {
+        block_computer.tile_dot_product_16x256(
+            output_[start_], input_[start_], weight_, bias_, scale_, o_scale_, chunk_sl_, col_step,
+            core_id, total_core_num);
       }
-      else {
-        block_computer.tile_dot_product_16x256(output_[start_], input_[start_], weight_, bias_, scale_, o_scale_, chunk_sl_, col_step, core_id, total_core_num);
-      }
+
+#if defined(OUTER_TILE_RESET)
       Tilecfg().release_config();
+#endif
     }
     break;
   }

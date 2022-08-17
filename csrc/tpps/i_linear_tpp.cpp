@@ -3,19 +3,27 @@
 #include "i_linear_tpp.hpp"
 #include "amx_config.hpp"
 
-using Time = std::chrono::high_resolution_clock;
-
 namespace intel_mlperf {
 
-template <int row_tile, int col_tile>
-void i_linear::compute_block(void* C, size_t ldc, void* A, void* B, float* bias, float scale, bool post_op, float o_scale) {
-  _tile_dot_product_16x256<row_tile, col_tile, io_policy<col_tile, i_format::plain>>::compute(C, ldc, A, B, bias, scale, post_op, o_scale);  
+template <int row_tile, int reduction_count>
+void i_linear::compute_block(
+    void* C, size_t ldc, void* A, void* B, float* bias,
+    float scale, bool post_op, float o_scale) {
+  _tile_dot_product_16x256<
+    row_tile,
+    reduction_count,
+    io_policy<reduction_count, i_format::plain>>::compute(
+        C, ldc, A, B, bias, scale, post_op, o_scale);
 }
 
 const i_linear::compute_block_t i_linear::compute_block_tbl_ [3][2] = {
   { nullptr, nullptr }, 
+  // { instance for 1024/64,          instance for 4096/64 }
   { &i_linear::compute_block<1, 16>, &i_linear::compute_block<1, 64> }, 
   { &i_linear::compute_block<2, 16>, &i_linear::compute_block<2, 64> }, 
+  //
+  // No performance gain for other shapes
+  //
   // { &i_linear::compute_block<3, 16>, &i_linear::compute_block<3, 64> }, 
   // { &i_linear::compute_block<4, 16>, &i_linear::compute_block<4, 64> }, 
   // { &i_linear::compute_block<5, 16>, &i_linear::compute_block<5, 64> }, 
@@ -27,8 +35,10 @@ const i_linear::compute_block_t i_linear::compute_block_tbl_ [3][2] = {
   // { &i_linear::compute_block<11, 16>, &i_linear::compute_block<11, 64> }
 };
 
-void i_linear::tile_dot_product_16x256(void *C, void *A, void *B, float *bias, float scale, float o_scale, 
-                                       const size_t sl, const size_t col_step, size_t cur_id, size_t total_chunks) {
+void i_linear::tile_dot_product_16x256 (
+    void *C, void *A, void *B, float *bias, float scale, float o_scale,
+    const size_t sl, const size_t col_step, size_t cur_id, size_t total_chunks
+) {
   int col_idx = cols_in_tile_ == 16 ? 0 : 1;
   auto C_ = reinterpret_cast<int8_t (*)[col_step][64]>(C);
   auto A_ = reinterpret_cast<int8_t (*)[ic_]>(A);
@@ -80,8 +90,10 @@ void i_linear::tile_dot_product_16x256(void *C, void *A, void *B, float *bias, f
   }
 }
 
-void i_linear::tile_dot_product_16x256_shortage(void *C, void *A, void *B, float *bias, float scale, float o_scale, 
-                                                const size_t sl, const size_t col_step, size_t cur_id, size_t total_chunks) {
+void i_linear::tile_dot_product_16x256_shortage(
+    void *C, void *A, void *B, float *bias,
+    float scale, float o_scale, const size_t sl,
+    const size_t col_step, size_t cur_id, size_t total_chunks) {
   int col_idx = cols_in_tile_ == 16 ? 0 : 1;
   auto C_ = reinterpret_cast<int8_t (*)[col_step][64]>(C);
   auto A_ = reinterpret_cast<int8_t (*)[ic_]>(A);
@@ -128,13 +140,14 @@ void i_linear::tile_dot_product_16x256_shortage(void *C, void *A, void *B, float
   }
 }
 
-void i_linear::tile_linear(const int row_tile, size_t roll_back, const int col_tile, 
-                           void *C, void *A, void *B, float *bias, float scale, float o_scale) {
-  int col_idx = col_tile == 16 ? 0 : 1;
+void i_linear::tile_linear(
+    const int row_tile, size_t roll_back, const int reduction_count,
+    void *C, void *A, void *B, float *bias, float scale, float o_scale) {
+  int col_idx = reduction_count == 16 ? 0 : 1;
   int col_step = oc_ / 64;
   auto C_ = reinterpret_cast<int8_t (*)[col_step][64]>(C);
   auto A_ = reinterpret_cast<int8_t (*)[ic_]>(A);
-  auto B_ = reinterpret_cast<int8_t (*)[4][col_tile][16][64]>(B);
+  auto B_ = reinterpret_cast<int8_t (*)[4][reduction_count][16][64]>(B);
   auto bias_ = reinterpret_cast<float (*)[64]>(bias);
 
   compute_block_t computer_2 = compute_block_tbl_[2][col_idx];
@@ -156,9 +169,15 @@ void i_linear::tile_linear(const int row_tile, size_t roll_back, const int col_t
   }
 }
 
-template <int row_tile, int col_tile>
-void i_linear_fp16::compute_block(void* C, size_t ldc, void* A, void* B, _Float16* bias, float scale, bool post_op, float o_scale) {
-  _tile_dot_product_16x256<row_tile, col_tile, io_policy<col_tile, i_format::plain>>::compute_fp16(C, ldc, A, B, bias, scale, post_op, o_scale);  
+template <int row_tile, int reduction_count>
+void i_linear_fp16::compute_block(
+    void* C, size_t ldc, void* A, void* B, _Float16* bias,
+    float scale, bool post_op, float o_scale) {
+  _tile_dot_product_16x256<
+    row_tile,
+    reduction_count,
+    io_policy<reduction_count, i_format::plain>
+  >::compute_fp16(C, ldc, A, B, bias, scale, post_op, o_scale);
 }
 
 const i_linear_fp16::compute_block_t i_linear_fp16::compute_block_tbl_ [3][2] = {
@@ -167,8 +186,10 @@ const i_linear_fp16::compute_block_t i_linear_fp16::compute_block_tbl_ [3][2] = 
   { &i_linear_fp16::compute_block<2, 16>, &i_linear_fp16::compute_block<2, 64> }
 };
 
-void i_linear_fp16::tile_dot_product_16x256(void *C, void *A, void *B, _Float16 *bias, float scale, float o_scale, 
-                                       const size_t sl, const size_t col_step, size_t cur_id, size_t total_chunks) {
+void i_linear_fp16::tile_dot_product_16x256(
+    void *C, void *A, void *B, _Float16 *bias, float scale, float o_scale,
+    const size_t sl, const size_t col_step, size_t cur_id, size_t total_chunks) {
+
   int col_idx = cols_in_tile_ == 16 ? 0 : 1;
   auto C_ = reinterpret_cast<int8_t (*)[col_step][64]>(C);
   auto A_ = reinterpret_cast<int8_t (*)[ic_]>(A);
@@ -220,8 +241,10 @@ void i_linear_fp16::tile_dot_product_16x256(void *C, void *A, void *B, _Float16 
   }
 }
 
-void i_linear_fp16::tile_dot_product_16x256_shortage(void *C, void *A, void *B, _Float16 *bias, float scale, float o_scale, 
-                                                const size_t sl, const size_t col_step, size_t cur_id, size_t total_chunks) {
+void i_linear_fp16::tile_dot_product_16x256_shortage(
+    void *C, void *A, void *B, _Float16 *bias,
+    float scale, float o_scale, const size_t sl,
+    const size_t col_step, size_t cur_id, size_t total_chunks) {
   int col_idx = cols_in_tile_ == 16 ? 0 : 1;
   auto C_ = reinterpret_cast<int8_t (*)[col_step][64]>(C);
   auto A_ = reinterpret_cast<int8_t (*)[ic_]>(A);
