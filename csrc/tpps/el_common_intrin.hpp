@@ -7,23 +7,25 @@ public:
   static void _mm512_print_epi32(__m512i a) {
     auto ptr = reinterpret_cast<int(*)>(&a);
     for (int i = 0; i < 16; ++i) {
-      std::cout << ptr[i] << "  ";
+      printf("%d ", ptr[i]);
     }
-    std::cout << std::endl;
+    printf("\n");
   }
 
   static void _mm512_print_epi16(__m512i a) {
     auto ptr = reinterpret_cast<short(*)>(&a);
     for (int i = 0; i < 32; ++i) {
-      std::cout << ptr[i] << "  ";
+      printf("%d ", ptr[i]);
     }
-    std::cout << std::endl;
+    printf("\n");
   }
 
   static void _mm512_print_epi8(__m512i a) {
+    auto ptr = reinterpret_cast<int8_t(*)>(&a);
     for (int i = 0; i < 64; ++i) {
-      std::cout << a[i] << std::endl;
+      printf("%d ", ptr[i]);
     }
+    printf("\n");
   }
 
   static void _mm512_print_ps(__m512 a) {

@@ -257,7 +257,7 @@ template <int N = 16> struct i32_scale_attlen_softmax_scale_fp16_i8_amx_tile_vnn
     // Scratch for max subtraction
     alignas(64) _Float16 dout[att_tile + (att_tail > 0)][N][i_tile_w];
 
-    auto neg_large = _mm512_set1_epi32(-500000);
+    auto neg_large = _mm512_set1_epi32(-100000);
     auto vscale = _mm512_set1_ps(M);
 
     __m512i vmax[N];
