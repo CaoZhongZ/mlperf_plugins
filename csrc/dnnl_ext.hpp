@@ -149,3 +149,18 @@ public:
   }
 };
 }
+
+namespace std {
+
+template <> struct hash<dnnl::memory::dims> {
+  size_t operator()(dnnl::memory::dims const& vec) const {
+    size_t seed = vec.size();
+    for(auto& i : vec) {
+      seed ^= i + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    }
+    return seed;
+  }
+};
+
+}
+

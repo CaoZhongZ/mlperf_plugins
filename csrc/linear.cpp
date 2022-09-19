@@ -19,20 +19,6 @@
 #include <mkl_cblas.h>
 #endif
 
-namespace std {
-
-template <> struct hash<dnnl::memory::dims> {
-  size_t operator()(dnnl::memory::dims const& vec) const {
-    size_t seed = vec.size();
-    for(auto& i : vec) {
-      seed ^= i + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-    }
-    return seed;
-  }
-};
-
-}
-
 namespace intel_mlperf {
 
 using namespace dnnl;
@@ -115,47 +101,6 @@ memory::dims dims_from(c10::ArrayRef<int64_t> sizes,
       return sizes.vec();
   }
   return sizes.vec();
-}
-
-template <typename T>
-T concat(const T& t1, at::ScalarType d) {
-  T t;
-  t.insert(t.end(), t1.begin(), t1.end());
-  t.push_back((int64_t)d);
-
-  return t;
-}
-
-template <typename T>
-T concat(const T& t1, bool b) {
-  T t;
-  t.insert(t.end(), t1.begin(), t1.end());
-  t.push_back(b);
-
-  return t;
-}
-
-template <typename T>
-T concat(const T& t1, int b) {
-  T t;
-  t.insert(t.end(), t1.begin(), t1.end());
-  t.push_back(b);
-
-  return t;
-}
-
-template <typename T>
-T concat(const T& t1, const T& t2) {
-  T t;
-  t.insert(t.end(), t1.begin(), t1.end());
-  t.insert(t.end(), t2.begin(), t2.end());
-
-  return t;
-}
-
-template <typename T1, typename T2, typename ...Ts>
-T1 concat(const T1& t1, const T2& t2, const Ts&... ts) {
-  return concat(concat(t1, t2), ts...);
 }
 
 memory::desc md_from(const at::Tensor& tensor, behavior b = behavior::plain) {
@@ -513,7 +458,8 @@ at::Tensor linear_gelu(
     // TODO: 1.f will disable runtime scaling
     // Use scale selectively open/close this
     po.append_eltwise(
-        2.2f, algorithm::eltwise_gelu_erf_2dts, 0.f, 0.f);
+        2.2f, algorithm::eltwise_gelu_erf, 0.f, 0.f);
+        //2.2f, algorithm::eltwise_gelu_erf_2dts, 0.f, 0.f);
 
     primitive_attr attr;
     attr.set_post_ops(po);
@@ -769,13 +715,13 @@ at::Tensor matmul_out_(
 
     matmul::desc matmul_d(b1_md, b2_md, self_md);
 
-    matmul_d.data.prop_kind =
-      zero ? dnnl_prop_kind_t::dnnl_forward_training:
-      dnnl_prop_kind_t::dnnl_forward_inference;
+    //matmul_d.data.prop_kind =
+      //zero ? dnnl_prop_kind_t::dnnl_forward_training:
+      //dnnl_prop_kind_t::dnnl_forward_inference;
 
-    matmul::primitive_desc matmul_pd(matmul_d, attr, g_cpu());
-    compute = matmul::primitive(matmul_pd);
-    cached.insert(std::make_pair(key, compute));
+    //matmul::primitive_desc matmul_pd(matmul_d, attr, g_cpu());
+    //compute = matmul::primitive(matmul_pd);
+    //cached.insert(std::make_pair(key, compute));
   } else {
     compute = i_comp->second;
   }

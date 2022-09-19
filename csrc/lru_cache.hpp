@@ -1,5 +1,6 @@
 #pragma once
 
+#include <ATen/Functions.h>
 #include <string>
 #include <unordered_map>
 #include <list>
@@ -394,4 +395,46 @@ public:
   }
 };
 
+template <typename T>
+T concat(const T& t1, at::ScalarType d) {
+  T t;
+  t.insert(t.end(), t1.begin(), t1.end());
+  t.push_back((int64_t)d);
+
+  return t;
 }
+
+template <typename T>
+T concat(const T& t1, bool b) {
+  T t;
+  t.insert(t.end(), t1.begin(), t1.end());
+  t.push_back(b);
+
+  return t;
+}
+
+template <typename T>
+T concat(const T& t1, int b) {
+  T t;
+  t.insert(t.end(), t1.begin(), t1.end());
+  t.push_back(b);
+
+  return t;
+}
+
+template <typename T>
+T concat(const T& t1, const T& t2) {
+  T t;
+  t.insert(t.end(), t1.begin(), t1.end());
+  t.insert(t.end(), t2.begin(), t2.end());
+
+  return t;
+}
+
+template <typename T1, typename T2, typename ...Ts>
+T1 concat(const T1& t1, const T2& t2, const Ts&... ts) {
+  return concat(concat(t1, t2), ts...);
+}
+
+}
+
