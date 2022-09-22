@@ -24,11 +24,6 @@ at::ScalarType cast(memory::data_type type);
 
 memory::data_type cast(at::ScalarType type);
 
-memory::dims dims_from(c10::ArrayRef<int64_t> sizes,
-    behavior b = behavior::plain);
-
-memory::desc md_from(const at::Tensor& tensor, behavior b = behavior::plain);
-
 at::Tensor scratch_tensor_from(const memory::desc* md);
 
 memory::dims block_to_plain(memory::desc& desc);
@@ -82,6 +77,8 @@ tag match_prepacked_lstm_weights(c10::ArrayRef<int64_t> sizes) {
   tag fit_tag = tag::undef;
   if (sizes.size() == 7)
     fit_tag = tag::abdEC32e4c;  // int8 weight
+  if (sizes.size() == 6)
+    fit_tag = tag::abdEc32e;  // fp32 weight
   if (sizes.size() == 5)
     fit_tag = tag::abcde;  // bf16 weight
   if (sizes.size() == 4)
@@ -89,19 +86,13 @@ tag match_prepacked_lstm_weights(c10::ArrayRef<int64_t> sizes) {
   return fit_tag;
 }
 
-std::vector<at::Tensor> prepack_lstm_weights (
-    const at::Tensor& x,
-    const at::Tensor& hx,
-    const at::Tensor& cx,
-    const at::Tensor& w_ih,
-    const at::Tensor& w_hh,
-    const c10::optional<at::Tensor>& bias) {
-
-  LSTMParams lstm(x.size(0), x.size(1), x.size(2), w_hh.size(1));
-  
+std::tuple<at::Tensor, at::Tensor> prepack_lstm_weights (
+    const at::Tensor& w_ih, const at::Tensor& w_hh) {
   if (match_prepacked_lstm_weights(w_ih.sizes()) != tag::undef
     && match_prepacked_lstm_weights(w_hh.sizes()) != tag::undef)
     return {w_ih, w_hh};
+
+  LSTMParams lstm(1, 32, w_ih.size(1), w_hh.size(1));
 
   // Shuffle weights
   // w_ih: {G*OC, IC} -> {L, D, G, OC, IC} -> {L, D, SLC(IC), G, DHC(OC)}
@@ -114,16 +105,16 @@ std::vector<at::Tensor> prepack_lstm_weights (
       .permute({0, 1, 4, 2, 3}).contiguous();
 
   // Create memory descriptor
-  auto x_md = md_from(x, behavior::query);
-  auto hx_md = md_from(hx, behavior::query);
-  auto cx_md = md_from(cx, behavior::query);
-  auto w_ih_md = md_from(w_ih_, behavior::query);
-  auto w_hh_md = md_from(w_hh_, behavior::query);
-  auto bias_md = md_from(bias.value(), behavior::query);
-  auto input_dt = cast(x.scalar_type());
-  memory::desc y_md (lstm.y_sz, input_dt, tag::any);
-  memory::desc hy_md (lstm.hy_sz, input_dt, tag::any);
-  memory::desc cy_md (lstm.cy_sz, dt::f32, tag::any);
+  auto w_dt = cast(w_ih.scalar_type());
+  memory::desc x_md (lstm.x_sz, w_dt, tag::tnc);
+  memory::desc hx_md (lstm.hx_sz, w_dt, tag::ldnc);
+  memory::desc cx_md (lstm.cx_sz, w_dt, tag::ldnc);
+  memory::desc w_ih_md (lstm.w_ih_sz, w_dt, tag::any);
+  memory::desc w_hh_md (lstm.w_hh_sz, w_dt, tag::any);
+  memory::desc bias_md (lstm.bias_sz, dt::f32, tag::any);
+  memory::desc y_md (lstm.y_sz, w_dt, tag::tnc);
+  memory::desc hy_md (lstm.hy_sz, w_dt, tag::ldnc);
+  memory::desc cy_md (lstm.cy_sz, w_dt, tag::ldnc);
 
   // Create operation descriptor
   lstm_forward::desc lstm_desc (
@@ -146,10 +137,28 @@ std::vector<at::Tensor> prepack_lstm_weights (
 
   int prepacked_w_ih_nbytes = prepacked_w_ih_md.get_size();
   int prepacked_w_hh_nbytes = prepacked_w_hh_md.get_size();
-  int64_t item_size = sizeof(input_dt);
+  int itemsize;
+  switch (w_dt) {
+    case dt::u8:
+      itemsize = 1;
+    case dt::s8:
+      itemsize = 1;
+    case dt::bf16:
+      itemsize = 2;
+    case dt::f16:
+      itemsize = 2;
+    case dt::f32:
+      itemsize = 4;
+    case dt::s32:
+      itemsize = 4;
+    case dt::f64:
+      itemsize = 8;
+    default:
+      itemsize = 1;
+  }
 
   at::Tensor prepacked_w_ih = at::empty(
-      {prepacked_w_ih_nbytes / item_size},
+      {prepacked_w_ih_nbytes / itemsize},
       at::TensorOptions().dtype(cast(prepacked_w_ih_md.data_type()))
         .memory_format(c10::MemoryFormat::Contiguous));
   prepacked_w_ih.resize_(prepacked_w_ih_sz);
@@ -158,7 +167,7 @@ std::vector<at::Tensor> prepack_lstm_weights (
       "just hold elements, extra data are filled at the end of tensor");
 
   at::Tensor prepacked_w_hh = at::empty(
-      {prepacked_w_hh_nbytes / item_size},
+      {prepacked_w_hh_nbytes / itemsize},
       at::TensorOptions().dtype(cast(prepacked_w_hh_md.data_type()))
         .memory_format(c10::MemoryFormat::Contiguous));
   prepacked_w_hh.resize_(prepacked_w_hh_sz);
@@ -167,61 +176,28 @@ std::vector<at::Tensor> prepack_lstm_weights (
       "just hold elements, extra data are filled at the end of tensor");
 
   stream s(g_cpu());
-  memory m_prepacked_w_ih(lstm_pd.weights_layer_desc(), g_cpu(), prepacked_w_ih.data_ptr());
   auto m_w_ih = memory_from(w_ih_);
+  memory m_prepacked_w_ih(lstm_pd.weights_layer_desc(), g_cpu(), prepacked_w_ih.data_ptr());
   reorder(m_w_ih, m_prepacked_w_ih).execute(s, m_w_ih, m_prepacked_w_ih);
-  memory m_prepacked_w_hh(lstm_pd.weights_iter_desc(), g_cpu(), prepacked_w_hh.data_ptr());
   auto m_w_hh = memory_from(w_hh_);
+  memory m_prepacked_w_hh(lstm_pd.weights_iter_desc(), g_cpu(), prepacked_w_hh.data_ptr());
   reorder(m_w_hh, m_prepacked_w_hh).execute(s, m_w_hh, m_prepacked_w_hh);
 
   return {prepacked_w_ih, prepacked_w_hh};
 }
 
-std::vector<at::Tensor> lstm(
-    const at::Tensor& x,
-    const c10::optional<at::Tensor>& hx,
-    const c10::optional<at::Tensor>& cx,
-    const std::vector<std::vector<at::Tensor>> all_weights) {
-  auto x_layer = x.contiguous();
-  // TODO: add contiguous check for hx & cx
-  //at::Tensor hy_layer, cy_layer;
-  std::vector<at::Tensor> outputs, hy_list, cy_list;
-  auto num_layers = all_weights.size();
-  for (int64_t layer = 0; layer < num_layers; ++layer) {
-    auto hx_layer = hx ? hx.value()[layer] : hx;
-    auto cx_layer = cx ? cx.value()[layer] : cx;
-    auto weights_layer = all_weights[layer];
-    if (weights_layer.size() == 4) {
-      outputs = lstm_layer(
-          x_layer, hx_layer, cx_layer,
-          weights_layer[0], weights_layer[1],
-          weights_layer[2], weights_layer[3]);
-    } else {
-      outputs = lstm_layer(
-          x_layer, hx_layer, cx_layer,
-          weights_layer[0], weights_layer[1],
-          at::zeros(weights_layer[0].sizes(), weights_layer[0].options()),
-          at::zeros(weights_layer[0].sizes(), weights_layer[0].options()));
-    }
-    x_layer = outputs[0];
-    hy_list.emplace_back(outputs[1]);
-    cy_list.emplace_back(outputs[2]);
-  }
-  auto hy = at::cat(hy_list, 0);
-  auto cy = at::cat(cy_list, 0);
-  return {x_layer, hy, cy};
-}
-
-std::vector<at::Tensor> lstm_layer(
+std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_layer(
     const at::Tensor& x,
     const c10::optional<at::Tensor>& hx,
     const c10::optional<at::Tensor>& cx,
     const at::Tensor& w_ih,
     const at::Tensor& w_hh,
     const c10::optional<at::Tensor>& b_ih,
-    const c10::optional<at::Tensor>& b_hh) {
+    const c10::optional<at::Tensor>& b_hh,
+    const c10::optional<int64_t> hidden_size) {
 
-  LSTMParams lstm(x.size(0), x.size(1), x.size(2), w_hh.size(1));
+  auto hidden_size_ = hidden_size ? hidden_size.value() : w_hh.size(1);
+  LSTMParams lstm(x.size(0), x.size(1), x.size(2), hidden_size_);
   
   auto input_dt = cast(x.scalar_type());
 
@@ -233,17 +209,16 @@ std::vector<at::Tensor> lstm_layer(
 
   // cx: {D*L, N, OC} -> {L, D, N, DHC}
   auto cx_ = cx ? cx.value().resize_(lstm.cx_sz).contiguous()
-      : at::zeros(lstm.cx_sz, at::TensorOptions().dtype(cast(dt::f32))
-	.memory_format(c10::MemoryFormat::Contiguous));
+      : at::zeros(lstm.cx_sz, at::TensorOptions().dtype(cast(input_dt))
+        .memory_format(c10::MemoryFormat::Contiguous));
 
   // bias = b_ih + b_hh: {G*OC} -> {L, D, G, DHC}
   auto bias = (b_ih && b_hh) ? (b_ih.value() + b_hh.value()).resize_(lstm.bias_sz)
       : at::zeros(lstm.bias_sz, at::TensorOptions().dtype(cast(input_dt))
-	.memory_format(c10::MemoryFormat::Contiguous));
+	      .memory_format(c10::MemoryFormat::Contiguous));
 
-  auto prepacked_weights = prepack_lstm_weights(x, hx_, cx_, w_ih, w_hh, bias);
-  auto w_ih_ = prepacked_weights[0];
-  auto w_hh_ = prepacked_weights[1];
+  at::Tensor w_ih_, w_hh_;
+  std::tie(w_ih_, w_hh_) = prepack_lstm_weights(w_ih, w_hh);
 
   static thread_local primitive_cache cached(cache_capacity);
 
@@ -261,18 +236,15 @@ std::vector<at::Tensor> lstm_layer(
   if (i_compute == cached.end()) {
     // TODO: check params dtype
     // Create memory descriptor
-    auto x_md = md_from(x, behavior::query);
-    auto hx_md = md_from(hx_, behavior::query);
-    auto cx_md = md_from(cx_, behavior::query);
-    //auto w_ih_md = md_from(w_ih_, behavior::query);
-    //auto w_hh_md = md_from(w_hh_, behavior::query);
-    //auto bias_md = md_from(bias_, behavior::query);
-    memory::desc w_ih_md {lstm.w_ih_sz, input_dt, tag::any};
-    memory::desc w_hh_md {lstm.w_hh_sz, input_dt, tag::any};
-    memory::desc bias_md {lstm.bias_sz, input_dt, tag::any};
-    memory::desc y_md (lstm.y_sz, input_dt, tag::any);
-    memory::desc hy_md (lstm.hy_sz, input_dt, tag::any);
-    memory::desc cy_md (lstm.cy_sz, dt::f32, tag::any);
+    memory::desc x_md (lstm.x_sz, input_dt, tag::tnc);
+    memory::desc hx_md (lstm.hx_sz, input_dt, tag::ldnc);
+    memory::desc cx_md (lstm.cx_sz, cast(cx_.scalar_type()), tag::ldnc);  // check dt
+    memory::desc w_ih_md (lstm.w_ih_sz, input_dt, tag::any);
+    memory::desc w_hh_md (lstm.w_hh_sz, input_dt, tag::any);
+    memory::desc bias_md (lstm.bias_sz, dt::f32, tag::any);  // check dt
+    memory::desc y_md (lstm.y_sz, input_dt, tag::tnc);
+    memory::desc hy_md (lstm.hy_sz, input_dt, tag::ldnc);
+    memory::desc cy_md (lstm.cy_sz, cast(cx_.scalar_type()), tag::ldnc);  // check dt
 
     // Create operation descriptor
     lstm_forward::desc lstm_desc (
@@ -310,7 +282,7 @@ std::vector<at::Tensor> lstm_layer(
   auto hy = at::empty(lstm.hy_sz, at::TensorOptions().dtype(cast(input_dt))
       .memory_format(c10::MemoryFormat::Contiguous));
 
-  auto cy = at::empty(lstm.cy_sz, at::TensorOptions().dtype(cast(dt::f32))
+  auto cy = at::empty(lstm.cy_sz, at::TensorOptions().dtype(cast(input_dt))
       .memory_format(c10::MemoryFormat::Contiguous));
 
   memory m_y (*ext_compute.dst_desc(), g_cpu(), y.data_ptr());
@@ -341,6 +313,43 @@ std::vector<at::Tensor> lstm_layer(
   cy.resize_({lstm.num_layers*lstm.num_directions, lstm.mini_batch, lstm.hidden_size});
 
   return {y, hy, cy};
+}
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm(
+    const at::Tensor& x,
+    const c10::optional<at::Tensor>& hx,
+    const c10::optional<at::Tensor>& cx,
+    const std::vector<std::vector<at::Tensor>> all_weights,
+    const c10::optional<int64_t> hidden_size) {
+  auto x_layer = x.contiguous();
+  // TODO: add contiguous check for hx & cx
+  at::Tensor hy_layer, cy_layer;
+  std::vector<at::Tensor> hy_list, cy_list;
+  auto num_layers = all_weights.size();
+  for (int64_t layer = 0; layer < num_layers; ++layer) {
+    auto hx_layer = hx ? hx.value()[layer] : hx;
+    auto cx_layer = cx ? cx.value()[layer] : cx;
+    auto weights_layer = all_weights[layer];
+    if (weights_layer.size() == 4) {
+      std::tie(x_layer, hy_layer, cy_layer) = lstm_layer(
+          x_layer, hx_layer, cx_layer,
+          weights_layer[0], weights_layer[1],
+          weights_layer[2], weights_layer[3],
+          hidden_size);
+    } else {
+      std::tie(x_layer, hy_layer, cy_layer) = lstm_layer(
+          x_layer, hx_layer, cx_layer,
+          weights_layer[0], weights_layer[1],
+          at::zeros(weights_layer[0].sizes(), weights_layer[0].options()),
+          at::zeros(weights_layer[0].sizes(), weights_layer[0].options()),
+          hidden_size);
+    }
+    hy_list.emplace_back(hy_layer);
+    cy_list.emplace_back(cy_layer);
+  }
+  auto hy = at::cat(hy_list, 0);
+  auto cy = at::cat(cy_list, 0);
+  return {x_layer, hy, cy};
 }
 
 }

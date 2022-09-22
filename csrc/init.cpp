@@ -81,11 +81,14 @@ TORCH_LIBRARY(intel_mlperf, m) {
       "frame_splicing(Tensor input, Scalar factor) -> Tensor",
       intel_mlperf::frame_splicing);
   m.def(
-      "lstm(Tensor x, Tensor ? hx, Tensor ? cx, Tensor[][] all_weights) -> Tensor[]",
+      "lstm(Tensor x, Tensor ? hx, Tensor ? cx, Tensor[][] all_weights, int ? hidden_size) -> (Tensor, Tensor, Tensor)",
       intel_mlperf::lstm);
   m.def(
-      "lstm_layer(Tensor x, Tensor ? hx, Tensor ? cx, Tensor w_ih, Tensor w_hh, Tensor ? bias_ih, Tensor ? bias_hh) -> Tensor[]",
+      "lstm_layer(Tensor x, Tensor ? hx, Tensor ? cx, Tensor w_ih, Tensor w_hh, Tensor ? b_ih, Tensor ? b_hh, int ? hidden_size) -> (Tensor, Tensor, Tensor)",
       intel_mlperf::lstm_layer);
+  m.def(
+      "prepack_lstm_weights(Tensor w_ih, Tensor w_hh) -> (Tensor, Tensor)",
+      intel_mlperf::prepack_lstm_weights);
   m.def(
       "tanh(Tensor _0) -> Tensor",
       intel_mlperf::tanh);
