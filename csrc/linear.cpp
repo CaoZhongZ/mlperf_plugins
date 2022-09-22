@@ -35,6 +35,8 @@ memory::data_type cast(at::ScalarType type) {
       return dt::f32;
     case at::ScalarType::Int:
       return dt::s32;
+    case at::ScalarType::BFloat16:
+      return dt::bf16;
     case at::ScalarType::Byte:
       return dt::u8;
     default:
@@ -50,6 +52,8 @@ at::ScalarType cast(memory::data_type type) {
       return at::ScalarType::Float;
     case dt::s32:
       return at::ScalarType::Int;
+    case dt::bf16:
+      return at::ScalarType::BFloat16;
     default:
       return at::ScalarType::Undefined;
   }
@@ -60,29 +64,48 @@ enum class behavior {
 };
 
 // jit_brgemm_inner_product_utils.cpp "get_desired_weights_tag"
-tag match_prepacked_weight_tag(c10::ArrayRef<int64_t> sizes) {
+tag match_prepacked_weight_tag(c10::ArrayRef<int64_t> sizes, memory::data_type type = dt::s8) {
   tag fit_tag = tag::undef;
 
-  if (sizes.size() == 5
-      && sizes[2] == 4
-      && sizes[4] == 4) {
-    switch (sizes[3]) {
-    case 64:
-      fit_tag = tag::AB4b64a4b;
-    case 32:
-      fit_tag = tag::AB4b32a4b;
-    case 16:
-      fit_tag = tag::AB4b16a4b;
+  if (type == dt::s8) {
+    if (sizes.size() == 5 && sizes[2] == 4 && sizes[4] == 4) {
+      switch (sizes[3]) {  // other int8
+      case 64:
+        fit_tag = tag::AB4b64a4b;
+      case 32:
+        fit_tag = tag::AB4b32a4b;
+      case 16:
+        fit_tag = tag::AB4b16a4b;
+      }
+    } else if (sizes.size() == 5 && sizes[2] == 16 && sizes[4] == 4) {
+      switch (sizes[3]) {  // amx int8
+      case 64:
+        fit_tag = tag::OI16i64o4i;
+      case 32:
+        fit_tag = tag::OI16i32o4i;
+      case 16:
+        fit_tag = tag::OI16i16o4i;
+      }
     }
-  } else if (sizes.size() == 5 && sizes[2] == 16
-      && sizes[4] == 4) {
-    switch (sizes[3]) {
-    case 64:
-      fit_tag = tag::OI16i64o4i;
-    case 32:
-      fit_tag = tag::OI16i32o4i;
-    case 16:
-      fit_tag = tag::OI16i16o4i;
+  } else if (type == dt::bf16) {
+    if (sizes.size() == 5 && sizes[2] == 8 && sizes[4] == 2) {
+      switch (sizes[3]) {  // other bf16
+      case 64:
+        fit_tag = tag::AB8b64a2b;
+      case 32:
+        fit_tag = tag::AB8b32a2b;
+      case 16:
+        fit_tag = tag::AB8b16a2b;
+      }
+    } else if (sizes.size() == 5 && sizes[2] == 16 && sizes[4] == 2) {
+      switch (sizes[3]) {  // amx bf16
+      case 64:
+        fit_tag = tag::OI16i64o2i;
+      case 32:
+        fit_tag = tag::OI16i32o2i;
+      case 16:
+        fit_tag = tag::OI16i16o2i;
+      }
     }
   }
 
@@ -90,9 +113,9 @@ tag match_prepacked_weight_tag(c10::ArrayRef<int64_t> sizes) {
 }
 
 memory::dims dims_from(c10::ArrayRef<int64_t> sizes,
-    behavior b = behavior::plain) {
+    behavior b = behavior::plain, memory::data_type type = dt::s8) {
   if (b == behavior::infer) {
-    if (match_prepacked_weight_tag(sizes) != tag::undef) {
+    if (match_prepacked_weight_tag(sizes, type) != tag::undef) {
       size_t A = 0, B = 1, a = 3, b[2] = {2,4};
       auto dim0 = sizes[A] * sizes[a];
       auto dim1 = sizes[B] * sizes[b[0]] * sizes[b[1]];
@@ -112,7 +135,7 @@ memory::desc md_from(const at::Tensor& tensor, behavior b = behavior::plain) {
     return memory::desc(m_sz, data_type, tag::any);
   } else {
     // Warning: Encoding conflict possible!
-    if (match_prepacked_weight_tag(m_sz) != tag::undef) {
+    if (match_prepacked_weight_tag(m_sz, data_type) != tag::undef) {
       size_t A = 0, B = 1, a = 3, b[2] = {2,4};
       auto dim0 = m_sz[A] * m_sz[a];
       auto dim1 = m_sz[B] * m_sz[b[0]] * m_sz[b[1]];
@@ -134,7 +157,7 @@ memory::desc md_from(const at::Tensor & weight, memory::dims src_sz, behavior b 
     return memory::desc(m_sz, data_type, tag::any);
   } else {
     // Warning: Encoding conflict possible!
-    if (match_prepacked_weight_tag(m_sz) != tag::undef) {  // block
+    if (match_prepacked_weight_tag(m_sz, data_type) != tag::undef) {  // block
       size_t A = 0, B = 1, a = 3, b[2] = {2,4};
       auto dim0 = m_sz[A] * m_sz[a];
       auto dim1 = m_sz[B] * m_sz[b[0]] * m_sz[b[1]];
@@ -185,20 +208,17 @@ memory::dims block_to_plain(memory::desc& desc) {
 at::Tensor prepack_linear_weight (
     const at::Tensor& weight) {
   auto m_sz = weight.sizes();
-  if (match_prepacked_weight_tag(m_sz) != tag::undef)
+  auto w_dt = cast(weight.scalar_type());
+  if (match_prepacked_weight_tag(m_sz, w_dt) != tag::undef)
     return weight;
 
-  auto w_sz = dims_from(weight.sizes());
-  // for (auto& id : w_sz)
-  // {
-  //   std::cout << id << std::endl;
-  // }
+  auto w_sz = weight.sizes().vec();
   memory::dims synthetic_input_sz {128, w_sz[1]};
   memory::dims synthetic_output_sz {128, w_sz[0]};
 
-  memory::desc synthetic_src_md (synthetic_input_sz, dt::s8, tag::any);
-  memory::desc synthetic_dst_md (synthetic_output_sz, dt::s8, tag::any);
-  auto weight_md = md_from(weight, behavior::query);
+  memory::desc synthetic_src_md (synthetic_input_sz, w_dt, tag::any);
+  memory::desc synthetic_dst_md (synthetic_output_sz, w_dt, tag::any);
+  memory::desc weight_md (weight.sizes().vec(), w_dt, tag::any);
 
   auto desc = inner_product_forward::desc(
       prop_kind::forward_inference,
@@ -206,9 +226,14 @@ at::Tensor prepack_linear_weight (
       weight_md,
       synthetic_dst_md);
 
-  primitive_attr attr;
-  attr.set_output_scales(0, {DNNL_RUNTIME_F32_VAL});
-  auto pd = inner_product_forward::primitive_desc(desc, attr, g_cpu());
+  inner_product_forward::primitive_desc pd;
+  if (w_dt == dt::s8) {
+    primitive_attr attr;
+    attr.set_output_scales(0, {DNNL_RUNTIME_F32_VAL});
+    pd = inner_product_forward::primitive_desc(desc, attr, g_cpu());
+  } else {
+    pd = inner_product_forward::primitive_desc(desc, g_cpu());
+  }
   auto prepacked_weight_md = pd.weights_desc();
 
   auto new_size = block_to_plain(prepacked_weight_md);
@@ -216,7 +241,26 @@ at::Tensor prepack_linear_weight (
     return weight;
 
   int64_t nbytes = pd.weights_desc().get_size();
-  int itemsize = sizeof(int8_t); // for now
+  // TODO: parse itemsize
+  int itemsize;
+  switch (w_dt) {
+    case dt::u8:
+      itemsize = 1;
+    case dt::s8:
+      itemsize = 1;
+    case dt::bf16:
+      itemsize = 2;
+    case dt::f16:
+      itemsize = 2;
+    case dt::f32:
+      itemsize = 4;
+    case dt::s32:
+      itemsize = 4;
+    case dt::f64:
+      itemsize = 8;
+    default:
+      itemsize = 1;
+  }
 
   // occupy memory space
   auto output = at::empty({nbytes / itemsize},
@@ -279,8 +323,15 @@ at::Tensor linear(
   static thread_local primitive_cache cached(cache_capacity);
 
   _mm_setcsr(0x9fc0);
-  auto src_sz = dims_from(input.sizes());
+  auto src_sz = input.sizes().vec();
   at::Tensor _input;
+  // TODO: select output_dt depends on input
+  memory::data_type output_dt;
+  if (cast(input.scalar_type()) == dt::bf16) {
+    output_dt = dt::bf16;
+  } else {
+    output_dt = scale ? dt::f32 : dt::s32;
+  }
 
   // Squeeze front
   if (src_sz.size() > 2) {
@@ -294,9 +345,10 @@ at::Tensor linear(
     // not matching with size
     if (src_sz[0] == 1) _input = input.view(src_sz);
   }
-  auto _src_sz = dims_from(_input.sizes());
-  auto weight_sz = dims_from(weight.sizes(), behavior::infer);
-  auto bias_sz = bias ? dims_from(bias.value().sizes()) : memory::dims();
+  auto _src_sz = _input.sizes().vec();
+  auto weight_sz = dims_from(
+      weight.sizes(), behavior::infer, cast(weight.scalar_type()));
+  auto bias_sz = bias ? bias.value().sizes().vec() : memory::dims();
   memory::dims _dst_sz {_src_sz[0], weight_sz[0]};
 
   primitive compute;
@@ -316,7 +368,8 @@ at::Tensor linear(
     /* TODO: adjust weight md according to padded input */
     auto weight_md = md_from(weight, _src_sz);
     auto bias_md = bias ? md_from(bias.value()) : memory::desc();
-    memory::desc dst_md(_dst_sz, scale ? dt::f32 : dt::s32, tag::ab);
+
+    memory::desc dst_md(_dst_sz, output_dt, tag::ab);
 
     // Singnaling skip compensation in BRGEMM
     prop_kind prop = zero ? prop_kind::forward_training
@@ -359,7 +412,7 @@ at::Tensor linear(
   auto output = at::empty(
       dst_sz,
       at::TensorOptions()
-        .dtype(cast(scale ? dt::f32 : dt::s32))
+        .dtype(cast(output_dt))
         .memory_format(c10::MemoryFormat::Contiguous)
   );
 
