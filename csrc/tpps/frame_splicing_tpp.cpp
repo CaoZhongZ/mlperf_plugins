@@ -24,7 +24,7 @@ namespace intel_mlperf {
 template <>
 void frame_splicing_tpp<3>::ref(float *pout, float *pin, int32_t fi, int64_t fl,
                                 int64_t tl) {
-  const int32_t padded_tl = ((tl - 1) / 3) + 1;
+  const int32_t padded_tl = (tl + 2) / 3;
   // remember the index should be reversed.
   const auto idx_base =
       _mm512_set_epi32(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);

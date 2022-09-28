@@ -16,7 +16,7 @@ at::Tensor frame_splicing(const at::Tensor &input, const at::Scalar &factor) {
   auto freq = in_sz[1];
   auto time = in_sz[2];
   auto factor_ = factor.toInt();
-  auto padded_time = ((time - 1) / factor_) + 1;
+  auto padded_time = ((time + 2) / factor_);
   auto output = at::empty({batch, freq * factor_, padded_time},
                           at::TensorOptions().dtype<float>().memory_format(
                               c10::MemoryFormat::Contiguous));
