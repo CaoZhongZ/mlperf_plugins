@@ -345,6 +345,9 @@ at::Tensor linear(
     _input = input.view(src_2d_sz);
   } else {
     _input = input;
+    // work around for batch_size=1 error that stride
+    // not matching with size
+    if (src_sz[0] == 1) _input = input.view(src_sz);
   }
   auto _src_sz = dims_from(_input.sizes());
   auto weight_sz = dims_from(weight.sizes(), behavior::infer);
