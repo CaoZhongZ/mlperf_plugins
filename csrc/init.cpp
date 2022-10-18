@@ -25,6 +25,9 @@ TORCH_LIBRARY(intel_mlperf, m) {
     "amx_linear(Tensor input, Tensor weight, Tensor bias, Scalar scale, bool post_op, Scalar o_scale) -> Tensor",
     intel_mlperf::amx_linear);
   m.def(
+    "amx_linear_i8o32(Tensor input, Tensor weight, Tensor bias, Scalar scale) -> Tensor",
+    intel_mlperf::amx_linear_i8o32);
+  m.def(
     "linear(Tensor input, Tensor weight, Tensor ? bias, Scalar ? scale, Scalar ? zero) -> Tensor",
     intel_mlperf::linear);
   m.def(

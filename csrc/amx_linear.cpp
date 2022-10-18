@@ -112,5 +112,66 @@ at::Tensor amx_linear(
   return output;
 }
 
+at::Tensor amx_linear_i8o32(
+  const at::Tensor& input,
+  const at::Tensor& weight,
+  const at::Tensor& bias,
+  const at::Scalar& scale
+) {
+  // input shape: [bs, hidden_size]
+  auto ishape = input.sizes();
+  auto bs = ishape[0];
+  auto hidden_size = ishape[1];
+
+  // weight shape: [col_step, 4, col_tile, 16, 64]
+  auto wshape = weight.sizes();
+  auto col_step = wshape[0];
+  auto col_tile = wshape[2];
+
+  // output shape: [bs, col_step * 64]
+  auto output = at::empty({bs, col_step * 64},
+                          at::TensorOptions().dtype<float>().memory_format(
+                          c10::MemoryFormat::Contiguous));
+
+
+  auto scale_ = scale.toFloat();
+  auto total_sl = bs;
+
+  size_t os_ = col_step * 64;
+  auto block_computer = i_linear_i8o32(1, hidden_size, os_, true, false);
+
+  auto input_data_ptr = input.data_ptr();
+  auto weight_data_ptr = weight.data_ptr();
+  auto output_data_ptr = output.data_ptr();
+  auto bias_data_ptr = bias.data_ptr();
+
+  amx_init::amx_init();
+  # pragma omp parallel
+  {
+    auto input_ = reinterpret_cast<int8_t (*)[hidden_size]>(input_data_ptr);
+    auto weight_ = reinterpret_cast<int8_t (*)[4][col_tile][16][64]>(weight_data_ptr);
+    auto output_ = reinterpret_cast<float (*)[col_step][64]>(output_data_ptr);
+    auto bias_ = reinterpret_cast<float (*)>(bias_data_ptr);
+    Tilecfg().set_config();
+    auto total_core_num = omp_get_num_threads();
+    auto core_id = omp_get_thread_num();
+    // printf("------------ core_id : %d / %d\n", core_id, total_core_num);
+    size_t start_ = total_sl * core_id / total_core_num;
+    size_t chunk_sl_ = (total_sl * core_id + total_sl) / total_core_num - start_;
+    size_t minimum_sl = 32 * total_core_num;
+
+    // block_computer.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, o_scale_, total_sl, col_step, core_id, total_core_num);
+    if (total_sl < minimum_sl) {
+      block_computer.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, 0.0, total_sl, col_step, core_id, total_core_num);
+    }
+    else {
+      block_computer.tile_dot_product_16x256(output_[start_], input_[start_], weight_, bias_, scale_, 0.0, chunk_sl_, col_step, core_id, total_core_num);
+    }
+    Tilecfg().release_config();
+  }
+  return output;
+
+}
+
 }
 
