@@ -31,5 +31,6 @@ void accuracy_gemm(const int sl, const int ic, const int oc);
 
 void performance_linear(const int sl, const int ic, const int oc);
 
+void performance_linear_i8o32(const int sl, const int ic, const int oc);
 
 }

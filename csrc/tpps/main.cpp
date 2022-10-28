@@ -14,6 +14,7 @@
 #include "i_softmax_tpp.hpp"
 #include "i_linear_tpp.hpp"
 #include "amx_config.hpp"
+#include "../amx_init.hpp"
 
 #include "test_gemm.h"
 
@@ -70,14 +71,14 @@ void performance_test_256x256(int row_tile, void* C, size_t ldc, void* A, void* 
   int remaining = row_tile % 2;
   size_t single_loop = counter / core_num;
 
-  auto core_out = reinterpret_cast<int8_t (*)[row_tile * 16][ldc]>(C);
-  auto act = reinterpret_cast<int8_t (*)[row_tile * 16][ldc]>(A);
-  auto wei400m_ = reinterpret_cast<int8_t (*)[256 * 256]>(B);
-
 # pragma omp parallel for collapse(1) num_threads (core_num)
   for (size_t i = 0; i < counter; i++) {
 #   pragma unroll
     for (int j = 0; j < loop_num; j++) {
+      auto core_out = reinterpret_cast<int8_t (*)[row_tile * 16][ldc]>(C);
+      auto act = reinterpret_cast<int8_t (*)[row_tile * 16][ldc]>(A);
+      auto wei400m_ = reinterpret_cast<int8_t (*)[256 * 256]>(B);
+
       // intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(core_out[i / single_loop][j * 2 * 16], ldc, act[i / single_loop][j * 2], wei400m_[i % counter], bias, scale);
       intel_mlperf::_tile_dot_product_16x256<2, 16, plain_io>::compute(core_out[i / single_loop][j * 2 * 16], ldc, act[i / single_loop][j * 2], B, bias, scale, post_op, o_scale);
     }
@@ -295,34 +296,29 @@ void test_tile_16x256(int row_tile) {
 }
 
 void test_block_gemm(const size_t sl, const size_t input_f, const size_t output_f, const int num_cores) {
-  // size_t sl = 176;
-  // size_t input_f = 1024;
-  // size_t output_f = 1024;
   bool has_bias = true;
   bool post_op = false;
-  float o_scale = 1.5;
-  auto gemm_ = intel_mlperf::i_linear(sl, input_f, output_f, has_bias, post_op);
+  float o_scale = 0.0;
+  auto gemm_ = intel_mlperf::i_linear_i8o32(sl, input_f, output_f, has_bias, post_op);
 
   size_t row_tile = (sl + 15) / 16;
   size_t col_step = output_f / 64;
   size_t col_tile = input_f / 64;
-  alignas(64) int8_t input[sl][input_f];
 
   size_t block_row = input_f / 4;
-  size_t block_col = 256;
-  size_t block_num = 448;
+  size_t block_num = 1;
+  const size_t seq_split_len = 512;
 
-  void* weight400m = nullptr;
-  posix_memalign(&weight400m, 4096, block_num * input_f * output_f);
-  auto weight400m_ = reinterpret_cast<int8_t (*)[col_step][4][col_tile][16][64]>(weight400m);
+  void* weight = nullptr;
+  posix_memalign(&weight, 4096, block_num * input_f * output_f);
 
-  alignas(64) int8_t output[sl][col_step][64];
-  float bias[col_step][64];
+  float bias[col_step*64];
   float scale = 0.0018;
 
-# pragma omp parallel for
+//# pragma omp parallel for
   for (int i = 0; i < block_num; i++) {
-    intel_mlperf::set_data_wei(weight400m_[i], bias, col_tile, col_step);
+    auto w = reinterpret_cast<int8_t (*)[col_step][4][col_tile][16][64]>(weight);
+    intel_mlperf::set_data_wei(w[i], bias, input_f, output_f);
   }
   
   // intel_mlperf::print_2d_matrix<int>((int*)nweight, dim1, dim2, 1024);
@@ -335,22 +331,23 @@ void test_block_gemm(const size_t sl, const size_t input_f, const size_t output_
   printf("**************************** start test performance **********************\n");
   int loop_num = 10000;
   auto start = Time::now();
+  alignas(64) int8_t input[sl][input_f];
+  alignas(64) float output[sl][col_step][64];
+  printf("i %d", loop_num);
   for (int i = 0; i < loop_num; i++) {
-#   pragma omp parallel for num_threads (num_cores)
-    for (int j = 0; j < block_num; j++) {
-      switch (input_f / 64) {
-      case (16):
-        gemm_.ref(output, input, weight400m_[j % block_num], bias[0], scale);
-        break;
-      case (64):
-        gemm_.ref(output, input, weight400m_[j % block_num], bias[0], scale);
-        break;
+    for (int j = 0; j < seq_split_len; j++) {
+    //# pragma omp parallel for num_threads (num_cores)
+      # pragma omp parallel
+      {
+        auto total_core_num = omp_get_num_threads();
+        auto core_id = omp_get_thread_num();
+        gemm_.i_linear::tile_dot_product_16x256_shortage(output, input, weight, bias, scale, o_scale, sl, col_step, core_id, total_core_num);
       }
     }
   }
   auto during = std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start).count();
   std::cout << sl << " x " << input_f << " x " << output_f << " : " << (float)during / loop_num << " ns " << std::endl;
-  delete[] weight400m;
+  delete[] weight;
 }
 
 int main(int argc, char* argv[]) {
@@ -362,16 +359,21 @@ int main(int argc, char* argv[]) {
   } else if (argc == 3) {
     num_cores = std::atoi(argv[2]);
   }
-  
-  intel_mlperf::amx_init();
+
+  amx_init::amx_init();
   intel_mlperf::Tilecfg().set_config();
 
-  bool accuracy_mode = true;
-  std::cout << "row_tile : " << row_tile << std::endl;
-  // test_tile_16x256(row_tile);
+  //bool accuracy_mode = true;
+  //std::cout << "row_tile : " << row_tile << std::endl;
+  test_block_gemm(32, 2048, 4096, 4);
 
-  intel_mlperf::performance_linear(64, 1024, 64);
-  intel_mlperf::performance_gemm(64, 1024, 64);
+  //intel_mlperf::performance_linear(64, 1024, 4096);
+  //intel_mlperf::performance_linear(32, 2048, 4096);
+  //intel_mlperf::performance_linear(32, 256, 4096);
+  //intel_mlperf::performance_linear_i8o32(32, 1024, 4096);
+  //intel_mlperf::performance_linear_i8o32(32, 2048, 4096);
+  //intel_mlperf::performance_linear_i8o32(32, 256, 4096);
+  //intel_mlperf::performance_gemm(64, 1024, 64);
   
   // intel_mlperf::accuracy_gemm(64, 1024, 64);
   return 0;
