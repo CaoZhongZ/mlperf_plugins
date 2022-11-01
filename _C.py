@@ -36,3 +36,5 @@ tanh = torch.ops.intel_mlperf.tanh
 sigmoid = torch.ops.intel_mlperf.sigmoid
 tanh_f16 = torch.ops.intel_mlperf.tanh_f16
 lstm_postop = torch.ops.intel_mlperf.lstm_postop
+lstm_int8 = torch.ops.intel_mlperf.lstm_int8
+# lstm_rnnt_cell = torch.ops.intel_mlperf.lstm_rnnt_cell
