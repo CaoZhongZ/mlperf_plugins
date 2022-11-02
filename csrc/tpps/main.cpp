@@ -13,6 +13,7 @@
 
 #include "i_softmax_tpp.hpp"
 #include "i_linear_tpp.hpp"
+#include "lstm_postop_tpp.hpp"
 #include "amx_config.hpp"
 #include "../amx_init.hpp"
 
@@ -295,30 +296,40 @@ void test_tile_16x256(int row_tile) {
   free(wei400m);
 }
 
-void test_block_gemm(const size_t sl, const size_t input_f, const size_t output_f, const int num_cores) {
+void test_block_gemm(const size_t batch_size, const size_t input_f, const size_t output_f, const int num_cores) {
   bool has_bias = true;
   bool post_op = false;
   float o_scale = 0.0;
-  auto gemm_ = intel_mlperf::i_linear_i8o32(sl, input_f, output_f, has_bias, post_op);
 
-  size_t row_tile = (sl + 15) / 16;
+  size_t row_tile = (batch_size + 15) / 16;
   size_t col_step = output_f / 64;
   size_t col_tile = input_f / 64;
 
   size_t block_row = input_f / 4;
   size_t block_num = 1;
-  const size_t seq_split_len = 512;
+  size_t hidden = output_f / 4;
+  const size_t seq_len = 2;
 
-  void* weight = nullptr;
-  posix_memalign(&weight, 4096, block_num * input_f * output_f);
+  auto gemm_ = intel_mlperf::i_linear_i8o32(batch_size, input_f, output_f, has_bias, post_op);
+  auto gemm_hh_ = intel_mlperf::i_linear_i8o32(batch_size, hidden, output_f, has_bias, post_op);
 
-  float bias[col_step*64];
+  void* weight_ih = nullptr;
+  posix_memalign(&weight_ih, 4096, block_num * input_f * output_f);
+  void* weight_hh = nullptr;
+  posix_memalign(&weight_hh, 4096, block_num * hidden * output_f);
+
+  float bias[output_f];
+  float bias_hh[output_f];
   float scale = 0.0018;
+  float in_scale = 0.0018;
+  float out_scale = 0.0018;
 
 //# pragma omp parallel for
   for (int i = 0; i < block_num; i++) {
-    auto w = reinterpret_cast<int8_t (*)[col_step][4][col_tile][16][64]>(weight);
+    auto w = reinterpret_cast<int8_t (*)[input_f][output_f]>(weight_ih);
     intel_mlperf::set_data_wei(w[i], bias, input_f, output_f);
+    auto w_h = reinterpret_cast<int8_t (*)[hidden][output_f]>(weight_ih);
+    intel_mlperf::set_data_wei(w_h[i], bias_hh, input_f, output_f);
   }
   
   // intel_mlperf::print_2d_matrix<int>((int*)nweight, dim1, dim2, 1024);
@@ -331,23 +342,49 @@ void test_block_gemm(const size_t sl, const size_t input_f, const size_t output_
   printf("**************************** start test performance **********************\n");
   int loop_num = 10000;
   auto start = Time::now();
-  alignas(64) int8_t input[sl][input_f];
-  alignas(64) float output[sl][col_step][64];
-  printf("i %d", loop_num);
   for (int i = 0; i < loop_num; i++) {
-    for (int j = 0; j < seq_split_len; j++) {
-    //# pragma omp parallel for num_threads (num_cores)
+    alignas(64) int8_t input[seq_len][batch_size][input_f];
+    alignas(64) float output[seq_len][batch_size][output_f];
+    for (int j = 0; j < seq_len; j++) {
       # pragma omp parallel
       {
         auto total_core_num = omp_get_num_threads();
         auto core_id = omp_get_thread_num();
-        gemm_.i_linear::tile_dot_product_16x256_shortage(output, input, weight, bias, scale, o_scale, sl, col_step, core_id, total_core_num);
+        gemm_.i_linear::tile_dot_product_16x256_shortage(output[j], input[j], weight_ih, bias, scale, o_scale, batch_size, col_step, core_id, total_core_num);
+      }
+    }
+    alignas(64) int8_t hx[batch_size][hidden];
+    alignas(64) float output_hh[seq_len][batch_size][output_f];
+    for (int j = 0; j < seq_len; j++) {
+      # pragma omp parallel
+      {
+        auto total_core_num = omp_get_num_threads();
+        auto core_id = omp_get_thread_num();
+        gemm_hh_.i_linear::tile_dot_product_16x256_shortage(output_hh[j], hx, weight_hh, bias_hh, scale, o_scale, batch_size, col_step, core_id, total_core_num);
+      }
+
+      #pragma omp parallel for collapse(2)
+      for (int k1 = 0; k1 < batch_size; k1++) {
+        for (int k2 = 0; k2 < output_f; k2++) {
+          output[j][k1][k2] += output_hh[j][k1][k2];
+        }
+      }
+
+      alignas(64) _Float16 pin_ct[batch_size][hidden];
+      alignas(64) float pout_1[batch_size][hidden];
+      alignas(64) int8_t pout_1_q[batch_size][hidden];
+      alignas(64) int8_t pout_2[batch_size][hidden];
+      alignas(64) _Float16 pout_3[batch_size][hidden];
+      #pragma omp parallel for
+      for (auto b = 0; b < batch_size; ++b) {
+        intel_mlperf::lstm_postop_tpp::ref(pout_1[b],pout_1_q[b],pout_2[b],pout_3[b],&output[j][b][0],&output[j][b][hidden],&output[j][b][hidden*2],&output[j][b][hidden*3],pin_ct[b],in_scale,out_scale,hidden,false);
       }
     }
   }
   auto during = std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start).count();
-  std::cout << sl << " x " << input_f << " x " << output_f << " : " << (float)during / loop_num << " ns " << std::endl;
-  delete[] weight;
+  std::cout << batch_size << " x " << input_f << " x " << output_f << " : " << (float)during / loop_num << " ns " << std::endl;
+  delete[] weight_hh;
+  delete[] weight_ih;
 }
 
 int main(int argc, char* argv[]) {

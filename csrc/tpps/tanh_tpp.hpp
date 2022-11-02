@@ -2,7 +2,6 @@
 #include <cstdlib>
 #include "el_common_intrin.hpp"
 #include <immintrin.h>
-#include <c10/core/ScalarType.h>
 
 namespace intel_mlperf {
 template<int vec_length> class tanh_tpp{
