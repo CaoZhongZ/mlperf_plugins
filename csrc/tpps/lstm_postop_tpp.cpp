@@ -4,7 +4,7 @@
 
 namespace intel_mlperf {
 
-void lstm_postop_tpp::ref(void *out_yt, void *out_yt_q, void *out_ht_q, void *out_ct, void *it, void *ft, void *gt, void *ot, void *ct_1, float in_scale, float out_scale, int64_t line, bool last_layer_flag){
+void lstm_postop_tpp::ref(void *out_yt_q, void *out_ht_q, void *it, void *ft, void *gt, void *ot, void *ct_1, float in_scale, float out_scale, int64_t line, bool last_layer_flag){
     
     // compute four post-op
     auto pin_it = reinterpret_cast<float *>(it);
@@ -25,7 +25,6 @@ void lstm_postop_tpp::ref(void *out_yt, void *out_yt_q, void *out_ht_q, void *ou
     int64_t half_len = 32;
     auto n_batch = line / half_len;
     auto pin_ct = reinterpret_cast<_Float16 *>(ct_1);
-    auto pout_ct = reinterpret_cast<_Float16 *>(out_ct);
     #pragma unroll(32)
     for(int j=0;j<n_batch;j++){ 
         auto i = _mm512_loadu_ph((&it_out[j*32]));
@@ -34,35 +33,25 @@ void lstm_postop_tpp::ref(void *out_yt, void *out_yt_q, void *out_ht_q, void *ou
         auto c = _mm512_loadu_ph((&pin_ct[j*32]));
         auto a = _mm512_mul_ph(f, c);
         auto o = _mm512_fmadd_ph(i, g, a);
-        _mm512_store_ph(&pout_ct[j*32],o);
+        _mm512_store_ph(&pin_ct[j*32],o);
     }
 
-    // compute ht and last_layer not quant
-    // void *pout_yt;
-    
-    // if(last_layer_flag)
-    //     auto pout_yt = reinterpret_cast<_Float16 *>(out_yt);
-    // else
-    //     pout_yt = reinterpret_cast<int8_t *>(out_yt);
-    auto pout_yt = reinterpret_cast<float *>(out_yt);
-
-    alignas(64) _Float16 ht_out[line];
-    alignas(64) _Float16 ct_tanh[line];
-    tanh_tpp<32>::ref_(ct_tanh,pout_ct,line);
+    // inplace it_out and ft_out; it_out = ht_out(fp16), ft_out = ct_tanh
+    tanh_tpp<32>::ref_(ft_out,pin_ct,line);
     #pragma unroll(32)
     for(int j=0,z=0;j<n_batch;j++,z=z+2){
         auto a = _mm512_loadu_ph(&ot_out[j*32]);
-        auto b = _mm512_loadu_ph(&ct_tanh[j*32]);
+        auto b = _mm512_loadu_ph(&ft_out[j*32]);
         auto o_ht = _mm512_mul_ph(a,b);
-        _mm512_store_ph(&ht_out[j*32],o_ht);
+        _mm512_store_ph(&it_out[j*32],o_ht);
         if(last_layer_flag){
             // ht:fp16->fp32
             auto y_1 = _mm512_extractf32x8_ps(o_ht,0);
             auto y_2 = _mm512_extractf32x8_ps(o_ht,1);
             auto o_1 = _mm512_cvtxph_ps(_mm256_castps_ph(y_1));
             auto o_2 = _mm512_cvtxph_ps(_mm256_castps_ph(y_2));
-            _mm512_store_ps(&pout_yt[z*16],o_1);
-            _mm512_store_ps(&pout_yt[(z+1)*16],o_2);
+            _mm512_store_ps(&pin_it[z*16],o_1);
+            _mm512_store_ps(&pin_it[(z+1)*16],o_2);
         }
     }
 
@@ -70,11 +59,10 @@ void lstm_postop_tpp::ref(void *out_yt, void *out_yt_q, void *out_ht_q, void *ou
     auto pout_yt_q = reinterpret_cast<int8_t *>(out_yt_q);
     
     if(!last_layer_flag){
-        // auto pout_yt = reinterpret_cast<int8_t *>(out_yt);
         #pragma unroll(32)
         for(int j=0;j<n_batch;j++){
             auto vout_scale = _mm512_set1_ph(out_scale);
-            auto ht_ph = _mm512_loadu_ph(&ht_out[j*32]);
+            auto ht_ph = _mm512_loadu_ph(&it_out[j*32]);
             auto yt_quant = _mm512_scale_min128max_i8_ph(ht_ph, vout_scale);
             _mm512_mask_cvtepi16_storeu_epi8(&pout_yt_q[j*32], 0xffffffff, yt_quant);
         }
@@ -84,13 +72,11 @@ void lstm_postop_tpp::ref(void *out_yt, void *out_yt_q, void *out_ht_q, void *ou
     #pragma unroll(32)
     for(int j=0;j<n_batch;j++){
             auto vin_scale = _mm512_set1_ph(in_scale);
-            auto ht_ph = _mm512_loadu_ph(&ht_out[j*32]);
+            auto ht_ph = _mm512_loadu_ph(&it_out[j*32]);
             auto ht_quant = _mm512_scale_min128max_i8_ph(ht_ph, vin_scale);
             _mm512_mask_cvtepi16_storeu_epi8(&pout_ht_q[j*32], 0xffffffff, ht_quant);
     }
-
-        
-        
+    
     // auto pfp16 = _mm512_loadu_ph(&ct_out[992]);
     // // auto pfp16 = _mm512_loadu_ph(ht_out);
     // helper::_mm512_print_ph(pfp16);

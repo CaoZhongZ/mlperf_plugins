@@ -20,7 +20,6 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_int8(
   const std::vector<at::Scalar>& o_scale,
   const std::vector<at::Scalar>& in_scale,
   const std::vector<at::Scalar>& out_scale,
-  const bool flag,
   const bool skip_quant_y){
 
   at::Tensor hy_layer, cy_layer;
@@ -31,12 +30,12 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_int8(
   for (int64_t layer = 0; layer < num_layers; layer++) {
     auto weights_layer = all_weights[layer];
     auto skip_quant = (layer==(num_layers-1)) & skip_quant_y;
-    std::tie(x_p, hy_layer, cy_layer) = lstm_rnnt_layer(
+    std::tie(x_p, hy_layer, cy_layer) = lstm_rnnt_cell(
         x_p, hx[layer], cx[layer],
         weights_layer[0], weights_layer[1],
         weights_layer[2], weights_layer[3],
         o_scale[layer], in_scale[layer], out_scale[layer],
-        flag, skip_quant);
+        skip_quant);
     hy_list.emplace_back(hy_layer);
     cy_list.emplace_back(cy_layer);
   }  
@@ -44,31 +43,6 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_int8(
   auto cy = at::stack(cy_list, 0);
   auto xy = at::stack(x_p,0);
   return {xy, hy, cy};
-}
-
-std::tuple<std::vector<at::Tensor>, at::Tensor, at::Tensor> lstm_rnnt_layer(
-  const std::vector<at::Tensor>& x,
-  const at::Tensor& hx,
-  const at::Tensor& cx,
-  const at::Tensor& w_ih,
-  const at::Tensor& w_hh,
-  const at::Tensor& b_ih,
-  const at::Tensor& b_hh,
-  const c10::optional<at::Scalar>& o_scale,
-  const c10::optional<at::Scalar>& in_scale,
-  const c10::optional<at::Scalar>& out_scale,
-  const bool flag,
-  const bool skip_quant_y){
-  
-  at::Tensor hy,cy;
-  std::vector<at::Tensor> y_list;
-    std::tie(y_list, hy, cy) = lstm_rnnt_cell(
-          x, hx, cx,
-          w_ih, w_hh,
-          b_ih, b_hh,
-          o_scale, in_scale, out_scale,
-          skip_quant_y);
-  return {y_list, hy, cy};
 }
 
 std::tuple<std::vector<at::Tensor>, at::Tensor, at::Tensor> lstm_rnnt_cell(
@@ -110,19 +84,4 @@ std::tuple<std::vector<at::Tensor>, at::Tensor, at::Tensor> lstm_rnnt_cell(
 
   return {yt_list, hxx, cxx};
 }
-
-// std::tuple<std::vector<at::Tensor>, at::Tensor, at::Tensor> lstm_single_cell(
-//     const std::vector<at::Tensor>& x,
-//     const at::Tensor& hx,
-//     const at::Tensor& cx,
-//     const at::Tensor& w_ih,
-//     const at::Tensor& w_hh,
-//     const at::Tensor& b_ih,
-//     const at::Tensor& b_hh,
-//     const c10::optional<at::Scalar>& o_scale,
-//     const c10::optional<at::Scalar>& in_scale,
-//     const c10::optional<at::Scalar>& out_scale,
-//     const bool skip_quant_y){
-
-//   }
 }

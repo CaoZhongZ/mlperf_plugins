@@ -106,7 +106,7 @@ TORCH_LIBRARY(intel_mlperf, m) {
       "lstm_postop(Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Scalar? _5, Scalar? _6, bool _7) -> Tensor[]",
       intel_mlperf::lstm_postop);
   m.def(
-      "lstm_int8(Tensor _0, Tensor _1, Tensor _2, Tensor[][] _3, Scalar[] _4, Scalar[] _5, Scalar[] _6, bool _7, bool _8) -> (Tensor, Tensor, Tensor)",
+      "lstm_int8(Tensor _0, Tensor _1, Tensor _2, Tensor[][] _3, Scalar[] _4, Scalar[] _5, Scalar[] _6, bool _7) -> (Tensor, Tensor, Tensor)",
       intel_mlperf::lstm_int8);
 //   m.def(
 //       "lstm_rnnt_cell(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Scalar ? _7, Scalar ? _8, Scalar ? _9, bool _10) -> (Tensor, Tensor, Tensor)",
