@@ -151,8 +151,6 @@ std::tuple<at::Tensor, at::Tensor> prepack_lstm_weights (
       itemsize = 4;
     case dt::s32:
       itemsize = 4;
-    case dt::f64:
-      itemsize = 8;
     default:
       itemsize = 1;
   }

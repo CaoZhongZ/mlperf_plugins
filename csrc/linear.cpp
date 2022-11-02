@@ -256,8 +256,6 @@ at::Tensor prepack_linear_weight (
       itemsize = 4;
     case dt::s32:
       itemsize = 4;
-    case dt::f64:
-      itemsize = 8;
     default:
       itemsize = 1;
   }
