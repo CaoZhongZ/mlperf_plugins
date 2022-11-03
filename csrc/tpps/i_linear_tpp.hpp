@@ -1194,15 +1194,16 @@ public:
   i_linear(size_t sequence_length, size_t input_feature, size_t output_feature, bool bias, bool post_op)
       : sl_(sequence_length), ic_(input_feature), oc_(output_feature), has_bias_(bias), post_op_(post_op) {
         cols_in_tile_ = input_feature / 64;
+        cols_step_ = output_feature / 64;
   }
 
   template <int row_tile, int col_tile>
   void compute_block(void* C, size_t ldc, void* A, void* B, float* bias, float scale, bool post_op = false, float o_scale = 1.0);
   void tile_dot_product_16x256(void *C, void *A, void *B, float *bias, float scale, float o_scale, 
-                               const size_t sl, const size_t col_step, size_t cur_id=0, size_t total_chunks=1);
+                               size_t cur_id=0, size_t total_chunks=1);
 
   void tile_dot_product_16x256_shortage(void *C, void *A, void *B, float *bias, float scale, float o_scale, 
-                                        const size_t sl, const size_t col_step, size_t cur_id=0, size_t total_chunks=1);
+                                        size_t cur_id=0, size_t total_chunks=1);
   
   void tile_linear(const int row_tile, size_t roll_back, const int col_tile, 
                    void *C, void *A, void *B, float *bias, float scale, float o_scale);
@@ -1220,8 +1221,9 @@ protected:
   bool has_bias_;
   bool post_op_;
 
-  // output division
+  // weight division
   size_t cols_in_tile_;
+  size_t cols_step_;
 };
 
 class i_linear_i8o32: public i_linear {
@@ -1229,45 +1231,30 @@ public:
   using i_linear::i_linear;
 
   void tile_dot_product_16x256(void *C, void *A, void *B, float *bias, float scale, float o_scale, 
-                               const size_t sl, const size_t col_step, size_t cur_id=0, size_t total_chunks=1);
+                               size_t cur_id=0, size_t total_chunks=1);
 
   void tile_dot_product_16x256_shortage(void *C, void *A, void *B, float *bias, float scale, float o_scale, 
-                                        const size_t sl, const size_t col_step, size_t cur_id=0, size_t total_chunks=1);
+                                        size_t cur_id=0, size_t total_chunks=1);
 
   void tile_linear(const int row_tile, size_t roll_back, const int col_tile, 
                    void *C, void *A, void *B, float *bias, float scale, float o_scale);
 };
 
-class i_linear_fp16 {
+class i_linear_fp16: public i_linear {
 public:
-  i_linear_fp16(size_t sequence_length, size_t input_feature, size_t output_feature, bool bias, bool post_op)
-      : sl_(sequence_length), ic_(input_feature), oc_(output_feature), has_bias_(bias), post_op_(post_op) {
-        cols_in_tile_ = input_feature / 64;
-  }
+  using i_linear::i_linear;
 
   template <int row_tile, int col_tile>
   void compute_block(void* C, size_t ldc, void* A, void* B, _Float16* bias, float scale, bool post_op = false, float o_scale = 1.0);
   void tile_dot_product_16x256(void *C, void *A, void *B, _Float16 *bias, float scale, float o_scale, 
-                               const size_t sl, const size_t col_step, size_t cur_id=0, size_t total_chunks=1);
+                               size_t cur_id=0, size_t total_chunks=1);
 
   void tile_dot_product_16x256_shortage(void *C, void *A, void *B, _Float16 *bias, float scale, float o_scale, 
-                                        const size_t sl, const size_t col_step, size_t cur_id=0, size_t total_chunks=1);
+                                        size_t cur_id=0, size_t total_chunks=1);
   
   typedef void (i_linear_fp16::* compute_block_t) (
       void*, size_t, void*, void*, _Float16*, float, bool, float);
   static const compute_block_t compute_block_tbl_ [3][3];
-protected:
-  
-  // using compute_block_t = void (*)(void*, size_t, void*, void*, float*, float);
-
-  size_t sl_;
-  size_t ic_;
-  size_t oc_;
-  bool has_bias_;
-  bool post_op_;
-
-  // output division
-  size_t cols_in_tile_;
 };
 
 }

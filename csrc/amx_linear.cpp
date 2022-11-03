@@ -44,8 +44,8 @@ at::Tensor amx_linear(
   auto total_sl = bs * sl;
 
   size_t os_ = col_step * 64;
-  auto block_computer = i_linear(sl, hidden_size, os_, true, post_op);
-  auto block_computer_fp16 = i_linear_fp16(sl, hidden_size, os_, true, post_op);
+  auto block_computer = i_linear(total_sl, hidden_size, os_, true, post_op);
+  auto block_computer_fp16 = i_linear_fp16(total_sl, hidden_size, os_, true, post_op);
 
   auto input_data_ptr = input.data_ptr();
   auto weight_data_ptr = weight.data_ptr();
@@ -74,11 +74,11 @@ at::Tensor amx_linear(
       size_t chunk_sl_ = (total_sl * core_id + total_sl) / total_core_num - start_;
       size_t minimum_sl = 32 * total_core_num;
 
-      // block_computer.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, o_scale_, total_sl, col_step, core_id, total_core_num);  
+      // block_computer.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, o_scale_, core_id, total_core_num);
       if (total_sl < minimum_sl) {
-        block_computer_fp16.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, o_scale_, total_sl, col_step, core_id, total_core_num);  
+        block_computer_fp16.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, o_scale_, core_id, total_core_num);
       } else {
-        block_computer_fp16.tile_dot_product_16x256(output_[start_], input_[start_], weight_, bias_, scale_, o_scale_, chunk_sl_, col_step, core_id, total_core_num);
+        block_computer_fp16.tile_dot_product_16x256(output_[start_], input_[start_], weight_, bias_, scale_, o_scale_, core_id, total_core_num);
       }
       Tilecfg().release_config();
     }
@@ -98,12 +98,12 @@ at::Tensor amx_linear(
       size_t chunk_sl_ = (total_sl * core_id + total_sl) / total_core_num - start_;
       size_t minimum_sl = 32 * total_core_num;
 
-      // block_computer.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, o_scale_, total_sl, col_step, core_id, total_core_num);  
+      // block_computer.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, o_scale_, core_id, total_core_num);
       if (total_sl < minimum_sl) {
-        block_computer.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, o_scale_, total_sl, col_step, core_id, total_core_num);  
+        block_computer.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, o_scale_, core_id, total_core_num);
       }
       else {
-        block_computer.tile_dot_product_16x256(output_[start_], input_[start_], weight_, bias_, scale_, o_scale_, chunk_sl_, col_step, core_id, total_core_num);
+        block_computer.tile_dot_product_16x256(output_[start_], input_[start_], weight_, bias_, scale_, o_scale_, core_id, total_core_num);
       }
       Tilecfg().release_config();
     }
@@ -138,7 +138,7 @@ at::Tensor amx_linear_i8o32(
   auto total_sl = bs;
 
   size_t os_ = col_step * 64;
-  auto block_computer = i_linear_i8o32(1, hidden_size, os_, true, false);
+  auto block_computer = i_linear_i8o32(total_sl, hidden_size, os_, true, false);
 
   auto input_data_ptr = input.data_ptr();
   auto weight_data_ptr = weight.data_ptr();
@@ -155,17 +155,15 @@ at::Tensor amx_linear_i8o32(
     Tilecfg().set_config();
     auto total_core_num = omp_get_num_threads();
     auto core_id = omp_get_thread_num();
-    // printf("------------ core_id : %d / %d\n", core_id, total_core_num);
     size_t start_ = total_sl * core_id / total_core_num;
     size_t chunk_sl_ = (total_sl * core_id + total_sl) / total_core_num - start_;
     size_t minimum_sl = 32 * total_core_num;
 
-    // block_computer.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, o_scale_, total_sl, col_step, core_id, total_core_num);
     if (total_sl < minimum_sl) {
-      block_computer.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, 0.0, total_sl, col_step, core_id, total_core_num);
+      block_computer.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, 0.0, core_id, total_core_num);
     }
     else {
-      block_computer.tile_dot_product_16x256(output_[start_], input_[start_], weight_, bias_, scale_, 0.0, chunk_sl_, col_step, core_id, total_core_num);
+      block_computer.tile_dot_product_16x256(output_[start_], input_[start_], weight_, bias_, scale_, 0.0, core_id, total_core_num);
     }
     Tilecfg().release_config();
   }
