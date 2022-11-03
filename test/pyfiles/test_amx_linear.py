@@ -1,3 +1,4 @@
+# numactl -C 0-3 pytest test/pyfiles/test_amx_linear.py
 import os
 import sys
 import numpy as np
@@ -27,22 +28,22 @@ def get_weight(input_size, output_size, use_amx_linear=True):
     if use_amx_linear:
         return transpose_tile_weight(
             torch.tensor(
-                np.arange(input_size * output_size).reshape(output_size, input_size),
+                np.ones(input_size * output_size).reshape(output_size, input_size),
                 dtype=torch.int8,
             ).transpose(1, 0)
         )
     else:
         return torch.ops.intel_mlperf.prepack_linear_weight(
             torch.tensor(
-                np.arange(input_size * output_size).reshape(output_size, input_size),
+                np.ones(input_size * output_size).reshape(output_size, input_size),
                 dtype=torch.int8,
             )
         )
 
 
 def test_amx_linear():
-    batch_size = 128
-    input_size = 1024
+    batch_size = 32
+    input_size = 2048
     hidden_size = 1024
     output_size = 4 * hidden_size
 
@@ -72,69 +73,94 @@ def test_lstm_int8():
     output_size = 4096
     hidden_size = 1024
     seq_len = 2
-    layer = 1
+    layer = 3
 
     w_i = [get_weight(input_size, output_size) for i in range(layer)]
     b_i = [
-        torch.tensor(np.arange(output_size) / output_size, dtype=torch.float32)
+        torch.tensor(np.ones(output_size) / output_size, dtype=torch.float32)
         for i in range(layer)
     ]
     w_h = [get_weight(hidden_size, output_size) for i in range(layer)]
     b_h = [
-        torch.tensor(np.arange(output_size) / output_size, dtype=torch.float32)
+        torch.tensor(np.ones(output_size) / output_size, dtype=torch.float32)
         for i in range(layer)
     ]
     for count in range(1000):
         x = [
             torch.tensor(
-                np.arange(input_size * batch_size).reshape(batch_size, input_size),
+                np.ones(input_size * batch_size).reshape(batch_size, input_size),
                 dtype=torch.int8,
             )
             for i in range(seq_len)
         ]
-        h = torch.tensor(
-            np.arange(layer * hidden_size * batch_size).reshape(
-                layer, batch_size, hidden_size
+        h = [
+            torch.tensor(
+                np.ones(hidden_size * batch_size).reshape(batch_size, hidden_size),
+                dtype=torch.int8,
+            )
+            for i in range(layer)
+        ]
+        c = [
+            torch.tensor(
+                np.ones(hidden_size * batch_size).reshape(batch_size, hidden_size),
+                dtype=torch.half,
+            )
+            for i in range(layer)
+        ]
+        xx = torch.tensor(
+            np.ones(seq_len * input_size * batch_size).reshape(
+                seq_len, batch_size, input_size
             ),
             dtype=torch.int8,
         )
-        c = torch.tensor(
-            np.arange(layer * batch_size * output_size).reshape(
-                layer, batch_size, output_size
-            ),
-            dtype=torch.half,
-        )
-        # y_expected = torch.ops.intel_mlperf.lstm_int8(
-        # x,
-        # h,
-        # c,
-        # [[w_i[i], w_h[i], b_i[i], b_h[i]] for i in range(layer)],
-        # [0.1],
-        # [0.1],
-        # [0.1],
-        # False,
-        # False,
-        # )
-        y = [x[i] for i in range(seq_len)]
+        hh = [
+            torch.tensor(
+                np.ones(hidden_size * batch_size).reshape(batch_size, hidden_size),
+                dtype=torch.int8,
+            )
+            for i in range(layer)
+        ]
+        cc = [
+            torch.tensor(
+                np.ones(hidden_size * batch_size).reshape(batch_size, hidden_size),
+                dtype=torch.half,
+            )
+            for i in range(layer)
+        ]
+        # y = [x[i] for i in range(seq_len)]
         for i in range(layer):
+            last_layer = i == layer - 1
+            y = []
             for j in range(seq_len):
-                # y[j] = torch.ops.intel_mlperf.linear(y[j], w_i[i], b_i[i], 0.1, None)
-                y[j] = torch.ops.intel_mlperf.amx_linear_i8o32(
-                    y[j], w_i[i], b_i[i], 0.1
+                y.append(
+                    torch.ops.intel_mlperf.amx_linear_i8o32(x[j], w_i[i], b_i[i], 0.1)
                 )
             for j in range(seq_len):
-                # y[j] += torch.ops.intel_mlperf.linear(h[i], w_h[i], b_h[i], 0.1, None)
-                y[j] += torch.ops.intel_mlperf.amx_linear_i8o32(
+                temp = torch.ops.intel_mlperf.amx_linear_i8o32(
                     h[i], w_h[i], b_h[i], 0.1
                 )
+                y[j] += temp
 
                 it, ft, gt, ot = y[j].chunk(4, 1)
-                y[j] = torch.ops.intel_mlperf.lstm_postop(
-                    it, ft, gt, ot, c[i], 0.1, 0.1, False
+                it, x[j], h[i], c[i] = torch.ops.intel_mlperf.lstm_postop(
+                    it, ft, gt, ot, c[i], 0.1, 0.1, last_layer
                 )
-
-
-# cannot pytest directly due to core nums requirement.
-# numactl -C 0-3 python test/pyfiles/test_amx_linear.py
-# test_amx_linear()
-test_lstm_int8()
+                if last_layer:
+                    x[j] = it
+            xx, hh[i], cc[i] = torch.ops.intel_mlperf.lstm_layer_int8(
+                xx,
+                hh[i],
+                cc[i],
+                w_i[i],
+                w_h[i],
+                b_i[i],
+                b_h[i],
+                0.1,
+                0.1,
+                0.1,
+                last_layer,
+            )
+            np.testing.assert_equal(hh[i].numpy(), h[i].numpy())
+            np.testing.assert_equal(cc[i].numpy(), c[i].numpy())
+            for j in range(seq_len):
+                np.testing.assert_equal(xx[j].numpy(), x[j].numpy())

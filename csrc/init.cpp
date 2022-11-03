@@ -12,7 +12,7 @@
 #include "frame_splicing.hpp"
 #include "lstm.hpp"
 #include "lstm_postop.hpp"
-#include "lstm_int8.hpp"
+#include "lstm_layer_int8.hpp"
 
 TORCH_LIBRARY(intel_mlperf, m) {
   m.def(
@@ -106,11 +106,8 @@ TORCH_LIBRARY(intel_mlperf, m) {
       "lstm_postop(Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Scalar? _5, Scalar? _6, bool _7) -> Tensor[]",
       intel_mlperf::lstm_postop);
   m.def(
-      "lstm_int8(Tensor _0, Tensor _1, Tensor _2, Tensor[][] _3, Scalar[] _4, Scalar[] _5, Scalar[] _6, bool _7) -> (Tensor, Tensor, Tensor)",
-      intel_mlperf::lstm_int8);
-//   m.def(
-//       "lstm_rnnt_cell(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Scalar ? _7, Scalar ? _8, Scalar ? _9, bool _10) -> (Tensor, Tensor, Tensor)",
-//       intel_mlperf::lstm_rnnt_cell);
+      "lstm_layer_int8(Tensor x, Tensor hx, Tensor cx, Tensor w_ih, Tensor w_hh, Tensor b_ih, Tensor b_hh, Scalar? rb_scale, Scalar? i_scale, Scalar? o_scale, bool skip_quant_y) -> (Tensor, Tensor, Tensor)",
+      intel_mlperf::lstm_layer_int8);
 }
 
 namespace intel_mlperf {
