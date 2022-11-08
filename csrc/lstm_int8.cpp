@@ -11,11 +11,88 @@
 
 #include "amx_config.hpp"
 #include "amx_init.hpp"
-#include "lstm_layer_int8.hpp"
+#include "lstm_int8.hpp"
 #include "tpps/i_linear_tpp.hpp"
 #include "tpps/lstm_postop_tpp.hpp"
+#include "linear.hpp"
+#include "lstm_postop.hpp"
 
 namespace intel_mlperf {
+
+std::tuple<at::Tensor, std::vector<at::Tensor>, std::vector<at::Tensor>> lstm_int8(
+    const at::Tensor& x,
+    const std::vector<at::Tensor>& hx,
+    const std::vector<at::Tensor>& cx,
+    const std::vector<std::vector<at::Tensor>> all_weights,
+    const at::Tensor& o_scale,
+    const at::Tensor& in_scale,
+    const at::Tensor& out_scale,
+    const bool skip_quant_y){
+
+  auto num_layers = all_weights.size();
+  auto x_copy = x;
+  auto hx_copy = hx;
+  auto cx_copy = cx;
+  for(int i = 0; i < num_layers; i++){
+    auto weights_layer = all_weights[i];
+    auto skip_quant = (i==(num_layers-1)) & skip_quant_y;
+    // first_layer, can pass a flag
+    if(num_layers == 2 && i == 0){
+      std::tie(x_copy, hx_copy[i], cx_copy[i]) = lstm_layer_onednn(x_copy, hx_copy[i], cx_copy[i], 
+        weights_layer[0], weights_layer[1],
+        weights_layer[2], weights_layer[3],
+        o_scale[i].item(), in_scale[i].item(), out_scale[i].item(), skip_quant);
+    }
+    else{ 
+      std::tie(x_copy, hx_copy[i], cx_copy[i]) = lstm_layer_int8(x_copy, hx_copy[i], cx_copy[i], 
+          weights_layer[0], weights_layer[1],
+          weights_layer[2], weights_layer[3],
+          o_scale[i].item(), in_scale[i].item(), out_scale[i].item(), skip_quant);
+    }
+  }
+  return {x_copy, hx_copy, cx_copy};
+}
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_layer_onednn(
+    const at::Tensor& x,
+    const at::Tensor& hx,
+    const at::Tensor& cx,
+    const at::Tensor& w_ih,
+    const at::Tensor& w_hh,
+    const at::Tensor& b_ih,
+    const at::Tensor& b_hh,
+    const c10::optional<at::Scalar>& o_scale,
+    const c10::optional<at::Scalar>& in_scale,
+    const c10::optional<at::Scalar>& out_scale,
+    const bool skip_quant_y){
+  auto size_x = x.sizes()[0];
+  float rb_scale_ = o_scale.value_or(at::Scalar(1.f)).toFloat();
+  float i_scale_ = in_scale.value_or(at::Scalar(1.f)).toFloat();
+  float o_scale_ = out_scale.value_or(at::Scalar(1.f)).toFloat();
+  std::vector<at::Tensor> gates_list(size_x);
+  for(int i = 0; i < size_x; i++){
+    gates_list[i] = linear(x[i], w_ih, b_ih, rb_scale_, 0);
+  }
+  
+  std::vector<at::Tensor> yt_list(size_x);
+  auto hx_copy = hx;
+  auto cx_copy = cx;
+  for(int i = 0; i < size_x; i++){
+    gates_list[i] += linear(hx_copy, w_hh, b_hh, rb_scale_, 0);
+    auto gates_chunk = torch::chunk(gates_list[i], 4, 1);
+    auto y_p = lstm_postop(gates_chunk[0], gates_chunk[1], gates_chunk[2], gates_chunk[3], cx_copy, i_scale_, o_scale_, skip_quant_y);
+    hx_copy = y_p[2];
+    cx_copy = y_p[3];
+    if(skip_quant_y)
+      yt_list[i] = y_p[0];
+    else
+      yt_list[i] = y_p[1];
+  }
+
+  auto yt = torch::stack(yt_list, 0);
+  return {yt, hx_copy, cx_copy};
+  
+  }
 
 std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_layer_int8(
     const at::Tensor &x, const at::Tensor &hx, const at::Tensor &cx,
