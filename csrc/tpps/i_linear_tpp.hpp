@@ -1193,17 +1193,24 @@ class i_linear {
 public:
   i_linear(size_t sequence_length, size_t input_feature, size_t output_feature, bool bias, bool post_op)
       : sl_(sequence_length), ic_(input_feature), oc_(output_feature), has_bias_(bias), post_op_(post_op) {
-        cols_in_tile_ = input_feature / 64;
-        cols_step_ = output_feature / 64;
+    cols_in_tile_ = input_feature / 64;
+    cols_step_ = output_feature / 64;
+    if (cols_in_tile_ == 16) {
+      compute_blk_idx_ = 0;
+    } else if (cols_in_tile_ == 32) {
+      compute_blk_idx_ = 1;
+    } else {
+      compute_blk_idx_ = 2;
+    }
   }
 
   template <int row_tile, int col_tile>
   void compute_block(void* C, size_t ldc, void* A, void* B, float* bias, float scale, bool post_op = false, float o_scale = 1.0);
   void tile_dot_product_16x256(void *C, void *A, void *B, float *bias, float scale, float o_scale, 
-                               size_t cur_id=0, size_t total_chunks=1);
+                               const size_t chunk_sl, size_t cur_id=0, size_t total_chunks=1);
 
   void tile_dot_product_16x256_shortage(void *C, void *A, void *B, float *bias, float scale, float o_scale, 
-                                        size_t cur_id=0, size_t total_chunks=1);
+                                        const size_t chunk_sl, size_t cur_id=0, size_t total_chunks=1);
   
   void tile_linear(const int row_tile, size_t roll_back, const int col_tile, 
                    void *C, void *A, void *B, float *bias, float scale, float o_scale);
@@ -1224,6 +1231,7 @@ protected:
   // weight division
   size_t cols_in_tile_;
   size_t cols_step_;
+  size_t compute_blk_idx_;
 };
 
 class i_linear_i8o32: public i_linear {
@@ -1231,10 +1239,10 @@ public:
   using i_linear::i_linear;
 
   void tile_dot_product_16x256(void *C, void *A, void *B, float *bias, float scale, float o_scale, 
-                               size_t cur_id=0, size_t total_chunks=1);
+                               const size_t chunk_sl, size_t cur_id=0, size_t total_chunks=1);
 
   void tile_dot_product_16x256_shortage(void *C, void *A, void *B, float *bias, float scale, float o_scale, 
-                                        size_t cur_id=0, size_t total_chunks=1);
+                                        const size_t chunk_sl, size_t cur_id=0, size_t total_chunks=1);
 
   void tile_linear(const int row_tile, size_t roll_back, const int col_tile, 
                    void *C, void *A, void *B, float *bias, float scale, float o_scale);
@@ -1247,10 +1255,10 @@ public:
   template <int row_tile, int col_tile>
   void compute_block(void* C, size_t ldc, void* A, void* B, _Float16* bias, float scale, bool post_op = false, float o_scale = 1.0);
   void tile_dot_product_16x256(void *C, void *A, void *B, _Float16 *bias, float scale, float o_scale, 
-                               size_t cur_id=0, size_t total_chunks=1);
+                               const size_t chunk_sl, size_t cur_id=0, size_t total_chunks=1);
 
   void tile_dot_product_16x256_shortage(void *C, void *A, void *B, _Float16 *bias, float scale, float o_scale, 
-                                        size_t cur_id=0, size_t total_chunks=1);
+                                        const size_t chunk_sl, size_t cur_id=0, size_t total_chunks=1);
   
   typedef void (i_linear_fp16::* compute_block_t) (
       void*, size_t, void*, void*, _Float16*, float, bool, float);

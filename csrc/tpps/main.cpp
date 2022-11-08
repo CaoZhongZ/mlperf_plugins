@@ -296,7 +296,7 @@ void test_tile_16x256(int row_tile) {
   free(wei400m);
 }
 
-void test_block_gemm(const size_t batch_size, const size_t input_f, const size_t output_f, const int num_cores) {
+void test_block_gemm_cache_hit(const size_t batch_size, const size_t input_f, const size_t output_f) {
   bool has_bias = true;
   bool post_op = false;
   float o_scale = 0.0;
@@ -324,21 +324,13 @@ void test_block_gemm(const size_t batch_size, const size_t input_f, const size_t
   float in_scale = 0.0018;
   float out_scale = 0.0018;
 
-//# pragma omp parallel for
   for (int i = 0; i < block_num; i++) {
     auto w = reinterpret_cast<int8_t (*)[input_f][output_f]>(weight_ih);
     intel_mlperf::set_data_wei(w[i], bias, input_f, output_f);
     auto w_h = reinterpret_cast<int8_t (*)[hidden][output_f]>(weight_ih);
     intel_mlperf::set_data_wei(w_h[i], bias_hh, input_f, output_f);
   }
-  
-  // intel_mlperf::print_2d_matrix<int>((int*)nweight, dim1, dim2, 1024);
-  // getchar();
 
-  // intel_mlperf::print_2d_matrix<int>((int*)noutput, dim0, dim2, dim2);
-  // getchar();
-  // intel_mlperf::print_2d_matrix<int8_t>((int8_t*)output, dim0, dim2, dim2);
-  // getchar();
   printf("**************************** start test performance **********************\n");
   int loop_num = 10000;
   auto start = Time::now();
@@ -350,7 +342,7 @@ void test_block_gemm(const size_t batch_size, const size_t input_f, const size_t
       {
         auto total_core_num = omp_get_num_threads();
         auto core_id = omp_get_thread_num();
-        gemm_.i_linear::tile_dot_product_16x256_shortage(output[j], input[j], weight_ih, bias, scale, o_scale, batch_size, col_step, core_id, total_core_num);
+        gemm_.tile_dot_product_16x256_shortage(output[j], input[j], weight_ih, bias, scale, o_scale, batch_size, core_id, total_core_num);
       }
     }
     alignas(64) int8_t hx[batch_size][hidden];
@@ -360,7 +352,7 @@ void test_block_gemm(const size_t batch_size, const size_t input_f, const size_t
       {
         auto total_core_num = omp_get_num_threads();
         auto core_id = omp_get_thread_num();
-        gemm_hh_.i_linear::tile_dot_product_16x256_shortage(output_hh[j], hx, weight_hh, bias_hh, scale, o_scale, batch_size, col_step, core_id, total_core_num);
+        gemm_hh_.tile_dot_product_16x256_shortage(output_hh[j], hx, weight_hh, bias_hh, scale, o_scale, batch_size, core_id, total_core_num);
       }
 
       #pragma omp parallel for collapse(2)
@@ -377,7 +369,7 @@ void test_block_gemm(const size_t batch_size, const size_t input_f, const size_t
       alignas(64) _Float16 pout_3[batch_size][hidden];
       #pragma omp parallel for
       for (auto b = 0; b < batch_size; ++b) {
-        intel_mlperf::lstm_postop_tpp::ref(pout_1[b],pout_1_q[b],pout_2[b],pout_3[b],&output[j][b][0],&output[j][b][hidden],&output[j][b][hidden*2],&output[j][b][hidden*3],pin_ct[b],in_scale,out_scale,hidden,false);
+        intel_mlperf::lstm_postop_tpp::ref(pout_1[b],pout_1_q[b],&output[j][b][0],&output[j][b][hidden],&output[j][b][hidden*2],&output[j][b][hidden*3],pin_ct[b],in_scale,out_scale,hidden,false);
       }
     }
   }
@@ -387,14 +379,59 @@ void test_block_gemm(const size_t batch_size, const size_t input_f, const size_t
   delete[] weight_ih;
 }
 
+void test_block_gemm_perf(const size_t batch_size, const size_t input_f, const size_t output_f, const size_t core_num) {
+  printf("test_block_gemm_perf %dc: %d * %d\n", core_num, input_f, output_f);
+  bool has_bias = true;
+  bool post_op = false;
+  float o_scale = 0.0;
+
+  size_t row_tile = (batch_size + 15) / 16;
+  size_t col_step = output_f / 64;
+  size_t col_tile = input_f / 64;
+
+  size_t block_row = input_f / 4;
+  size_t block_num = 1;
+
+  auto gemm_ = intel_mlperf::i_linear_i8o32(batch_size, input_f, output_f, has_bias, post_op);
+
+  void* weight_ih = nullptr;
+  posix_memalign(&weight_ih, 4096, block_num * input_f * output_f);
+
+  float bias[output_f];
+  float scale = 0.0018;
+
+  for (int i = 0; i < block_num; i++) {
+    auto w = reinterpret_cast<int8_t (*)[input_f][output_f]>(weight_ih);
+    intel_mlperf::set_data_wei(w[i], bias, input_f, output_f);
+  }
+
+  printf("**************************** start test performance **********************\n");
+  int loop_num = 500000;
+  auto start = Time::now();
+  alignas(64) int8_t input[batch_size][input_f];
+  alignas(64) float output[batch_size][output_f];
+  for (int i = 0; i < loop_num; i++) {
+    # pragma omp parallel
+    {
+      auto total_core_num = omp_get_num_threads();
+      auto core_id = omp_get_thread_num();
+      size_t start_ = batch_size * core_id / total_core_num;
+      size_t chunk_sl_ = (batch_size * core_id + batch_size) / total_core_num - start_;
+      gemm_.tile_dot_product_16x256_shortage(output, input, weight_ih, bias, scale, o_scale, batch_size, core_id, total_core_num);
+      //gemm_.tile_dot_product_16x256(output[start_], input[start_], weight_ih, bias, scale, o_scale, chunk_sl_, core_id, total_core_num);
+    }
+  }
+  auto during = std::chrono::duration_cast<std::chrono::nanoseconds>(Time::now() - start).count();
+  std::cout << batch_size << " x " << input_f << " x " << output_f << " : " << (float)during / loop_num << " ns " << std::endl;
+  delete[] weight_ih;
+}
+
 int main(int argc, char* argv[]) {
   int row_tile = 2;
   int is_block = 1;
   int num_cores = 56;
   if (argc == 2) {
-    row_tile = std::atoi(argv[1]);
-  } else if (argc == 3) {
-    num_cores = std::atoi(argv[2]);
+    num_cores = std::atoi(argv[1]);
   }
 
   amx_init::amx_init();
@@ -402,7 +439,8 @@ int main(int argc, char* argv[]) {
 
   //bool accuracy_mode = true;
   //std::cout << "row_tile : " << row_tile << std::endl;
-  test_block_gemm(32, 2048, 4096, 4);
+  //test_block_gemm_cache_hit(32, 2048, 4096, 4);
+  test_block_gemm_perf(32 * num_cores, 2048, 1024 * num_cores, num_cores);
 
   //intel_mlperf::performance_linear(64, 1024, 4096);
   //intel_mlperf::performance_linear(32, 2048, 4096);

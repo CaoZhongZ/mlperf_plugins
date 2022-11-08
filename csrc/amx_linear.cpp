@@ -76,9 +76,9 @@ at::Tensor amx_linear(
 
       // block_computer.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, o_scale_, core_id, total_core_num);
       if (total_sl < minimum_sl) {
-        block_computer_fp16.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, o_scale_, core_id, total_core_num);
+        block_computer_fp16.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, o_scale_, total_sl, core_id, total_core_num);
       } else {
-        block_computer_fp16.tile_dot_product_16x256(output_[start_], input_[start_], weight_, bias_, scale_, o_scale_, core_id, total_core_num);
+        block_computer_fp16.tile_dot_product_16x256(output_[start_], input_[start_], weight_, bias_, scale_, o_scale_, chunk_sl_, core_id, total_core_num);
       }
       Tilecfg().release_config();
     }
@@ -100,10 +100,10 @@ at::Tensor amx_linear(
 
       // block_computer.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, o_scale_, core_id, total_core_num);
       if (total_sl < minimum_sl) {
-        block_computer.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, o_scale_, core_id, total_core_num);
+        block_computer.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, o_scale_, total_sl, core_id, total_core_num);
       }
       else {
-        block_computer.tile_dot_product_16x256(output_[start_], input_[start_], weight_, bias_, scale_, o_scale_, core_id, total_core_num);
+        block_computer.tile_dot_product_16x256(output_[start_], input_[start_], weight_, bias_, scale_, o_scale_, chunk_sl_, core_id, total_core_num);
       }
       Tilecfg().release_config();
     }
@@ -160,10 +160,10 @@ at::Tensor amx_linear_i8o32(
     size_t minimum_sl = 32 * total_core_num;
 
     if (total_sl < minimum_sl) {
-      block_computer.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, 0.0, core_id, total_core_num);
+      block_computer.tile_dot_product_16x256_shortage(output_, input_, weight_, bias_, scale_, 0.0, total_sl, core_id, total_core_num);
     }
     else {
-      block_computer.tile_dot_product_16x256(output_[start_], input_[start_], weight_, bias_, scale_, 0.0, core_id, total_core_num);
+      block_computer.tile_dot_product_16x256(output_[start_], input_[start_], weight_, bias_, scale_, 0.0, chunk_sl_, core_id, total_core_num);
     }
     Tilecfg().release_config();
   }

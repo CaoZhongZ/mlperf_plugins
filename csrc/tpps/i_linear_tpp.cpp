@@ -5,18 +5,6 @@
 
 using Time = std::chrono::high_resolution_clock;
 
-namespace {
-  inline int get_col_idx(int cols_in_tile) {
-    if (cols_in_tile == 16) {
-      return 0;
-    } else if (cols_in_tile == 32) {
-      return 1;
-    } else {
-      return 2;
-    }
-  }
-}
-
 namespace intel_mlperf {
 
 template <int row_tile, int col_tile>
@@ -40,18 +28,17 @@ const i_linear::compute_block_t i_linear::compute_block_tbl_ [3][3] = {
 };
 
 void i_linear::tile_dot_product_16x256(void *C, void *A, void *B, float *bias, float scale, float o_scale,
-                                       size_t cur_id, size_t total_chunks) {
-  int col_idx = get_col_idx(cols_in_tile_);
+                                       const size_t chunk_sl, size_t cur_id, size_t total_chunks) {
   auto C_ = reinterpret_cast<int8_t (*)[cols_step_][64]>(C);
   auto A_ = reinterpret_cast<int8_t (*)[ic_]>(A);
   auto B_ = reinterpret_cast<int8_t (*)[4][cols_in_tile_][16][64]>(B);
   auto bias_ = reinterpret_cast<float (*)[64]>(bias);
 
-  compute_block_t computer_2 = compute_block_tbl_[2][col_idx];
-  compute_block_t computer_1 = compute_block_tbl_[1][col_idx];
+  compute_block_t computer_2 = compute_block_tbl_[2][compute_blk_idx_];
+  compute_block_t computer_1 = compute_block_tbl_[1][compute_blk_idx_];
 
-  size_t row_tile = (sl_ + 15) / 16;
-  size_t roll_back = row_tile * 16 - sl_;
+  size_t row_tile = (chunk_sl + 15) / 16;
+  size_t roll_back = row_tile * 16 - chunk_sl;
 
   bool odd_tile = row_tile % 2;
   size_t row_step = row_tile / 2;
@@ -93,18 +80,17 @@ void i_linear::tile_dot_product_16x256(void *C, void *A, void *B, float *bias, f
 }
 
 void i_linear::tile_dot_product_16x256_shortage(void *C, void *A, void *B, float *bias, float scale, float o_scale,
-                                                size_t cur_id, size_t total_chunks) {
-  int col_idx = get_col_idx(cols_in_tile_);
+                                                const size_t chunk_sl, size_t cur_id, size_t total_chunks) {
   auto C_ = reinterpret_cast<int8_t (*)[cols_step_][64]>(C);
   auto A_ = reinterpret_cast<int8_t (*)[ic_]>(A);
   auto B_ = reinterpret_cast<int8_t (*)[4][cols_in_tile_][16][64]>(B);
   auto bias_ = reinterpret_cast<float (*)[64]>(bias);
 
-  compute_block_t computer_2 = compute_block_tbl_[2][col_idx];
-  compute_block_t computer_1 = compute_block_tbl_[1][col_idx];
+  compute_block_t computer_2 = compute_block_tbl_[2][compute_blk_idx_];
+  compute_block_t computer_1 = compute_block_tbl_[1][compute_blk_idx_];
 
-  size_t row_tile = (sl_ + 15) / 16;
-  size_t roll_back = row_tile * 16 - sl_;
+  size_t row_tile = (chunk_sl + 15) / 16;
+  size_t roll_back = row_tile * 16 - chunk_sl;
 
   bool odd_tile = row_tile % 2;
   size_t row_step = row_tile / 2;
@@ -142,15 +128,15 @@ void i_linear::tile_dot_product_16x256_shortage(void *C, void *A, void *B, float
 
 void i_linear::tile_linear(const int row_tile, size_t roll_back, const int col_tile, 
                            void *C, void *A, void *B, float *bias, float scale, float o_scale) {
-  int col_idx = col_tile == 16 ? 0 : 1;
+  int compute_blk_idx_ = col_tile == 16 ? 0 : 1;
   int cols_step_ = oc_ / 64;
   auto C_ = reinterpret_cast<int8_t (*)[cols_step_][64]>(C);
   auto A_ = reinterpret_cast<int8_t (*)[ic_]>(A);
   auto B_ = reinterpret_cast<int8_t (*)[4][col_tile][16][64]>(B);
   auto bias_ = reinterpret_cast<float (*)[64]>(bias);
 
-  compute_block_t computer_2 = compute_block_tbl_[2][col_idx];
-  compute_block_t computer_1 = compute_block_tbl_[1][col_idx];
+  compute_block_t computer_2 = compute_block_tbl_[2][compute_blk_idx_];
+  compute_block_t computer_1 = compute_block_tbl_[1][compute_blk_idx_];
 
 # pragma unroll
   for (int i = 0; i < cols_step_; i++) {
@@ -169,18 +155,17 @@ void i_linear::tile_linear(const int row_tile, size_t roll_back, const int col_t
 }
 
 void i_linear_i8o32::tile_dot_product_16x256(void *C, void *A, void *B, float *bias, float scale, float o_scale,
-                                       size_t cur_id, size_t total_chunks) {
-  int col_idx = get_col_idx(cols_in_tile_);
+                                       const size_t chunk_sl, size_t cur_id, size_t total_chunks) {
   auto C_ = reinterpret_cast<float (*)[cols_step_][64]>(C);
   auto A_ = reinterpret_cast<int8_t (*)[ic_]>(A);
   auto B_ = reinterpret_cast<int8_t (*)[4][cols_in_tile_][16][64]>(B);
   auto bias_ = reinterpret_cast<float (*)[64]>(bias);
 
-  compute_block_t computer_2 = compute_block_tbl_[2][col_idx];
-  compute_block_t computer_1 = compute_block_tbl_[1][col_idx];
+  compute_block_t computer_2 = compute_block_tbl_[2][compute_blk_idx_];
+  compute_block_t computer_1 = compute_block_tbl_[1][compute_blk_idx_];
 
-  size_t row_tile = (sl_ + 15) / 16;
-  size_t roll_back = row_tile * 16 - sl_;
+  size_t row_tile = (chunk_sl + 15) / 16;
+  size_t roll_back = row_tile * 16 - chunk_sl;
 
   bool odd_tile = row_tile % 2;
   size_t row_step = row_tile / 2;
@@ -222,18 +207,17 @@ void i_linear_i8o32::tile_dot_product_16x256(void *C, void *A, void *B, float *b
 }
 
 void i_linear_i8o32::tile_dot_product_16x256_shortage(void *C, void *A, void *B, float *bias, float scale, float o_scale,
-                                                size_t cur_id, size_t total_chunks) {
-  int col_idx = get_col_idx(cols_in_tile_);
+                                                const size_t chunk_sl, size_t cur_id, size_t total_chunks) {
   auto C_ = reinterpret_cast<float (*)[cols_step_][64]>(C);
   auto A_ = reinterpret_cast<int8_t (*)[ic_]>(A);
   auto B_ = reinterpret_cast<int8_t (*)[4][cols_in_tile_][16][64]>(B);
   auto bias_ = reinterpret_cast<float (*)[64]>(bias);
 
-  compute_block_t computer_2 = compute_block_tbl_[2][col_idx];
-  compute_block_t computer_1 = compute_block_tbl_[1][col_idx];
+  compute_block_t computer_2 = compute_block_tbl_[2][compute_blk_idx_];
+  compute_block_t computer_1 = compute_block_tbl_[1][compute_blk_idx_];
 
-  size_t row_tile = (sl_ + 15) / 16;
-  size_t roll_back = row_tile * 16 - sl_;
+  size_t row_tile = (chunk_sl + 15) / 16;
+  size_t roll_back = row_tile * 16 - chunk_sl;
 
   bool odd_tile = row_tile % 2;
   size_t row_step = row_tile / 2;
@@ -247,6 +231,7 @@ void i_linear_i8o32::tile_dot_product_16x256_shortage(void *C, void *A, void *B,
   // enlarge the loopweitht size, for example, the weight step change to 512
   size_t wei_start = cur_id * chunk_step;
   size_t wei_end   = (cur_id + 1) * chunk_step;
+  //printf("i_linear_i8o32::tile_dot_product_16x256_shortage wei_start %d wei_end %d\n", wei_start, wei_end);
   if (odd_tile) {
     size_t k = 0;
     for (k = wei_start; k < wei_end; k++) {
@@ -271,15 +256,15 @@ void i_linear_i8o32::tile_dot_product_16x256_shortage(void *C, void *A, void *B,
 
 void i_linear_i8o32::tile_linear(const int row_tile, size_t roll_back, const int col_tile, 
                            void *C, void *A, void *B, float *bias, float scale, float o_scale) {
-  int col_idx = col_tile == 16 ? 0 : 1;
+  int compute_blk_idx_ = col_tile == 16 ? 0 : 1;
   int cols_step_ = oc_ / 64;
   auto C_ = reinterpret_cast<float (*)[cols_step_][64]>(C);
   auto A_ = reinterpret_cast<int8_t (*)[ic_]>(A);
   auto B_ = reinterpret_cast<int8_t (*)[4][col_tile][16][64]>(B);
   auto bias_ = reinterpret_cast<float (*)[64]>(bias);
 
-  compute_block_t computer_2 = compute_block_tbl_[2][col_idx];
-  compute_block_t computer_1 = compute_block_tbl_[1][col_idx];
+  compute_block_t computer_2 = compute_block_tbl_[2][compute_blk_idx_];
+  compute_block_t computer_1 = compute_block_tbl_[1][compute_blk_idx_];
 
 # pragma unroll
   for (int i = 0; i < cols_step_; i++) {
@@ -309,18 +294,17 @@ const i_linear_fp16::compute_block_t i_linear_fp16::compute_block_tbl_ [3][3] = 
 };
 
 void i_linear_fp16::tile_dot_product_16x256(void *C, void *A, void *B, _Float16 *bias, float scale, float o_scale,
-                                       size_t cur_id, size_t total_chunks) {
-  int col_idx = get_col_idx(cols_in_tile_);
+                                       const size_t chunk_sl, size_t cur_id, size_t total_chunks) {
   auto C_ = reinterpret_cast<int8_t (*)[cols_step_][64]>(C);
   auto A_ = reinterpret_cast<int8_t (*)[ic_]>(A);
   auto B_ = reinterpret_cast<int8_t (*)[4][cols_in_tile_][16][64]>(B);
   auto bias_ = reinterpret_cast<_Float16 (*)[64]>(bias);
 
-  compute_block_t computer_2 = compute_block_tbl_[2][col_idx];
-  compute_block_t computer_1 = compute_block_tbl_[1][col_idx];
+  compute_block_t computer_2 = compute_block_tbl_[2][compute_blk_idx_];
+  compute_block_t computer_1 = compute_block_tbl_[1][compute_blk_idx_];
 
-  size_t row_tile = (sl_ + 15) / 16;
-  size_t roll_back = row_tile * 16 - sl_;
+  size_t row_tile = (chunk_sl + 15) / 16;
+  size_t roll_back = row_tile * 16 - chunk_sl;
 
   bool odd_tile = row_tile % 2;
   size_t row_step = row_tile / 2;
@@ -362,18 +346,17 @@ void i_linear_fp16::tile_dot_product_16x256(void *C, void *A, void *B, _Float16 
 }
 
 void i_linear_fp16::tile_dot_product_16x256_shortage(void *C, void *A, void *B, _Float16 *bias, float scale, float o_scale,
-                                                size_t cur_id, size_t total_chunks) {
-  int col_idx = get_col_idx(cols_in_tile_);
+                                                const size_t chunk_sl, size_t cur_id, size_t total_chunks) {
   auto C_ = reinterpret_cast<int8_t (*)[cols_step_][64]>(C);
   auto A_ = reinterpret_cast<int8_t (*)[ic_]>(A);
   auto B_ = reinterpret_cast<int8_t (*)[4][cols_in_tile_][16][64]>(B);
   auto bias_ = reinterpret_cast<_Float16 (*)[64]>(bias);
 
-  compute_block_t computer_2 = compute_block_tbl_[2][col_idx];
-  compute_block_t computer_1 = compute_block_tbl_[1][col_idx];
+  compute_block_t computer_2 = compute_block_tbl_[2][compute_blk_idx_];
+  compute_block_t computer_1 = compute_block_tbl_[1][compute_blk_idx_];
 
-  size_t row_tile = (sl_ + 15) / 16;
-  size_t roll_back = row_tile * 16 - sl_;
+  size_t row_tile = (chunk_sl + 15) / 16;
+  size_t roll_back = row_tile * 16 - chunk_sl;
 
   bool odd_tile = row_tile % 2;
   size_t row_step = row_tile / 2;
