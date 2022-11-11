@@ -1,6 +1,3 @@
-#include "helper.hpp"
-#include "i_softmax_tpp.hpp"
-#include "transpose.hpp"
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -16,8 +13,10 @@
 #include "lstm_postop_tpp.hpp"
 #include "amx_config.hpp"
 #include "../amx_init.hpp"
-
-#include "test_gemm.h"
+#include "helper.hpp"
+#include "helper_test.h"
+#include "i_softmax_tpp.hpp"
+#include "transpose.hpp"
 
 float gelu_func(float x) {
   float rsqrt_2 = 0.70710678;
@@ -457,16 +456,5 @@ int main(int argc, char* argv[]) {
   test_block_gemm_perf(32 * num_cores, input_f, 1024, num_cores);
   //test_block_gemm_perf(32, input_f, 1024 * num_cores, num_cores);
 
-  //intel_mlperf::performance_linear(64, 1024, 4096);
-  //intel_mlperf::performance_linear(32, 2048, 4096);
-  //intel_mlperf::performance_linear(32, 256, 4096);
-  //intel_mlperf::performance_linear_i8o32(32, 1024, 4096);
-  //intel_mlperf::performance_linear_i8o32(32, 2048, 4096);
-  //intel_mlperf::performance_linear_i8o32(32, 256, 4096);
-  //intel_mlperf::performance_gemm(64, 1024, 64);
-
-  //bool accuracy_mode = true;
-  //std::cout << "row_tile : " << row_tile << std::endl;
-  // intel_mlperf::accuracy_gemm(64, 1024, 64);
   return 0;
 }

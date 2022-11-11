@@ -6,7 +6,11 @@
 #include <cstring>
 #include <iostream>
 
-#include "cxxopts.hpp"
+//#include "../cxxopts.hpp"
+#include "amx_config.hpp"
+#include "../amx_init.hpp"
+#include "helper_test.h"
+#include "helper.hpp"
 #include "i_softmax_tpp.hpp"
 #include "i_mha_tpp.hpp"
 
@@ -114,15 +118,15 @@ void _i32(const void *arr, size_t row, size_t col, size_t stride) {
 }
 
 int main(int argc, char **argv) {
-  cxxopts::Options opts("mha_test", "MHA kernel test");
-  opts.add_options()
-    ("l,seq_len", "Sequence length", cxxopts::value<size_t>()->default_value("384"))
-    ("M,scale1", "First scale", cxxopts::value<float>()->default_value("0.0001"))
-    ("s,oscale", "Second scale", cxxopts::value<float>()->default_value("8200"))
-    ("f,eltscale", "Final scale", cxxopts::value<float>()->default_value("0.0001"))
-    ("t,times", "Testing time", cxxopts::value<int>()->default_value("1"))
-    ("b,batch", "Testing batch", cxxopts::value<int>()->default_value("64"))
-  ;
+  //cxxopts::Options opts("mha_test", "MHA kernel test");
+  //opts.add_options()
+    //("l,seq_len", "Sequence length", cxxopts::value<size_t>()->default_value("384"))
+    //("M,scale1", "First scale", cxxopts::value<float>()->default_value("0.0001"))
+    //("s,oscale", "Second scale", cxxopts::value<float>()->default_value("8200"))
+    //("f,eltscale", "Final scale", cxxopts::value<float>()->default_value("0.0001"))
+    //("t,times", "Testing time", cxxopts::value<int>()->default_value("1"))
+    //("b,batch", "Testing batch", cxxopts::value<int>()->default_value("64"))
+  //;
 
   amx_init();
 

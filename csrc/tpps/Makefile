@@ -4,7 +4,8 @@
 CXX = clang++
 CXXFLAGS = -g -fPIC -fopenmp -march=native -mfma -O3 -std=c++14 -Wall -Dusercp
 
-SRCS = main.cpp helper.cpp i_linear_tpp.cpp lstm_postop_tpp.cpp tanh_tpp.cpp sigmoid_tpp.cpp test_gemm.cpp ../amx_init.cpp
+COMMON_SRCS = ../amx_init.cpp helper.cpp helper_test.cpp
+SRCS = $(COMMON_SRCS) i_linear_tpp.cpp lstm_postop_tpp.cpp tanh_tpp.cpp sigmoid_tpp.cpp
 
 OBJS = $(SRCS:.cpp=.o)
 
@@ -14,17 +15,20 @@ MAIN = xxx.exe
 
 all: $(MAIN)
 	@echo Simple compiler name xxx.exe has been compiled
-$(MAIN): $(OBJS)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -o $(MAIN) $(OBJS) $(LFLAGS)
+$(MAIN): main.o $(OBJS)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -o $(MAIN) main.o $(OBJS) $(LFLAGS)
 
 # libtpps.a : $(kernels:.cpp=.o)
 # 	ar rcs $@ $^
 
-.cpp.o:
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+test_i_gemm: test_i_gemm.o $(OBJS)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -o ${@:%=%.exe} ${@:%=%.o} $(OBJS) $(LFLAGS)
+
+test_i_linear: test_i_linear.o $(OBJS)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -o ${@:%=%.exe} ${@:%=%.o} $(OBJS) $(LFLAGS)
 
 clean :
-	$(RM) *.o *~ $(MAIN)
+	$(RM) *.o *~ $(MAIN) test_*.exe
 
 # depend: $(SRCS)
 # 	makedepend $(INCLUDES) $^
