@@ -400,6 +400,16 @@ static inline __m512h _mm512_concat_cvteps_ph(__m512 i0, __m512 i1) {
   return _mm512_castsi512_ph(_mm512_shuffle_i64x2(i0_512h, i1_512h, _MM_SHUFFLE(1, 0, 1, 0)));
 }
 
+static inline __m512i _mm512_concat_cvtepi64_epi32(__m512 i0, __m512 i1) {
+  // convert 8*int64 to 8*int32
+  auto i0_ = _mm512_cvtepi64_epi32(i0);
+  auto i1_ = _mm512_cvtepi64_epi32(i1);
+  // get lower half filled 512 vec
+  auto rst_ = _mm512_zextsi256_si512(i0_);
+  // fill the upper half
+  return _mm512_inserti64x4(rst_, i1_, 1);
+}
+
 inline static __m512 _mm512_loadu_i8_to_fp32(void const *mem_addr) {
   auto l = _mm_loadu_si128((__m128i *)mem_addr);
   auto i = _mm512_cvtepi8_epi32(l);
