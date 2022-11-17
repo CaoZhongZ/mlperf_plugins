@@ -113,7 +113,8 @@ TORCH_LIBRARY(intel_mlperf, m) {
       "lstm_int8(Tensor _0, Tensor[] _1, Tensor[] _2, Tensor[][] _3, Tensor _4, Tensor _5, Tensor _6, bool _7) -> (Tensor, Tensor[], Tensor[])",
       intel_mlperf::lstm_int8);
   m.def(
-      "greedy_encoder_update(Tensor symbols, Tensor symbols_added, Tensor res, Tensor res_idx, Tensor time_idx, Tensor f_lens, Tensor pred_g, Tensor finish, Tensor update_g) -> bool", intel_mlperf::greedy_encoder_update);
+      "greedy_encoder_update(Tensor symbols, Tensor symbols_added, Tensor res, Tensor res_idx, Tensor time_idx, Tensor f_lens, Tensor pred_g, Tensor finish, Tensor update_g, Tensor f, Tensor fi, Tensor pred_hg, Tensor pred_cg, Tensor pred_state_hg, Tensor pred_state_cg) -> bool",
+      intel_mlperf::greedy_encoder_update);
 }
 
 namespace intel_mlperf {
