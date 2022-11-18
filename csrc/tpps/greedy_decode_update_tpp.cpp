@@ -1,4 +1,4 @@
-#include "greedy_encoder_update_tpp.hpp"
+#include "greedy_decode_update_tpp.hpp"
 
 #include <immintrin.h>
 
@@ -6,10 +6,10 @@
 
 namespace intel_mlperf {
 
-void greedy_encoder_update_tpp::update_mask(
+void greedy_decode_update_tpp::update_mask(
     int64_t* symbols, int32_t* symbols_added, int32_t* res, int32_t* res_idx,
     int32_t* time_idx, int32_t* f_lens, int32_t* pred_g, size_t seq_len,
-    size_t batch, int16_t& update_g, int16_t& finish) {
+    size_t batch, unsigned short& update_g, unsigned short& finish) {
   __mmask16 mask_batch = (1 << batch) - 1;
   const auto k1 = _mm512_set1_epi32(1);
   const auto k0 = _mm512_set1_epi32(0);
@@ -22,7 +22,7 @@ void greedy_encoder_update_tpp::update_mask(
   auto mask_no_blank = _mm512_mask_cmpneq_epi32_mask(
       mask_batch, symbols_, _mm512_set1_epi32(kBlank));
   auto mask_no_max_symbols = _mm512_mask_cmpneq_epi32_mask(
-      mask_batch, symbols_added_, _mm512_set1_epi32(kBlank));
+      mask_batch, symbols_added_, _mm512_set1_epi32(kMaxSymbolsPerStep));
   __mmask16 mask_update_g = mask_no_blank & mask_no_max_symbols;
   __mmask16 mask_update_f = ~mask_update_g & mask_batch;
   const auto seq_len_ = _mm512_set1_epi32(seq_len);
