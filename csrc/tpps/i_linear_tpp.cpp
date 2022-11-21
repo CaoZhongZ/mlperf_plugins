@@ -231,6 +231,11 @@ void i_linear_i8o32::tile_dot_product_16x256_shortage(void *C, void *A, void *B,
   // enlarge the loopweitht size, for example, the weight step change to 512
   size_t wei_start = cur_id * chunk_step;
   size_t wei_end   = (cur_id + 1) * chunk_step;
+  size_t row_start = 0;
+  // row sharding to avoid bank conflict
+  if (chunk_sl >= total_chunks * 32) {
+    row_start = chunk_sl * cur_id / total_chunks;
+  }
   //printf("i_linear_i8o32::tile_dot_product_16x256_shortage wei_start %d wei_end %d\n", wei_start, wei_end);
   if (odd_tile) {
     size_t k = 0;
@@ -247,7 +252,8 @@ void i_linear_i8o32::tile_dot_product_16x256_shortage(void *C, void *A, void *B,
       for (size_t k = wei_start; k < wei_end; k++) {
         for (size_t j = 0; j < row_step; j++) {
           size_t rollback_ = (j == row_step - 1) * roll_back;
-          auto row_pos = j * 32 - rollback_;
+          auto row_pos = row_start + j * 32 - rollback_;
+          row_pos = row_pos - int(row_pos >= chunk_sl) * chunk_sl;
           (this->*computer_2)(C_[row_pos][k], oc_, A_[row_pos], B_[k], bias_[k], scale, post_op_, o_scale);
         }
       }
