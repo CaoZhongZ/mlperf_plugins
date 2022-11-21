@@ -18,12 +18,14 @@ void greedy_decode_update_tpp::update_mask(
   auto symbols_ = _mm512_concat_cvtepi64_epi32(symbols1_, symbols2_);
   auto symbols_added_ = _mm512_mask_loadu_epi32(k0, mask_batch, symbols_added);
   auto res_idx_ = _mm512_mask_loadu_epi32(k0, mask_batch, res_idx);
+  auto f_lens_ = _mm512_mask_loadu_epi32(k0, mask_batch, f_lens);
+  auto finish_ = _mm512_cmpeq_epi32_mask(f_lens_, k0);
 
   auto mask_no_blank = _mm512_mask_cmpneq_epi32_mask(
       mask_batch, symbols_, _mm512_set1_epi32(kBlank));
   auto mask_no_max_symbols = _mm512_mask_cmpneq_epi32_mask(
       mask_batch, symbols_added_, _mm512_set1_epi32(kMaxSymbolsPerStep));
-  __mmask16 mask_update_g = mask_no_blank & mask_no_max_symbols;
+  __mmask16 mask_update_g = mask_no_blank & mask_no_max_symbols & ~finish_;
   __mmask16 mask_update_f = ~mask_update_g & mask_batch;
   const auto seq_len_ = _mm512_set1_epi32(seq_len);
   auto idx_base =
@@ -41,7 +43,6 @@ void greedy_decode_update_tpp::update_mask(
   _mm512_mask_storeu_epi32(pred_g, mask_update_g, symbols_);
 
   auto time_idx_ = _mm512_mask_loadu_epi32(k0, mask_batch, time_idx);
-  auto f_lens_ = _mm512_mask_loadu_epi32(k0, mask_batch, f_lens);
   time_idx_ = _mm512_mask_add_epi32(time_idx_, mask_update_f, time_idx_, k1);
   _mm512_mask_storeu_epi32(time_idx, mask_batch, time_idx_);
 
