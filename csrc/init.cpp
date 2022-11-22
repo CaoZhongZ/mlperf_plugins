@@ -86,11 +86,11 @@ TORCH_LIBRARY(intel_mlperf, m) {
       "frame_splicing(Tensor input, Scalar factor) -> Tensor",
       intel_mlperf::frame_splicing);
   m.def(
-      "lstm(Tensor x, Tensor ? hx, Tensor ? cx, Tensor[][] all_weights, int ? hidden_size) -> (Tensor, Tensor, Tensor)",
-      intel_mlperf::lstm);
+      "lstm_layer_1dnn(Tensor x, Tensor hx, Tensor cx, Tensor w_ih, Tensor w_hh, Tensor b_ih, Tensor b_hh) -> (Tensor, Tensor, Tensor)",
+      intel_mlperf::lstm_layer_1dnn);
   m.def(
-      "lstm_layer(Tensor x, Tensor ? hx, Tensor ? cx, Tensor w_ih, Tensor w_hh, Tensor ? b_ih, Tensor ? b_hh, int ? hidden_size) -> (Tensor, Tensor, Tensor)",
-      intel_mlperf::lstm_layer);
+      "lstm(Tensor x, Tensor[] hx, Tensor[] cx, Tensor[][] all_weights) -> (Tensor, Tensor[], Tensor[])",
+      intel_mlperf::lstm);
   m.def(
       "prepack_lstm_weights(Tensor w_ih, Tensor w_hh) -> (Tensor, Tensor)",
       intel_mlperf::prepack_lstm_weights);
@@ -113,7 +113,7 @@ TORCH_LIBRARY(intel_mlperf, m) {
       "lstm_int8(Tensor _0, Tensor[] _1, Tensor[] _2, Tensor[][] _3, Tensor _4, Tensor _5, Tensor _6, bool _7) -> (Tensor, Tensor[], Tensor[])",
       intel_mlperf::lstm_int8);
   m.def(
-      "greedy_decode_update(Tensor symbols, Tensor symbols_added, Tensor res, Tensor res_idx, Tensor time_idx, Tensor f_lens, Tensor pred_g, Tensor f, Tensor fi, Tensor pred_hg, Tensor pred_cg, Tensor pred_state_hg, Tensor pred_state_cg) -> bool",
+      "greedy_decode_update(Tensor symbols, Tensor symbols_added, Tensor res, Tensor res_idx, Tensor f, Tensor f_lens, Tensor time_idx, Tensor fi, Tensor pre_g, Tensor[] pre_hg, Tensor[] pre_cg, Tensor[] hg, Tensor[] cg) -> bool",
       intel_mlperf::greedy_decode_update);
 }
 

@@ -184,37 +184,29 @@ std::tuple<at::Tensor, at::Tensor> prepack_lstm_weights (
   return {prepacked_w_ih, prepacked_w_hh};
 }
 
-std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_layer(
+std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_layer_1dnn(
     const at::Tensor& x,
-    const c10::optional<at::Tensor>& hx,
-    const c10::optional<at::Tensor>& cx,
+    const at::Tensor& hx,
+    const at::Tensor& cx,
     const at::Tensor& w_ih,
     const at::Tensor& w_hh,
-    const c10::optional<at::Tensor>& b_ih,
-    const c10::optional<at::Tensor>& b_hh,
-    const c10::optional<int64_t> hidden_size) {
+    const at::Tensor& b_ih,
+    const at::Tensor& b_hh) {
 
-  auto hidden_size_ = hidden_size ? hidden_size.value() : w_hh.size(1);
-  LSTMParams lstm(x.size(0), x.size(1), x.size(2), hidden_size_);
+  auto hidden_size = b_ih.size(0) / 4;
+  LSTMParams lstm(x.size(0), x.size(1), x.size(2), hidden_size);
   
   auto input_dt = cast(x.scalar_type());
 
   // Shuffle hx, cx & bias
   // hx: {D*L, N, OC} -> {L, D, N, SIC}
-  auto hx_ = hx ? hx.value().resize_(lstm.hx_sz).contiguous()
-      : at::zeros(lstm.hx_sz, at::TensorOptions().dtype(cast(input_dt))
-        .memory_format(c10::MemoryFormat::Contiguous));
-
+  auto hx_ = at::reshape(hx, lstm.hx_sz);
   // cx: {D*L, N, OC} -> {L, D, N, DHC}
-  auto cx_ = cx ? cx.value().resize_(lstm.cx_sz).contiguous()
-      : at::zeros(lstm.cx_sz, at::TensorOptions().dtype(cast(input_dt))
-        .memory_format(c10::MemoryFormat::Contiguous));
-
+  auto cx_ = at::reshape(cx, lstm.cx_sz);
   // bias = b_ih + b_hh: {G*OC} -> {L, D, G, DHC}
-  auto bias = (b_ih && b_hh) ? (b_ih.value() + b_hh.value()).resize_(lstm.bias_sz)
-      : at::zeros(lstm.bias_sz, at::TensorOptions().dtype(cast(input_dt))
-	      .memory_format(c10::MemoryFormat::Contiguous));
+  auto bias = (b_ih + b_hh).resize_(lstm.bias_sz);
 
+  // Prepack weights
   at::Tensor w_ih_, w_hh_;
   std::tie(w_ih_, w_hh_) = prepack_lstm_weights(w_ih, w_hh);
 
@@ -307,46 +299,31 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_layer(
   // Execute primitive
   compute.execute(s, lstm_args);
 
-  hy.resize_({lstm.num_layers*lstm.num_directions, lstm.mini_batch, lstm.hidden_size});
-  cy.resize_({lstm.num_layers*lstm.num_directions, lstm.mini_batch, lstm.hidden_size});
+  // {L=1, D=1, N, C} -> {N, C}
+  hy.resize_({lstm.mini_batch, lstm.hidden_size});
+  cy.resize_({lstm.mini_batch, lstm.hidden_size});
 
   return {y, hy, cy};
 }
 
-std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm(
+std::tuple<at::Tensor, std::vector<at::Tensor>, std::vector<at::Tensor>> lstm(
     const at::Tensor& x,
-    const c10::optional<at::Tensor>& hx,
-    const c10::optional<at::Tensor>& cx,
-    const std::vector<std::vector<at::Tensor>> all_weights,
-    const c10::optional<int64_t> hidden_size) {
+    const std::vector<at::Tensor>& hx,
+    const std::vector<at::Tensor>& cx,
+    const std::vector<std::vector<at::Tensor>> all_weights) {
   auto x_layer = x.contiguous();
-  // TODO: add contiguous check for hx & cx
   at::Tensor hy_layer, cy_layer;
-  std::vector<at::Tensor> hy_list, cy_list;
+  std::vector<at::Tensor> hy, cy;
   auto num_layers = all_weights.size();
   for (int64_t layer = 0; layer < num_layers; ++layer) {
-    auto hx_layer = hx ? hx.value()[layer] : hx;
-    auto cx_layer = cx ? cx.value()[layer] : cx;
     auto weights_layer = all_weights[layer];
-    if (weights_layer.size() == 4) {
-      std::tie(x_layer, hy_layer, cy_layer) = lstm_layer(
-          x_layer, hx_layer, cx_layer,
-          weights_layer[0], weights_layer[1],
-          weights_layer[2], weights_layer[3],
-          hidden_size);
-    } else {
-      std::tie(x_layer, hy_layer, cy_layer) = lstm_layer(
-          x_layer, hx_layer, cx_layer,
-          weights_layer[0], weights_layer[1],
-          at::zeros(weights_layer[0].sizes(), weights_layer[0].options()),
-          at::zeros(weights_layer[0].sizes(), weights_layer[0].options()),
-          hidden_size);
-    }
-    hy_list.emplace_back(hy_layer);
-    cy_list.emplace_back(cy_layer);
+    std::tie(x_layer, hy_layer, cy_layer) = lstm_layer_1dnn(
+        x_layer, hx[layer], cx[layer],
+        weights_layer[0], weights_layer[1],
+        weights_layer[2], weights_layer[3]);
+    hy.emplace_back(hy_layer);
+    cy.emplace_back(cy_layer);
   }
-  auto hy = at::cat(hy_list, 0);
-  auto cy = at::cat(cy_list, 0);
   return {x_layer, hy, cy};
 }
 

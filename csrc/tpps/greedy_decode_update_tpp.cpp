@@ -8,7 +8,7 @@ namespace intel_mlperf {
 
 void greedy_decode_update_tpp::update_mask(
     int64_t* symbols, int32_t* symbols_added, int32_t* res, int32_t* res_idx,
-    int32_t* time_idx, int32_t* f_lens, int32_t* pred_g, size_t seq_len,
+    int32_t* time_idx, int32_t* f_lens, int32_t* pre_g, size_t seq_len,
     size_t batch, unsigned short& update_g, unsigned short& finish) {
   __mmask16 mask_batch = (1 << batch) - 1;
   const auto k1 = _mm512_set1_epi32(1);
@@ -40,7 +40,7 @@ void greedy_decode_update_tpp::update_mask(
       _mm512_mask_add_epi32(symbols_added_, mask_update_g, symbols_added_, k1);
   symbols_added_ = _mm512_mask_set1_epi32(symbols_added_, mask_update_f, 0);
   _mm512_mask_storeu_epi32(symbols_added, mask_batch, symbols_added_);
-  _mm512_mask_storeu_epi32(pred_g, mask_update_g, symbols_);
+  _mm512_mask_storeu_epi32(pre_g, mask_update_g, symbols_);
 
   auto time_idx_ = _mm512_mask_loadu_epi32(k0, mask_batch, time_idx);
   time_idx_ = _mm512_mask_add_epi32(time_idx_, mask_update_f, time_idx_, k1);
