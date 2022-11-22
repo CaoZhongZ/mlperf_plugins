@@ -15,7 +15,7 @@ at::Tensor i_layernorm_unpad(const at::Tensor &input, const at::Tensor &weight,
   auto in_sz = input.sizes();
   auto batch = in_sz[0];
   auto inner = in_sz[1];
-  auto max_len = *at::_ops::max::call(length).data_ptr<int64_t>();
+  auto max_len = *at::_ops::max::call(length).data_ptr<int32_t>();
   auto output =
       at::empty({batch, inner, max_len}, at::TensorOptions().dtype<float>().memory_format(
                            c10::MemoryFormat::Contiguous));
@@ -24,7 +24,7 @@ at::Tensor i_layernorm_unpad(const at::Tensor &input, const at::Tensor &weight,
   auto w = weight.accessor<float, 3>();
   auto b = bias.accessor<float, 3>();
   auto out = output.accessor<float, 3>();
-  auto len = length.accessor<int64_t, 1>();
+  auto len = length.accessor<int32_t, 1>();
   auto data_type = input.scalar_type();
 
   if (data_type == c10::ScalarType::Float) {
