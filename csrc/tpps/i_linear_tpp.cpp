@@ -12,10 +12,10 @@ void i_linear::compute_block(void* C, size_t ldc, void* A, void* B, float* bias,
   _tile_dot_product_16x256<row_tile, col_tile, io_policy<col_tile, i_format::plain>>::compute(C, ldc, A, B, bias, scale, post_op, o_scale);  
 }
 
-const i_linear::compute_block_t i_linear::compute_block_tbl_ [3][3] = {
-  { nullptr, nullptr, nullptr },
-  { &i_linear::compute_block<1, 16>, &i_linear::compute_block<1, 32>, &i_linear::compute_block<1, 64> },
-  { &i_linear::compute_block<2, 16>, &i_linear::compute_block<2, 32>, &i_linear::compute_block<2, 64> },
+const i_linear::compute_block_t i_linear::compute_block_tbl_ [3][4] = {
+  { nullptr, nullptr, nullptr, nullptr },
+  { &i_linear::compute_block<1, 16>, &i_linear::compute_block<1, 32>, &i_linear::compute_block<1, 64>, &i_linear::compute_block<1, 4> },
+  { &i_linear::compute_block<2, 16>, &i_linear::compute_block<2, 32>, &i_linear::compute_block<2, 64>, &i_linear::compute_block<2, 4> },
   // { &i_linear::compute_block<3, 16>, &i_linear::compute_block<3, 64> }, 
   // { &i_linear::compute_block<4, 16>, &i_linear::compute_block<4, 64> }, 
   // { &i_linear::compute_block<5, 16>, &i_linear::compute_block<5, 64> }, 
@@ -293,10 +293,10 @@ void i_linear_fp16::compute_block(void* C, size_t ldc, void* A, void* B, _Float1
   _tile_dot_product_16x256<row_tile, col_tile, io_policy<col_tile, i_format::plain>>::compute_fp16(C, ldc, A, B, bias, scale, post_op, o_scale);
 }
 
-const i_linear_fp16::compute_block_t i_linear_fp16::compute_block_tbl_ [3][3] = {
-  { nullptr, nullptr, nullptr },
-  { &i_linear_fp16::compute_block<1, 16>, &i_linear_fp16::compute_block<1, 32>, &i_linear_fp16::compute_block<1, 64> },
-  { &i_linear_fp16::compute_block<2, 16>, &i_linear_fp16::compute_block<2, 32>, &i_linear_fp16::compute_block<2, 64> }
+const i_linear_fp16::compute_block_t i_linear_fp16::compute_block_tbl_ [3][4] = {
+  { nullptr, nullptr, nullptr, nullptr },
+  { &i_linear_fp16::compute_block<1, 16>, &i_linear_fp16::compute_block<1, 32>, &i_linear_fp16::compute_block<1, 64>, &i_linear_fp16::compute_block<1, 4> },
+  { &i_linear_fp16::compute_block<2, 16>, &i_linear_fp16::compute_block<2, 32>, &i_linear_fp16::compute_block<2, 64>, &i_linear_fp16::compute_block<2, 4> }
 };
 
 void i_linear_fp16::tile_dot_product_16x256(void *C, void *A, void *B, _Float16 *bias, float scale, float o_scale,

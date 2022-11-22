@@ -8,18 +8,23 @@ script_dir = os.path.dirname(os.path.realpath(__file__))
 torch.ops.load_library(script_dir + "/../../build/libmlperf_plugins.so")
 
 
-def transpose_tile_weight(weight):
+def transpose_tile_weight(weight, padding=False):
     row = weight.shape[0]
     col = weight.shape[1]
 
-    col_step = int(col / 64)
-    col_tile = int(row / 64)
+    col_step = (col + 63) // 64
+    col_tile = (row + 63) // 64
+    if padding:
+        pad_size = (0, col_step * 64 - col, 0, col_tile * 64 - row)
+        weight = torch.nn.functional.pad(weight, pad_size, "constant", 0)
+        # print("prepack weight padding", weight.shape, row, col)
 
     weight = weight.view(col_tile * 16, 4, col)
     weight = weight.transpose(1, 2).reshape(col_tile * 16, col * 4)
     weight = weight.view(col_tile, 16, col * 4)
     weight = weight.view(col_tile, 16, col_step, 4, 64)
     weight = weight.permute(2, 3, 0, 1, 4).contiguous()
+    # print("after prepack weight shape", weight.shape, row, col)
 
     return weight
 
@@ -62,6 +67,35 @@ def test_amx_linear():
     # y = torch.ops.intel_mlperf.amx_linear(x.reshape(batch_size, 1, input_size), transpose_tile_weight(w.transpose(1, 0)), b, 0.1, False, 1.0)
     y = torch.ops.intel_mlperf.amx_linear_i8o32(
         x, transpose_tile_weight(w.transpose(1, 0)), b, 0.1
+    )
+    # np.testing.assert_equal(y.reshape(-1, output_size).numpy(), y_expected.numpy())
+    np.testing.assert_equal(y.numpy(), y_expected.numpy())
+
+
+def test_amx_linear_padding():
+    batch_size = 128
+    input_size = 240
+    hidden_size = 1024
+    output_size = 4 * hidden_size
+
+    x = torch.tensor(
+        np.ones(input_size * batch_size).reshape(batch_size, input_size),
+        dtype=torch.int8,
+    )
+    w = torch.tensor(
+        np.ones(input_size * output_size).reshape(output_size, input_size),
+        dtype=torch.int8,
+    )
+    b = torch.tensor(np.ones(output_size) / output_size, dtype=torch.float32)
+    y_expected = torch.ops.intel_mlperf.linear(
+        x, torch.ops.intel_mlperf.prepack_linear_weight(w), b, 0.1, None
+    )
+    # y = torch.ops.intel_mlperf.amx_linear(x.reshape(batch_size, 1, input_size), transpose_tile_weight(w.transpose(1, 0)), b, 0.1, False, 1.0)
+    pad_size = (0, 64 - x.shape[-1] % 64)
+    x = torch.nn.functional.pad(x, pad_size, "constant", 0)
+    # print("first layer padding x.shape", x.shape)
+    y = torch.ops.intel_mlperf.amx_linear_i8o32(
+        x, transpose_tile_weight(w.transpose(1, 0), True), b, 0.1
     )
     # np.testing.assert_equal(y.reshape(-1, output_size).numpy(), y_expected.numpy())
     np.testing.assert_equal(y.numpy(), y_expected.numpy())

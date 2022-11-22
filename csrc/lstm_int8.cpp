@@ -38,17 +38,18 @@ std::tuple<at::Tensor, std::vector<at::Tensor>, std::vector<at::Tensor>> lstm_in
     auto skip_quant = (i==(num_layers-1)) & skip_quant_y;
     // first_layer, can pass a flag
     if(num_layers == 2 && i == 0){
-      std::tie(x_copy, hx_copy[i], cx_copy[i]) = lstm_layer_onednn(x_copy, hx_copy[i], cx_copy[i], 
+      //std::tie(x_copy, hx_copy[i], cx_copy[i]) = lstm_layer_onednn(x_copy, hx_copy[i], cx_copy[i],
+        //weights_layer[0], weights_layer[1],
+        //weights_layer[2], weights_layer[3],
+        //o_scale[i].item(), in_scale[i].item(), out_scale[i].item(), skip_quant);
+
+      int pad_size = 64 - x_copy.size(2) % 64;
+      x_copy = at::pad(x_copy, {0, pad_size}, "constant", 0);
+    }
+    std::tie(x_copy, hx_copy[i], cx_copy[i]) = lstm_layer_int8(x_copy, hx_copy[i], cx_copy[i],
         weights_layer[0], weights_layer[1],
         weights_layer[2], weights_layer[3],
         o_scale[i].item(), in_scale[i].item(), out_scale[i].item(), skip_quant);
-    }
-    else{ 
-      std::tie(x_copy, hx_copy[i], cx_copy[i]) = lstm_layer_int8(x_copy, hx_copy[i], cx_copy[i], 
-          weights_layer[0], weights_layer[1],
-          weights_layer[2], weights_layer[3],
-          o_scale[i].item(), in_scale[i].item(), out_scale[i].item(), skip_quant);
-    }
   }
   return {x_copy, hx_copy, cx_copy};
 }
