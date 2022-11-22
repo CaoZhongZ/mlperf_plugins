@@ -1199,8 +1199,10 @@ public:
       compute_blk_idx_ = 0;
     } else if (cols_in_tile_ == 32) {
       compute_blk_idx_ = 1;
-    } else {
+    } else if (cols_in_tile_ == 64) {
       compute_blk_idx_ = 2;
+    } else {
+      compute_blk_idx_ = 3;
     }
   }
 
@@ -1217,7 +1219,7 @@ public:
 
   typedef void (i_linear::* compute_block_t) (
       void*, size_t, void*, void*, float*, float, bool, float);
-  static const compute_block_t compute_block_tbl_ [3][3];
+  static const compute_block_t compute_block_tbl_ [3][4];
 protected:
   
   // using compute_block_t = void (*)(void*, size_t, void*, void*, float*, float);
@@ -1262,7 +1264,7 @@ public:
   
   typedef void (i_linear_fp16::* compute_block_t) (
       void*, size_t, void*, void*, _Float16*, float, bool, float);
-  static const compute_block_t compute_block_tbl_ [3][3];
+  static const compute_block_t compute_block_tbl_ [3][4];
 };
 
 }
