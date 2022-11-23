@@ -206,6 +206,16 @@ static inline __m512i _mm512_scale_minmax_i8_ps(__m512 x, __m512 vS) {
   return _mm512_cvtps_epi32(c2);
 }
 
+static inline __m512i _mm512_scale_min128max_i8_ps(__m512 x, __m512 vS) {
+  auto max = _mm512_set1_ps(127.f);
+  auto min = _mm512_set1_ps(-128.f);
+
+  auto m = _mm512_roundscale_ps(x * vS, _MM_FROUND_TO_NEAREST_INT);
+  auto c1 = _mm512_min_ps(m, max);
+  auto c2 = _mm512_max_ps(c1, min);
+  return _mm512_cvtps_epi32(c2);
+}
+
 static inline __m512i _mm512_scale_minmax_i8_ph(__m512h x, __m512h vS) {
   auto max = _mm512_set1_ph(127.f);
   auto min = _mm512_set1_ph(-127.f);

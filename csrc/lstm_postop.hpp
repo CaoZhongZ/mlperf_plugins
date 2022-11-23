@@ -8,9 +8,9 @@ namespace intel_mlperf {
         const at::Tensor& ft,
         const at::Tensor& gt,
         const at::Tensor& ot,
-        const at::Tensor& ct_1,
-        const c10::optional<at::Scalar>& input_scale,
-        const c10::optional<at::Scalar>& output_scale,
-        const bool& last_layer_flag
+        const at::Tensor& ct,
+        const c10::optional<at::Scalar>& i_scale,
+        const c10::optional<at::Scalar>& o_scale,
+        const bool& skip_quant_y
     );
 }

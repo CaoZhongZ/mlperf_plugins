@@ -14,86 +14,50 @@
 #include "lstm_int8.hpp"
 #include "tpps/i_linear_tpp.hpp"
 #include "tpps/lstm_postop_tpp.hpp"
-#include "linear.hpp"
 #include "lstm_postop.hpp"
+#include "quant_tpp.hpp"
 
 namespace intel_mlperf {
-
+typedef unsigned short __bfloat16;
 std::tuple<at::Tensor, std::vector<at::Tensor>, std::vector<at::Tensor>> lstm_int8(
     const at::Tensor& x,
     const std::vector<at::Tensor>& hx,
     const std::vector<at::Tensor>& cx,
     const std::vector<std::vector<at::Tensor>> all_weights,
+    const at::Tensor& rb_scale,
+    const at::Tensor& i_scale,
     const at::Tensor& o_scale,
-    const at::Tensor& in_scale,
-    const at::Tensor& out_scale,
-    const bool skip_quant_y){
+    const bool skip_quant_y) {
 
+  auto ishape = x.sizes();
   auto num_layers = all_weights.size();
-  auto x_copy = x;
-  auto hx_copy = hx;
-  auto cx_copy = cx;
-  for(int i = 0; i < num_layers; i++){
+  auto hx_ = hx;
+  auto cx_ = cx;
+  at::Tensor x_;
+  if (x.dtype() == torch::kFloat32) {
+    x_ = at::empty(ishape, at::TensorOptions().dtype<int8_t>().memory_format(c10::MemoryFormat::Contiguous));
+    auto pin = reinterpret_cast<float(*)>(x.data_ptr());
+    auto x_ptr = reinterpret_cast<int8_t(*)>(x_.data_ptr());
+    quant_tpp::quant_ps_epi8(x_ptr, pin, i_scale[0].item().toFloat(), x.numel());
+  } else {
+    x_ = x;
+  }
+
+  for (int i = 0; i < num_layers; i++) {
     auto weights_layer = all_weights[i];
     auto skip_quant = (i==(num_layers-1)) & skip_quant_y;
-    // first_layer, can pass a flag
-    if(num_layers == 2 && i == 0){
-      //std::tie(x_copy, hx_copy[i], cx_copy[i]) = lstm_layer_onednn(x_copy, hx_copy[i], cx_copy[i],
-        //weights_layer[0], weights_layer[1],
-        //weights_layer[2], weights_layer[3],
-        //o_scale[i].item(), in_scale[i].item(), out_scale[i].item(), skip_quant);
-
-      int pad_size = 64 - x_copy.size(2) % 64;
-      x_copy = at::pad(x_copy, {0, pad_size}, "constant", 0);
+    auto reminder = x_.size(2) % 64;
+    if (reminder != 0) {
+      x_ = at::pad(x_, {0, 64 - reminder}, "constant", 0);
     }
-    std::tie(x_copy, hx_copy[i], cx_copy[i]) = lstm_layer_int8(x_copy, hx_copy[i], cx_copy[i],
+    std::tie(x_, hx_[i], cx_[i]) = lstm_layer_int8(
+        x_, hx_[i], cx_[i],
         weights_layer[0], weights_layer[1],
         weights_layer[2], weights_layer[3],
-        o_scale[i].item(), in_scale[i].item(), out_scale[i].item(), skip_quant);
+        rb_scale[i].item(), i_scale[i].item(), o_scale[i].item(), skip_quant);
   }
-  return {x_copy, hx_copy, cx_copy};
+  return {x_, hx_, cx_};
 }
-
-std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_layer_onednn(
-    const at::Tensor& x,
-    const at::Tensor& hx,
-    const at::Tensor& cx,
-    const at::Tensor& w_ih,
-    const at::Tensor& w_hh,
-    const at::Tensor& b_ih,
-    const at::Tensor& b_hh,
-    const c10::optional<at::Scalar>& o_scale,
-    const c10::optional<at::Scalar>& in_scale,
-    const c10::optional<at::Scalar>& out_scale,
-    const bool skip_quant_y){
-  auto size_x = x.sizes()[0];
-  float rb_scale_ = o_scale.value_or(at::Scalar(1.f)).toFloat();
-  float i_scale_ = in_scale.value_or(at::Scalar(1.f)).toFloat();
-  float o_scale_ = out_scale.value_or(at::Scalar(1.f)).toFloat();
-  std::vector<at::Tensor> gates_list(size_x);
-  for(int i = 0; i < size_x; i++){
-    gates_list[i] = linear(x[i], w_ih, b_ih, rb_scale_, 0);
-  }
-  
-  std::vector<at::Tensor> yt_list(size_x);
-  auto hx_copy = hx;
-  auto cx_copy = cx;
-  for(int i = 0; i < size_x; i++){
-    gates_list[i] += linear(hx_copy, w_hh, b_hh, rb_scale_, 0);
-    auto gates_chunk = torch::chunk(gates_list[i], 4, 1);
-    auto y_p = lstm_postop(gates_chunk[0], gates_chunk[1], gates_chunk[2], gates_chunk[3], cx_copy, i_scale_, o_scale_, skip_quant_y);
-    hx_copy = y_p[2];
-    cx_copy = y_p[3];
-    if(skip_quant_y)
-      yt_list[i] = y_p[0];
-    else
-      yt_list[i] = y_p[1];
-  }
-
-  auto yt = torch::stack(yt_list, 0);
-  return {yt, hx_copy, cx_copy};
-  
-  }
 
 std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_layer_int8(
     const at::Tensor &x, const at::Tensor &hx, const at::Tensor &cx,
@@ -119,6 +83,9 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_layer_int8(
   auto y_q = at::empty({seq_len, bs, hidden},
                        at::TensorOptions().dtype<int8_t>().memory_format(
                            c10::MemoryFormat::Contiguous));
+  auto y_bf16 = at::empty({seq_len, bs, hidden},
+                     at::TensorOptions().dtype<at::BFloat16>().memory_format(
+                         c10::MemoryFormat::Contiguous));
   auto linear_ih = i_linear_i8o32(bs, input_f, output_f, true, false);
 
   auto x_ptr = x.data_ptr();
@@ -126,6 +93,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_layer_int8(
   auto y_ptr = y.data_ptr();
   auto y_q_ptr = y_q.data_ptr();
   auto b_ih_ptr = b_ih.data_ptr();
+  auto y_bf16_ptr = y_bf16.data_ptr();
 
   amx_init::amx_init();
   for (int i = 0; i < seq_len; i++) {
@@ -183,18 +151,20 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_layer_int8(
     for (auto b = 0; b < bs; ++b) {
       auto y_ = reinterpret_cast<float(*)[bs][output_f]>(y_ptr);
       auto y_q_ = reinterpret_cast<int8_t(*)[bs][hidden]>(y_q_ptr);
+      auto y_bf16_ = reinterpret_cast<__bfloat16(*)[bs][hidden]>(y_bf16_ptr);
       auto hx_ = reinterpret_cast<int8_t(*)[hidden]>(hx_ptr);
       auto cx_ = reinterpret_cast<_Float16(*)[hidden]>(cx_ptr);
-      lstm_postop_tpp::ref(y_q_[i][b], hx_[b], &y_[i][b][0], &y_[i][b][hidden],
+      lstm_postop_tpp::ref(y_bf16_[i][b], y_q_[i][b], hx_[b], &y_[i][b][0], &y_[i][b][hidden],
                            &y_[i][b][hidden * 2], &y_[i][b][hidden * 3], cx_[b],
                            i_scale_, o_scale_, hidden, skip_quant_y);
     }
   }
   if (skip_quant_y) {
-    return {torch::chunk(y, 4, 2)[0], hx, cx};
+    return {y_bf16, hx, cx};
   } else {
     return {y_q, hx, cx};
   }
 }
+
 
 } // namespace intel_mlperf

@@ -104,13 +104,13 @@ TORCH_LIBRARY(intel_mlperf, m) {
       "tanh_f16(Tensor _0) -> Tensor",
       intel_mlperf::tanh_f16);
   m.def(
-      "lstm_postop(Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Scalar? _5, Scalar? _6, bool _7) -> Tensor[]",
+      "lstm_postop(Tensor it, Tensor ft, Tensor gt, Tensor ot, Tensor ct, Scalar? i_scale, Scalar? o_scale, bool skip_quant_y) -> Tensor[]",
       intel_mlperf::lstm_postop);
   m.def(
       "lstm_layer_int8(Tensor x, Tensor hx, Tensor cx, Tensor w_ih, Tensor w_hh, Tensor b_ih, Tensor b_hh, Scalar? rb_scale, Scalar? i_scale, Scalar? o_scale, bool skip_quant_y) -> (Tensor, Tensor, Tensor)",
       intel_mlperf::lstm_layer_int8);
   m.def(
-      "lstm_int8(Tensor _0, Tensor[] _1, Tensor[] _2, Tensor[][] _3, Tensor _4, Tensor _5, Tensor _6, bool _7) -> (Tensor, Tensor[], Tensor[])",
+      "lstm_int8(Tensor x, Tensor[] hx, Tensor[] cx, Tensor[][] all_weights, Tensor rb_scale, Tensor i_scale, Tensor o_scale, bool skip_quant_y) -> (Tensor, Tensor[], Tensor[])",
       intel_mlperf::lstm_int8);
   m.def(
       "greedy_decode_update(Tensor symbols, Tensor symbols_added, Tensor res, Tensor res_idx, Tensor f, Tensor f_lens, Tensor time_idx, Tensor fi, Tensor pre_g, Tensor[] pre_hg, Tensor[] pre_cg, Tensor[] hg, Tensor[] cg) -> bool",
