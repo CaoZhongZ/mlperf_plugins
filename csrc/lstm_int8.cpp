@@ -25,8 +25,12 @@ typedef unsigned short __bfloat16;
 std::tuple<at::Tensor, std::vector<at::Tensor>, std::vector<at::Tensor>> lstm_int8(
     const at::Tensor& x, const std::vector<at::Tensor>& hx,
     const std::vector<at::Tensor>& cx,
-    const std::vector<std::vector<at::Tensor>> all_weights, const at::Tensor& rb_scale,
-    const at::Tensor& i_scale, const at::Tensor& o_scale, const bool skip_quant_y) {
+    const std::vector<std::vector<at::Tensor>> all_weights,
+    const at::Tensor& rb_scale,
+    const at::Tensor& i_scale,
+    const at::Tensor& o_scale,
+    const bool skip_quant_y) {
+
   auto ishape = x.sizes();
   auto num_layers = all_weights.size();
   auto hx_ = hx;

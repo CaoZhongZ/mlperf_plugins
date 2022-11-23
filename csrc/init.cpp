@@ -10,6 +10,7 @@
 #include "normalization.hpp"
 #include "preemphasis.hpp"
 #include "frame_splicing.hpp"
+#include "stack_time.hpp"
 #include "lstm.hpp"
 #include "lstm_postop.hpp"
 #include "lstm_int8.hpp"
@@ -85,6 +86,9 @@ TORCH_LIBRARY(intel_mlperf, m) {
   m.def(
       "frame_splicing(Tensor input, Scalar factor) -> Tensor",
       intel_mlperf::frame_splicing);
+  m.def(
+      "stack_time(Tensor input, Tensor input_lens, Scalar factor) -> (Tensor, Tensor)",
+      intel_mlperf::stack_time);
   m.def(
       "lstm_layer_1dnn(Tensor x, Tensor hx, Tensor cx, Tensor w_ih, Tensor w_hh, Tensor b_ih, Tensor b_hh) -> (Tensor, Tensor, Tensor)",
       intel_mlperf::lstm_layer_1dnn);
