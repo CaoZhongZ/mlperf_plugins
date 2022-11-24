@@ -1,41 +1,41 @@
+#include "lstm_int8.hpp"
+
 #include <ATen/Functions.h>
 #include <ATen/ops/add_ops.h>
 #include <c10/core/MemoryFormat.h>
 #include <c10/core/ScalarType.h>
-#include <chrono>
 #include <immintrin.h>
-#include <iostream>
 #include <omp.h>
 #include <string.h>
+
+#include <chrono>
+#include <iostream>
 #include <vector>
 
 #include "amx_config.hpp"
 #include "amx_init.hpp"
 #include "lstm_int8.hpp"
-#include "tpps/i_linear_tpp.hpp"
-#include "tpps/lstm_postop_tpp.hpp"
 #include "lstm_postop.hpp"
 #include "quant_tpp.hpp"
+#include "tpps/i_linear_tpp.hpp"
+#include "tpps/lstm_postop_tpp.hpp"
 
 namespace intel_mlperf {
 typedef unsigned short __bfloat16;
 std::tuple<at::Tensor, std::vector<at::Tensor>, std::vector<at::Tensor>> lstm_int8(
-    const at::Tensor& x,
-    const std::vector<at::Tensor>& hx,
+    const at::Tensor& x, const std::vector<at::Tensor>& hx,
     const std::vector<at::Tensor>& cx,
-    const std::vector<std::vector<at::Tensor>> all_weights,
-    const at::Tensor& rb_scale,
-    const at::Tensor& i_scale,
-    const at::Tensor& o_scale,
-    const bool skip_quant_y) {
-
+    const std::vector<std::vector<at::Tensor>> all_weights, const at::Tensor& rb_scale,
+    const at::Tensor& i_scale, const at::Tensor& o_scale, const bool skip_quant_y) {
   auto ishape = x.sizes();
   auto num_layers = all_weights.size();
   auto hx_ = hx;
   auto cx_ = cx;
   at::Tensor x_;
   if (x.dtype() == torch::kFloat32) {
-    x_ = at::empty(ishape, at::TensorOptions().dtype<int8_t>().memory_format(c10::MemoryFormat::Contiguous));
+    x_ = at::empty(
+        ishape, at::TensorOptions().dtype<int8_t>().memory_format(
+                    c10::MemoryFormat::Contiguous));
     auto pin = reinterpret_cast<float(*)>(x.data_ptr());
     auto x_ptr = reinterpret_cast<int8_t(*)>(x_.data_ptr());
     quant_tpp::quant_ps_epi8(x_ptr, pin, i_scale[0].item().toFloat(), x.numel());
@@ -45,26 +45,25 @@ std::tuple<at::Tensor, std::vector<at::Tensor>, std::vector<at::Tensor>> lstm_in
 
   for (int i = 0; i < num_layers; i++) {
     auto weights_layer = all_weights[i];
-    auto skip_quant = (i==(num_layers-1)) & skip_quant_y;
+    auto skip_quant = (i == (num_layers - 1)) & skip_quant_y;
     auto reminder = x_.size(2) % 64;
     if (reminder != 0) {
       x_ = at::pad(x_, {0, 64 - reminder}, "constant", 0);
     }
     std::tie(x_, hx_[i], cx_[i]) = lstm_layer_int8(
-        x_, hx_[i], cx_[i],
-        weights_layer[0], weights_layer[1],
-        weights_layer[2], weights_layer[3],
-        rb_scale[i].item(), i_scale[i].item(), o_scale[i].item(), skip_quant);
+        x_, hx_[i], cx_[i], weights_layer[0], weights_layer[1], weights_layer[2],
+        weights_layer[3], rb_scale[i].item(), i_scale[i].item(), o_scale[i].item(),
+        skip_quant);
   }
   return {x_, hx_, cx_};
 }
 
 std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_layer_int8(
-    const at::Tensor &x, const at::Tensor &hx, const at::Tensor &cx,
-    const at::Tensor &w_ih, const at::Tensor &w_hh, const at::Tensor &b_ih,
-    const at::Tensor &b_hh, const c10::optional<at::Scalar> &rb_scale,
-    const c10::optional<at::Scalar> &i_scale,
-    const c10::optional<at::Scalar> &o_scale, const bool skip_quant_y) {
+    const at::Tensor& x, const at::Tensor& hx, const at::Tensor& cx,
+    const at::Tensor& w_ih, const at::Tensor& w_hh, const at::Tensor& b_ih,
+    const at::Tensor& b_hh, const c10::optional<at::Scalar>& rb_scale,
+    const c10::optional<at::Scalar>& i_scale, const c10::optional<at::Scalar>& o_scale,
+    const bool skip_quant_y) {
   auto ishape = x.sizes();
   auto seq_len = ishape[0];
   auto bs = ishape[1];
@@ -77,15 +76,15 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_layer_int8(
   float o_scale_ = o_scale.value_or(at::Scalar(1.f)).toFloat();
 
   // output shape: [sl, batch_size, output_f]
-  auto y = at::empty({seq_len, bs, output_f},
-                     at::TensorOptions().dtype<float>().memory_format(
-                         c10::MemoryFormat::Contiguous));
-  auto y_q = at::empty({seq_len, bs, hidden},
-                       at::TensorOptions().dtype<int8_t>().memory_format(
-                           c10::MemoryFormat::Contiguous));
-  auto y_bf16 = at::empty({seq_len, bs, hidden},
-                     at::TensorOptions().dtype<at::BFloat16>().memory_format(
-                         c10::MemoryFormat::Contiguous));
+  auto y = at::empty(
+      {seq_len, bs, output_f},
+      at::TensorOptions().dtype<float>().memory_format(c10::MemoryFormat::Contiguous));
+  auto y_q = at::empty(
+      {seq_len, bs, hidden},
+      at::TensorOptions().dtype<int8_t>().memory_format(c10::MemoryFormat::Contiguous));
+  auto y_bf16 = at::empty(
+      {seq_len, bs, hidden}, at::TensorOptions().dtype<at::BFloat16>().memory_format(
+                                 c10::MemoryFormat::Contiguous));
   auto linear_ih = i_linear_i8o32(bs, input_f, output_f, true, false);
 
   auto x_ptr = x.data_ptr();
@@ -101,24 +100,24 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_layer_int8(
 #pragma omp parallel
     {
       auto input_ = reinterpret_cast<int8_t(*)[bs][input_f]>(x_ptr);
-      auto weight_ = reinterpret_cast<int8_t *>(w_ih_ptr);
+      auto weight_ = reinterpret_cast<int8_t*>(w_ih_ptr);
       auto output_ = reinterpret_cast<float(*)[bs][output_f]>(y_ptr);
-      auto bias_ = reinterpret_cast<float *>(b_ih_ptr);
+      auto bias_ = reinterpret_cast<float*>(b_ih_ptr);
       Tilecfg().set_config();
       auto total_core_num = omp_get_num_threads();
       auto core_id = omp_get_thread_num();
-      linear_ih.tile_dot_product_16x256_shortage(output_[i], input_[i], weight_,
-                                                 bias_, rb_scale_, 0.0, bs,
-                                                 core_id, total_core_num);
+      linear_ih.tile_dot_product_16x256_shortage<float, float, i_linear::i8o32b32>(
+          output_[i], input_[i], weight_, bias_, rb_scale_, 0.0, bs, core_id,
+          total_core_num);
       Tilecfg().release_config();
     }
   }
 
   auto y_i = torch::chunk(y, seq_len, 0);
-  auto hy = at::empty({bs, output_f},
-                      at::TensorOptions().dtype<float>().memory_format(
-                          c10::MemoryFormat::Contiguous));
-  auto linear_hh = i_linear_i8o32(bs, hidden, output_f, true, false);
+  auto hy = at::empty(
+      {bs, output_f},
+      at::TensorOptions().dtype<float>().memory_format(c10::MemoryFormat::Contiguous));
+  auto linear_hh = i_linear(bs, hidden, output_f, true, false);
 
   auto hx_ptr = hx.data_ptr();
   auto w_hh_ptr = w_hh.data_ptr();
@@ -130,16 +129,17 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_layer_int8(
     // linear for hidden state
 #pragma omp parallel
     {
-      auto input_ = reinterpret_cast<int8_t *>(hx_ptr);
-      auto weight_ = reinterpret_cast<int8_t *>(w_hh_ptr);
-      auto output_ = reinterpret_cast<float *>(hy_ptr);
-      auto bias_ = reinterpret_cast<float *>(b_hh_ptr);
+      auto input_ = reinterpret_cast<int8_t*>(hx_ptr);
+      auto weight_ = reinterpret_cast<int8_t*>(w_hh_ptr);
+      auto output_ = reinterpret_cast<float*>(hy_ptr);
+      auto bias_ = reinterpret_cast<float*>(b_hh_ptr);
       Tilecfg().set_config();
       auto total_core_num = omp_get_num_threads();
       auto core_id = omp_get_thread_num();
-      linear_hh.tile_dot_product_16x256_shortage(output_, input_, weight_,
-                                                 bias_, rb_scale_, 0.0, bs,
-                                                 core_id, total_core_num);
+      linear_hh
+          .tile_dot_product_16x256_shortage<float, float, i_linear::i8o32b32>(
+              output_, input_, weight_, bias_, rb_scale_, 0.0, bs, core_id,
+              total_core_num);
       Tilecfg().release_config();
     }
 
@@ -154,9 +154,10 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_layer_int8(
       auto y_bf16_ = reinterpret_cast<__bfloat16(*)[bs][hidden]>(y_bf16_ptr);
       auto hx_ = reinterpret_cast<int8_t(*)[hidden]>(hx_ptr);
       auto cx_ = reinterpret_cast<_Float16(*)[hidden]>(cx_ptr);
-      lstm_postop_tpp::ref(y_bf16_[i][b], y_q_[i][b], hx_[b], &y_[i][b][0], &y_[i][b][hidden],
-                           &y_[i][b][hidden * 2], &y_[i][b][hidden * 3], cx_[b],
-                           i_scale_, o_scale_, hidden, skip_quant_y);
+      lstm_postop_tpp::ref(
+          y_bf16_[i][b], y_q_[i][b], hx_[b], &y_[i][b][0], &y_[i][b][hidden],
+          &y_[i][b][hidden * 2], &y_[i][b][hidden * 3], cx_[b], i_scale_, o_scale_,
+          hidden, skip_quant_y);
     }
   }
   if (skip_quant_y) {
@@ -166,5 +167,4 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_layer_int8(
   }
 }
 
-
-} // namespace intel_mlperf
+}  // namespace intel_mlperf

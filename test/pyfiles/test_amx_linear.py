@@ -119,7 +119,7 @@ def test_lstm_int8():
         torch.tensor(np.ones(output_size) / output_size, dtype=torch.float32)
         for i in range(layer)
     ]
-    for count in range(1000):
+    for count in range(1):
         x = [
             torch.tensor(
                 np.ones(input_size * batch_size).reshape(batch_size, input_size),

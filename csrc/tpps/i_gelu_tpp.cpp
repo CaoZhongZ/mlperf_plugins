@@ -40,7 +40,7 @@ template <int N> struct i32_scale_gelu_scale_i8<16, N> {
     auto vS = _mm512_set1_ps(oscale);
     auto zoff = _mm_set1_epi8(o_off);
 
-#pragma unroll(N) - 1
+#pragma unroll(N - 1)
     for (int i = 0; i < N - 1; ++i) {
       auto x = _mm512_load_epi32(&in[i * 16]);
       auto f = _mm512_cvtepi32_ps(x) * vM;
@@ -110,7 +110,7 @@ template <int N> struct f32_scale_i8<16, N> {
     auto vS = _mm512_set1_ps(oscale);
     auto zoff = _mm_set1_epi8(o_off);
 
-#pragma unroll(N) - 1
+#pragma unroll(N - 1)
     for (int i = 0; i < N - 1; ++i) {
       auto f = _mm512_load_ps(&in[i * 16]);
       auto z = _mm512_scale_minmax_i8_ps(f, vS);
@@ -164,7 +164,7 @@ template <int N> struct i8_scale_i8<16, N> {
     auto vS = _mm512_set1_ps(oscale);
     auto zoff = _mm_set1_epi8(o_off);
 
-#pragma unroll(N) - 1
+#pragma unroll(N - 1)
     for (int i = 0; i < N - 1; ++i) {
       auto f = _mm512_loadu_i8_to_fp32(&in[i * 16]);
       auto z = _mm512_scale_minmax_i8_ps(f, vS);
@@ -198,7 +198,7 @@ template <int N> struct i8_scale_f32<16, N> {
   inline static void run(float *out, int8_t *in, float oscale, __mmask16 tail) {
     auto vS = _mm512_set1_ps(oscale);
 
-#pragma unroll(N) - 1
+#pragma unroll(N - 1)
     for (int i = 0; i < N - 1; ++i) {
       auto f = _mm512_loadu_i8_to_fp32(&in[i * 16]);
       auto z = f * vS;
@@ -225,7 +225,7 @@ template <int N> struct c8_scale_f32<16, N> {
   inline static void run(float *out, int8_t *in, float oscale, __mmask16 tail) {
     auto vS = _mm512_set1_ps(oscale);
 
-#pragma unroll(N) - 1
+#pragma unroll(N - 1)
     for (int i = 0; i < N - 1; ++i) {
       auto f = _mm512_loadu_c8_to_fp32(&in[i * 16]);
       auto z = f * vS;
