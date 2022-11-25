@@ -85,7 +85,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_layer_int8(
   auto y_bf16 = at::empty(
       {seq_len, bs, hidden}, at::TensorOptions().dtype<at::BFloat16>().memory_format(
                                  c10::MemoryFormat::Contiguous));
-  auto linear_ih = i_linear_i8o32(bs, input_f, output_f, true, false);
+  auto linear_ih = i_linear(bs, input_f, output_f, true, false);
 
   auto x_ptr = x.data_ptr();
   auto w_ih_ptr = w_ih.data_ptr();
@@ -106,22 +106,17 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_layer_int8(
       Tilecfg().set_config();
       auto total_core_num = omp_get_num_threads();
       auto core_id = omp_get_thread_num();
-      linear_ih.tile_dot_product_16x256_shortage<float, float, i_linear::i8o32b32>(
+      linear_ih.tile_dot_product_16x256_shortage<float, float, i_linear::i8o32b0>(
           output_[i], input_[i], weight_, bias_, rb_scale_, 0.0, bs, core_id,
           total_core_num);
       Tilecfg().release_config();
     }
   }
 
-  auto y_i = torch::chunk(y, seq_len, 0);
-  auto hy = at::empty(
-      {bs, output_f},
-      at::TensorOptions().dtype<float>().memory_format(c10::MemoryFormat::Contiguous));
   auto linear_hh = i_linear(bs, hidden, output_f, true, false);
 
   auto hx_ptr = hx.data_ptr();
   auto w_hh_ptr = w_hh.data_ptr();
-  auto hy_ptr = hy.data_ptr();
   auto b_hh_ptr = b_hh.data_ptr();
   auto cx_ptr = cx.data_ptr();
 
@@ -131,21 +126,17 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_layer_int8(
     {
       auto input_ = reinterpret_cast<int8_t*>(hx_ptr);
       auto weight_ = reinterpret_cast<int8_t*>(w_hh_ptr);
-      auto output_ = reinterpret_cast<float*>(hy_ptr);
+      auto output_ = reinterpret_cast<float(*)[bs][output_f]>(y_ptr);
       auto bias_ = reinterpret_cast<float*>(b_hh_ptr);
       Tilecfg().set_config();
       auto total_core_num = omp_get_num_threads();
       auto core_id = omp_get_thread_num();
       linear_hh
-          .tile_dot_product_16x256_shortage<float, float, i_linear::i8o32b32>(
-              output_, input_, weight_, bias_, rb_scale_, 0.0, bs, core_id,
+          .tile_dot_product_16x256_shortage<float, float, i_linear::i8o32b32_append>(
+              output_[i], input_, weight_, bias_, rb_scale_, 0.0, bs, core_id,
               total_core_num);
       Tilecfg().release_config();
     }
-
-    // y = hy + y
-    at::_ops::add__Tensor::call(y_i[i], hy, 1.0);
-
     // post op
 #pragma omp parallel for
     for (auto b = 0; b < bs; ++b) {

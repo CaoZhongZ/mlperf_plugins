@@ -111,13 +111,11 @@ def test_lstm_int8():
 
     w_i = [get_weight(input_size, output_size) for i in range(layer)]
     b_i = [
-        torch.tensor(np.ones(output_size) / output_size, dtype=torch.float32)
-        for i in range(layer)
+        torch.tensor(np.ones(output_size), dtype=torch.float32) for i in range(layer)
     ]
     w_h = [get_weight(hidden_size, output_size) for i in range(layer)]
     b_h = [
-        torch.tensor(np.ones(output_size) / output_size, dtype=torch.float32)
-        for i in range(layer)
+        torch.tensor(np.ones(output_size), dtype=torch.float32) for i in range(layer)
     ]
     for count in range(1):
         x = [
@@ -167,17 +165,17 @@ def test_lstm_int8():
             y = []
             for j in range(seq_len):
                 y.append(
-                    torch.ops.intel_mlperf.amx_linear_i8o32(x[j], w_i[i], b_i[i], 0.1)
+                    torch.ops.intel_mlperf.amx_linear_i8o32(x[j], w_i[i], b_i[i], 0.01)
                 )
             for j in range(seq_len):
                 temp = torch.ops.intel_mlperf.amx_linear_i8o32(
-                    h[i], w_h[i], b_h[i], 0.1
+                    h[i], w_h[i], b_h[i], 0.01
                 )
                 y[j] += temp
 
                 it, ft, gt, ot = y[j].chunk(4, 1)
                 it, x[j], h[i], c[i] = torch.ops.intel_mlperf.lstm_postop(
-                    it, ft, gt, ot, c[i], 0.1, 0.1, last_layer
+                    it, ft, gt, ot, c[i], 0.01, 0.01, last_layer
                 )
                 if last_layer:
                     x[j] = it
@@ -188,13 +186,15 @@ def test_lstm_int8():
                 w_i[i],
                 w_h[i],
                 b_i[i],
-                b_h[i],
-                0.1,
-                0.1,
-                0.1,
+                b_h[i] + b_i[i],
+                0.01,
+                0.01,
+                0.01,
                 last_layer,
             )
-            np.testing.assert_equal(hh[i].numpy(), h[i].numpy())
-            np.testing.assert_equal(cc[i].numpy(), c[i].numpy())
+            np.testing.assert_equal(hh[i].numpy(), h[i].numpy(), err_msg=f"layer{i}")
+            np.testing.assert_equal(cc[i].numpy(), c[i].numpy(), err_msg=f"layer{i}")
             for j in range(seq_len):
-                np.testing.assert_equal(xx[j].numpy(), x[j].numpy())
+                np.testing.assert_equal(
+                    xx[j].numpy(), x[j].numpy(), err_msg=f"layer{i} seq{j}"
+                )
