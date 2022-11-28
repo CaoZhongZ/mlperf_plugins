@@ -3,6 +3,7 @@ import os
 import sys
 import numpy as np
 import torch
+import pytest
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 torch.ops.load_library(script_dir + "/../../build/libmlperf_plugins.so")
@@ -46,8 +47,8 @@ def get_weight(input_size, output_size, use_amx_linear=True):
         )
 
 
-def test_amx_linear():
-    batch_size = 32
+@pytest.mark.parametrize("batch_size", [32, 30, 33])
+def test_amx_linear(batch_size):
     input_size = 2048
     hidden_size = 1024
     output_size = 4 * hidden_size
@@ -62,11 +63,11 @@ def test_amx_linear():
     )
     b = torch.tensor(np.arange(output_size) / output_size, dtype=torch.float32)
     y_expected = torch.ops.intel_mlperf.linear(
-        x, torch.ops.intel_mlperf.prepack_linear_weight(w), b, 0.1, None
+        x, torch.ops.intel_mlperf.prepack_linear_weight(w), b, 1e-5, None
     )
-    # y = torch.ops.intel_mlperf.amx_linear(x.reshape(batch_size, 1, input_size), transpose_tile_weight(w.transpose(1, 0)), b, 0.1, False, 1.0)
+    # y = torch.ops.intel_mlperf.amx_linear(x.reshape(batch_size, 1, input_size), transpose_tile_weight(w.transpose(1, 0)), b, 1e-5, False, 1.0)
     y = torch.ops.intel_mlperf.amx_linear_i8o32(
-        x, transpose_tile_weight(w.transpose(1, 0)), b, 0.1
+        x, transpose_tile_weight(w.transpose(1, 0)), b, 1e-5
     )
     # np.testing.assert_equal(y.reshape(-1, output_size).numpy(), y_expected.numpy())
     np.testing.assert_equal(y.numpy(), y_expected.numpy())
