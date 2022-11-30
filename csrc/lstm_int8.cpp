@@ -109,9 +109,10 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_layer_int8(
       Tilecfg().set_config();
       auto total_core_num = omp_get_num_threads();
       auto core_id = omp_get_thread_num();
-      linear_ih.tile_dot_product_16x256_shortage<float, float, i_linear::i8o32b0>(
-          output_[i], input_[i], weight_, bias_, rb_scale_, 0.0, bs, core_id,
-          total_core_num);
+      linear_ih
+          .tile_dot_product_16x256_shortage<int8_t, float, float, i_linear::i8o32b0>(
+              output_[i], input_[i], weight_, bias_, rb_scale_, 0.0, bs, core_id,
+              total_core_num);
       Tilecfg().release_config();
     }
   }
@@ -134,10 +135,10 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_layer_int8(
       Tilecfg().set_config();
       auto total_core_num = omp_get_num_threads();
       auto core_id = omp_get_thread_num();
-      linear_hh
-          .tile_dot_product_16x256_shortage<float, float, i_linear::i8o32b32_append>(
-              output_[i], input_, weight_, bias_, rb_scale_, 0.0, bs, core_id,
-              total_core_num);
+      linear_hh.tile_dot_product_16x256_shortage<
+          int8_t, float, float, i_linear::i8o32b32_append>(
+          output_[i], input_, weight_, bias_, rb_scale_, 0.0, bs, core_id,
+          total_core_num);
       Tilecfg().release_config();
     }
     // post op

@@ -68,17 +68,16 @@ at::Tensor amx_linear(
       size_t chunk_sl_ = (total_sl * core_id + total_sl) / total_core_num - start_;
       size_t minimum_sl = 32 * total_core_num;
 
-      // block_computer.tile_dot_product_16x256_shortage(output_, input_, weight_,
-      // bias_, scale_, o_scale_, core_id, total_core_num);
       if (total_sl < minimum_sl) {
-        block_computer
-            .tile_dot_product_16x256_shortage<int8_t, _Float16, i_linear::i8o8b16>(
-                output_, input_, weight_, bias_, scale_, o_scale_, total_sl, core_id,
-                total_core_num);
+        block_computer.tile_dot_product_16x256_shortage<
+            int8_t, int8_t, _Float16, i_linear::i8o8b16>(
+            output_, input_, weight_, bias_, scale_, o_scale_, total_sl, core_id,
+            total_core_num);
       } else {
-        block_computer.tile_dot_product_16x256<int8_t, _Float16, i_linear::i8o8b16>(
-            output_[start_], input_[start_], weight_, bias_, scale_, o_scale_,
-            chunk_sl_, core_id, total_core_num);
+        block_computer
+            .tile_dot_product_16x256<int8_t, int8_t, _Float16, i_linear::i8o8b16>(
+                output_[start_], input_[start_], weight_, bias_, scale_, o_scale_,
+                chunk_sl_, core_id, total_core_num);
       }
       Tilecfg().release_config();
     } break;
@@ -101,13 +100,14 @@ at::Tensor amx_linear(
       // bias_, scale_, o_scale_, core_id, total_core_num);
       if (total_sl < minimum_sl) {
         block_computer
-            .tile_dot_product_16x256_shortage<int8_t, float, i_linear::i8o8b32>(
+            .tile_dot_product_16x256_shortage<int8_t, int8_t, float, i_linear::i8o8b32>(
                 output_, input_, weight_, bias_, scale_, o_scale_, total_sl, core_id,
                 total_core_num);
       } else {
-        block_computer.tile_dot_product_16x256<int8_t, float, i_linear::i8o8b32>(
-            output_[start_], input_[start_], weight_, bias_, scale_, o_scale_,
-            chunk_sl_, core_id, total_core_num);
+        block_computer
+            .tile_dot_product_16x256<int8_t, int8_t, float, i_linear::i8o8b32>(
+                output_[start_], input_[start_], weight_, bias_, scale_, o_scale_,
+                chunk_sl_, core_id, total_core_num);
       }
       Tilecfg().release_config();
     } break;
@@ -159,11 +159,12 @@ at::Tensor amx_linear_i8o32(
     size_t minimum_sl = 32 * total_core_num;
 
     if (total_sl < minimum_sl) {
-      block_computer.tile_dot_product_16x256_shortage<float, float, i_linear::i8o32b32>(
-          output_, input_, weight_, bias_, scale_, 0.0, total_sl, core_id,
-          total_core_num);
+      block_computer
+          .tile_dot_product_16x256_shortage<int8_t, float, float, i_linear::i8o32b32>(
+              output_, input_, weight_, bias_, scale_, 0.0, total_sl, core_id,
+              total_core_num);
     } else {
-      block_computer.tile_dot_product_16x256<float, float, i_linear::i8o32b32>(
+      block_computer.tile_dot_product_16x256<int8_t, float, float, i_linear::i8o32b32>(
           output_[start_], input_[start_], weight_, bias_, scale_, 0.0, chunk_sl_,
           core_id, total_core_num);
     }

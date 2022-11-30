@@ -6,21 +6,24 @@
 #include "amx_config.hpp"
 
 using Time = std::chrono::high_resolution_clock;
+using Ver = intel_mlperf::i_linear::Version;
 
 namespace intel_mlperf {
 
-template <typename output_type, typename bias_type, i_linear::Version ver>
+template <typename input_type, typename output_type, typename bias_type, Ver ver>
 void i_linear::tile_dot_product_16x256(
     void* C, void* A, void* B, void* bias, float scale, float o_scale,
     const size_t chunk_sl, size_t cur_id, size_t total_chunks) {
+  constexpr int el_per_tile_row = std::is_same<input_type, int8_t>::value ? 64 : 32;
   if (total_chunks * 32 > chunk_sl) {
     throw std::runtime_error(
         "chunk_sl should be more than 32*core_num in input split i_linear.");
   }
-  auto C_ = reinterpret_cast<output_type(*)[cols_step_][64]>(C);
-  auto A_ = reinterpret_cast<int8_t(*)[ic_]>(A);
-  auto B_ = reinterpret_cast<int8_t(*)[4][cols_in_tile_][16][64]>(B);
-  auto bias_ = reinterpret_cast<bias_type(*)[64]>(bias);
+  auto C_ = *reinterpret_cast<output_type(*)[chunk_sl][cols_step_][el_per_tile_row]>(C);
+  auto A_ = *reinterpret_cast<input_type(*)[chunk_sl][ic_]>(A);
+  auto B_ = *reinterpret_cast<
+      input_type(*)[cols_step_][4][cols_in_tile_][16][el_per_tile_row]>(B);
+  auto bias_ = *reinterpret_cast<bias_type(*)[cols_step_][el_per_tile_row]>(bias);
 
   compute_block_t computer_2 = compute_block_tbl_<ver>[2][compute_blk_idx_];
   compute_block_t computer_1 = compute_block_tbl_<ver>[1][compute_blk_idx_];
@@ -75,14 +78,16 @@ void i_linear::tile_dot_product_16x256(
   }
 }
 
-template <typename output_type, typename bias_type, i_linear::Version ver>
+template <typename input_type, typename output_type, typename bias_type, Ver ver>
 void i_linear::tile_dot_product_16x256_shortage(
     void* C, void* A, void* B, void* bias, float scale, float o_scale,
     const size_t chunk_sl, size_t cur_id, size_t total_chunks) {
-  auto C_ = reinterpret_cast<output_type(*)[cols_step_][64]>(C);
-  auto A_ = reinterpret_cast<int8_t(*)[ic_]>(A);
-  auto B_ = reinterpret_cast<int8_t(*)[4][cols_in_tile_][16][64]>(B);
-  auto bias_ = reinterpret_cast<bias_type(*)[64]>(bias);
+  constexpr int el_per_tile_row = std::is_same<input_type, int8_t>::value ? 64 : 32;
+  auto C_ = *reinterpret_cast<output_type(*)[chunk_sl][cols_step_][el_per_tile_row]>(C);
+  auto A_ = *reinterpret_cast<input_type(*)[chunk_sl][ic_]>(A);
+  auto B_ = *reinterpret_cast<
+      input_type(*)[cols_step_][4][cols_in_tile_][16][el_per_tile_row]>(B);
+  auto bias_ = *reinterpret_cast<bias_type(*)[cols_step_][el_per_tile_row]>(bias);
 
   compute_block_t computer_2 = compute_block_tbl_<ver>[2][compute_blk_idx_];
   compute_block_t computer_1 = compute_block_tbl_<ver>[1][compute_blk_idx_];
@@ -172,22 +177,23 @@ void i_linear::tile_dot_product_16x256_shortage(
 
 FOREACH_COMPUTE_IMPL(DEF_COMPUTE_BLK_TBL);
 
-#define DEF_TEMPLATE_SPECIALIZATION_TILE_PRODUCT(output_type, bias_type, ver)        \
-  template void                                                                      \
-  i_linear::tile_dot_product_16x256<output_type, bias_type, i_linear::ver>(          \
-      void* C, void* A, void* B, void* bias, float scale, float o_scale,             \
-      const size_t chunk_sl, size_t cur_id, size_t total_chunks);                    \
-  template void                                                                      \
-  i_linear::tile_dot_product_16x256_shortage<output_type, bias_type, i_linear::ver>( \
-      void* C, void* A, void* B, void* bias, float scale, float o_scale,             \
+#define DEF_TEMPLATE_SPECIALIZATION_TILE_PRODUCT(                        \
+    input_type, output_type, bias_type, ver)                             \
+  template void i_linear::tile_dot_product_16x256<                       \
+      input_type, output_type, bias_type, i_linear::ver>(                \
+      void* C, void* A, void* B, void* bias, float scale, float o_scale, \
+      const size_t chunk_sl, size_t cur_id, size_t total_chunks);        \
+  template void i_linear::tile_dot_product_16x256_shortage<              \
+      input_type, output_type, bias_type, i_linear::ver>(                \
+      void* C, void* A, void* B, void* bias, float scale, float o_scale, \
       const size_t chunk_sl, size_t cur_id, size_t total_chunks)
 
-#define FOREACH_TILE_PRODUCT_VER(cb) \
-  cb(int8_t, float, i8o8b32);        \
-  cb(int8_t, _Float16, i8o8b16);     \
-  cb(float, float, i8o32b32);        \
-  cb(float, float, i8o32b0);         \
-  cb(float, float, i8o32b32_append);
+#define FOREACH_TILE_PRODUCT_VER(cb)     \
+  cb(int8_t, int8_t, float, i8o8b32);    \
+  cb(int8_t, int8_t, _Float16, i8o8b16); \
+  cb(int8_t, float, float, i8o32b32);    \
+  cb(int8_t, float, float, i8o32b0);     \
+  cb(int8_t, float, float, i8o32b32_append);
 
 FOREACH_TILE_PRODUCT_VER(DEF_TEMPLATE_SPECIALIZATION_TILE_PRODUCT)
 

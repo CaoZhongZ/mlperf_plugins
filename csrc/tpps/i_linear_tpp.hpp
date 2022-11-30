@@ -40,12 +40,12 @@ public:
     i8o32b32_append,
   };
 
-  template <typename output_type, typename bias_type, Version ver>
+  template <typename input_type, typename output_type, typename bias_type, Version ver>
   void tile_dot_product_16x256(
       void* C, void* A, void* B, void* bias, float scale, float o_scale,
       const size_t chunk_sl, size_t cur_id = 0, size_t total_chunks = 1);
 
-  template <typename output_type, typename bias_type, Version ver>
+  template <typename input_type, typename output_type, typename bias_type, Version ver>
   void tile_dot_product_16x256_shortage(
       void* C, void* A, void* B, void* bias, float scale, float o_scale,
       const size_t chunk_sl, size_t cur_id = 0, size_t total_chunks = 1);
@@ -58,7 +58,7 @@ protected:
   static const compute_block_t compute_block_tbl_[3][4];
 
   template <int row_tile, int col_tile, Version ver>
-  typename std::enable_if<ver == i8o8b32, void>::type compute_block(
+  inline typename std::enable_if<ver == i8o8b32, void>::type compute_block(
       void* C, size_t ldc, void* A, void* B, void* bias, float scale, bool post_op,
       float o_scale) {
     _tile_dot_product_16x256<row_tile, col_tile, io_policy<col_tile, i_format::plain>>::
@@ -66,7 +66,7 @@ protected:
   }
 
   template <int row_tile, int col_tile, Version ver>
-  typename std::enable_if<ver == i8o8b16, void>::type compute_block(
+  inline typename std::enable_if<ver == i8o8b16, void>::type compute_block(
       void* C, size_t ldc, void* A, void* B, void* bias, float scale, bool post_op,
       float o_scale) {
     _tile_dot_product_16x256<row_tile, col_tile, io_policy<col_tile, i_format::plain>>::
@@ -74,7 +74,7 @@ protected:
   }
 
   template <int row_tile, int col_tile, Version ver>
-  typename std::enable_if<ver == i8o32b32, void>::type compute_block(
+  inline typename std::enable_if<ver == i8o32b32, void>::type compute_block(
       void* C, size_t ldc, void* A, void* B, void* bias, float scale, bool post_op,
       float o_scale) {
     _tile_dot_product_16x256<row_tile, col_tile, io_policy<col_tile, i_format::plain>>::
@@ -82,7 +82,7 @@ protected:
   }
 
   template <int row_tile, int col_tile, Version ver>
-  typename std::enable_if<ver == i8o32b0, void>::type compute_block(
+  inline typename std::enable_if<ver == i8o32b0, void>::type compute_block(
       void* C, size_t ldc, void* A, void* B, void* bias, float scale, bool post_op,
       float o_scale) {
     _tile_dot_product_16x256<row_tile, col_tile, io_policy<col_tile, i_format::plain>>::
@@ -90,7 +90,7 @@ protected:
   }
 
   template <int row_tile, int col_tile, Version ver>
-  typename std::enable_if<ver == i8o32b32_append, void>::type compute_block(
+  inline typename std::enable_if<ver == i8o32b32_append, void>::type compute_block(
       void* C, size_t ldc, void* A, void* B, void* bias, float scale, bool post_op,
       float o_scale) {
     _tile_dot_product_16x256<row_tile, col_tile, io_policy<col_tile, i_format::plain>>::
