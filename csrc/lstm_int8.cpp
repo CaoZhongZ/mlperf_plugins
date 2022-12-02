@@ -50,10 +50,9 @@ std::tuple<at::Tensor, std::vector<at::Tensor>, std::vector<at::Tensor>> lstm_in
   for (int i = 0; i < num_layers; i++) {
     auto weights_layer = all_weights[i];
     auto skip_quant = (i == (num_layers - 1)) & skip_quant_y;
-    auto reminder = x_.size(2) % 64;
-    if (reminder != 0) {
-      x_ = at::pad(x_, {0, 64 - reminder}, "constant", 0);
-    }
+    // auto reminder = x_.size(2) % 64;
+    // if (reminder != 0)
+    //   x_ = at::pad(x_, {0, 64 - reminder}, "constant", 0);
     std::tie(x_, hx_[i], cx_[i]) = lstm_layer_int8(
         x_, hx_[i], cx_[i], weights_layer[0], weights_layer[1], weights_layer[2],
         weights_layer[3], rb_scale[i].item(), i_scale[i].item(), o_scale[i].item(),

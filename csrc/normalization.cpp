@@ -16,8 +16,10 @@ at::Tensor i_layernorm_unpad(const at::Tensor &input, const at::Tensor &weight,
   auto batch = in_sz[0];
   auto inner = in_sz[1];
   auto max_len = *at::_ops::max::call(length).data_ptr<int32_t>();
+  auto T = 500;
+  auto C = 256;
   auto output =
-      at::empty({batch, inner, max_len}, at::TensorOptions().dtype<float>().memory_format(
+      at::empty({batch, C, T}, at::TensorOptions().dtype<float>().memory_format(
                            c10::MemoryFormat::Contiguous));
 
   auto in = input.accessor<float, 3>();
