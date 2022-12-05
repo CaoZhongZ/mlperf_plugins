@@ -5,22 +5,22 @@
 #include <c10/core/TensorOptions.h>
 
 namespace intel_mlperf {
-at::Tensor i_layernorm_unpad(const at::Tensor &input, const at::Tensor &weight,
+at::Tensor i_layernorm_pad(const at::Tensor &input, const at::Tensor &weight,
                              const at::Tensor &bias, const at::Tensor &length,
                              const c10::optional<at::Scalar> &eps,
-                             const c10::optional<at::Scalar> &unbiased) {
+                             const c10::optional<at::Scalar> &unbiased,
+                             const c10::optional<at::Tensor> &output_shape) {
   if (!input.is_contiguous()) {
     throw std::runtime_error("Input should be contiguous.");
   }
   auto in_sz = input.sizes();
   auto batch = in_sz[0];
   auto inner = in_sz[1];
-  auto max_len = *at::_ops::max::call(length).data_ptr<int32_t>();
-  auto T = 500;
-  auto C = 256;
-  auto output =
-      at::empty({batch, C, T}, at::TensorOptions().dtype<float>().memory_format(
-                           c10::MemoryFormat::Contiguous));
+  auto out_feat = output_shape ? output_shape.value().size(1) : inner;
+  auto out_len = *at::_ops::max::call(length).data_ptr<int32_t>();
+  at::Tensor output = at::empty({batch, out_feat, out_len},
+                      at::TensorOptions().dtype<float>().memory_format(c10::MemoryFormat::Contiguous));
+
 
   auto in = input.accessor<float, 3>();
   auto w = weight.accessor<float, 3>();
