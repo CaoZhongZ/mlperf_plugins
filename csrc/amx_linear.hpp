@@ -4,19 +4,14 @@
 namespace intel_mlperf {
 
 at::Tensor amx_linear(
-  const at::Tensor& input,
-  const at::Tensor& weight,
-  const at::Tensor& bias,
-  const at::Scalar& scale,
-  const bool post_op,
-  const at::Scalar& o_scale
-);
+    const at::Tensor& input, const at::Tensor& weight, const at::Tensor& bias,
+    const at::Scalar& scale, const bool post_op, const at::Scalar& o_scale);
 
 at::Tensor amx_linear_i8o32(
-  const at::Tensor& input,
-  const at::Tensor& weight,
-  const at::Tensor& bias,
-  const at::Scalar& scale
-);
+    const at::Tensor& input, const at::Tensor& weight, const at::Tensor& bias,
+    const at::Scalar& scale);
 
-}
+at::Tensor amx_linear_bf16(
+    const at::Tensor& input, const at::Tensor& weight, const at::Tensor& bias);
+
+}  // namespace intel_mlperf

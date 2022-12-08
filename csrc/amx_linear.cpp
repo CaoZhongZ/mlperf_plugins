@@ -18,20 +18,21 @@ namespace intel_mlperf {
 at::Tensor amx_linear(
     const at::Tensor& input, const at::Tensor& weight, const at::Tensor& bias,
     const at::Scalar& scale, const bool post_op, const at::Scalar& o_scale) {
-  // input shape: [bs, sl, hidden_size]
+  // input shape: [bs, sl, input_f]
   auto ishape = input.sizes();
   auto bs = ishape[0];
   auto sl = ishape[1];
-  auto hidden_size = ishape[2];
+  auto input_f = ishape[2];
 
   // weight shape: [col_step, 4, col_tile, 16, 64]
   auto wshape = weight.sizes();
   auto col_step = wshape[0];
   auto col_tile = wshape[2];
+  auto output_f = col_step * 64;
 
-  // output shape: [bs, sl, col_step * 64]
+  // output shape: [bs, sl, output_f]
   auto output = at::empty(
-      {bs, sl, col_step * 64},
+      {bs, sl, output_f},
       at::TensorOptions().dtype<int8_t>().memory_format(c10::MemoryFormat::Contiguous));
 
   auto scale_ = scale.toFloat();
@@ -39,8 +40,7 @@ at::Tensor amx_linear(
 
   auto total_sl = bs * sl;
 
-  size_t os_ = col_step * 64;
-  auto block_computer = i_linear(total_sl, hidden_size, os_, true, post_op);
+  auto block_computer = i_linear(total_sl, input_f, output_f, true, post_op);
 
   auto input_data_ptr = input.data_ptr();
   auto weight_data_ptr = weight.data_ptr();
@@ -56,7 +56,7 @@ at::Tensor amx_linear(
     case (1):
 #pragma omp parallel
     {
-      auto input_ = reinterpret_cast<int8_t(*)[hidden_size]>(input_data_ptr);
+      auto input_ = reinterpret_cast<int8_t(*)[input_f]>(input_data_ptr);
       auto weight_ = reinterpret_cast<int8_t(*)[4][col_tile][16][64]>(weight_data_ptr);
       auto output_ = reinterpret_cast<int8_t(*)[col_step][64]>(output_data_ptr);
       auto bias_ = reinterpret_cast<_Float16(*)>(bias_data_ptr);
@@ -84,7 +84,7 @@ at::Tensor amx_linear(
     default:
 #pragma omp parallel
     {
-      auto input_ = reinterpret_cast<int8_t(*)[hidden_size]>(input_data_ptr);
+      auto input_ = reinterpret_cast<int8_t(*)[input_f]>(input_data_ptr);
       auto weight_ = reinterpret_cast<int8_t(*)[4][col_tile][16][64]>(weight_data_ptr);
       auto output_ = reinterpret_cast<int8_t(*)[col_step][64]>(output_data_ptr);
       auto bias_ = reinterpret_cast<float(*)>(bias_data_ptr);
@@ -118,26 +118,26 @@ at::Tensor amx_linear(
 at::Tensor amx_linear_i8o32(
     const at::Tensor& input, const at::Tensor& weight, const at::Tensor& bias,
     const at::Scalar& scale) {
-  // input shape: [bs, hidden_size]
+  // input shape: [bs, input_f]
   auto ishape = input.sizes();
   auto bs = ishape[0];
-  auto hidden_size = ishape[1];
+  auto input_f = ishape[1];
 
   // weight shape: [col_step, 4, col_tile, 16, 64]
   auto wshape = weight.sizes();
   auto col_step = wshape[0];
   auto col_tile = wshape[2];
+  auto output_f = col_step * 64;
 
-  // output shape: [bs, col_step * 64]
+  // output shape: [bs, output_f]
   auto output = at::empty(
-      {bs, col_step * 64},
+      {bs, output_f},
       at::TensorOptions().dtype<float>().memory_format(c10::MemoryFormat::Contiguous));
 
   auto scale_ = scale.toFloat();
   auto total_sl = bs;
 
-  size_t os_ = col_step * 64;
-  auto block_computer = i_linear(total_sl, hidden_size, os_, true, false);
+  auto block_computer = i_linear(total_sl, input_f, output_f, true, false);
 
   auto input_data_ptr = input.data_ptr();
   auto weight_data_ptr = weight.data_ptr();
@@ -147,7 +147,7 @@ at::Tensor amx_linear_i8o32(
   amx_init::amx_init();
 #pragma omp parallel
   {
-    auto input_ = reinterpret_cast<int8_t(*)[hidden_size]>(input_data_ptr);
+    auto input_ = reinterpret_cast<int8_t(*)[input_f]>(input_data_ptr);
     auto weight_ = reinterpret_cast<int8_t(*)[4][col_tile][16][64]>(weight_data_ptr);
     auto output_ = reinterpret_cast<float(*)[col_step][64]>(output_data_ptr);
     auto bias_ = reinterpret_cast<float(*)>(bias_data_ptr);
@@ -173,4 +173,56 @@ at::Tensor amx_linear_i8o32(
   return output;
 }
 
+at::Tensor amx_linear_bf16(
+    const at::Tensor& input, const at::Tensor& weight, const at::Tensor& bias) {
+  // input shape: [bs, input_feature]
+  auto ishape = input.sizes();
+  auto bs = ishape[0];
+  auto input_f = ishape[1];
+
+  // weight shape: [col_step, 2, col_tile, 16, 32]
+  auto wshape = weight.sizes();
+  auto col_step = wshape[0];
+  auto col_tile = wshape[2];
+  auto output_f = col_step * 32;
+
+  // output shape: [bs, output_feature]
+  auto output = at::empty(
+      {bs, output_f},
+      at::TensorOptions().dtype<float>().memory_format(c10::MemoryFormat::Contiguous));
+
+  auto total_sl = bs;
+
+  auto block_computer = i_linear(total_sl, input_f, output_f, true, false);
+
+  auto input_ = input.accessor<at::BFloat16, 2>();
+  auto weight_ = weight.accessor<at::BFloat16, 5>();
+  auto output_ = output.accessor<float, 2>();
+  auto bias_ = bias.accessor<float, 1>();
+
+  amx_init::amx_init();
+#pragma omp parallel
+  {
+    Tilecfg().set_config();
+    auto total_core_num = omp_get_num_threads();
+    auto core_id = omp_get_thread_num();
+    size_t start_ = total_sl * core_id / total_core_num;
+    size_t chunk_sl_ = (total_sl * core_id + total_sl) / total_core_num - start_;
+    size_t minimum_sl = 32 * total_core_num;
+
+    if (total_sl < minimum_sl) {
+      block_computer.tile_dot_product_16x256_shortage<
+          __bfloat16, float, float, i_linear::i16o32b32>(
+          output_.data(), input_.data(), weight_.data(), bias_.data(), 0.0, 0.0,
+          total_sl, core_id, total_core_num);
+    } else {
+      block_computer
+          .tile_dot_product_16x256<__bfloat16, float, float, i_linear::i16o32b32>(
+              output_[start_].data(), input_[start_].data(), weight_.data(),
+              bias_.data(), 0.0, 0.0, chunk_sl_, core_id, total_core_num);
+    }
+    Tilecfg().release_config();
+  }
+  return output.to(at::kBFloat16);
+}
 }  // namespace intel_mlperf

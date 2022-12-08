@@ -154,6 +154,30 @@ def test_amx_linear_padding(batch_size):
 
 
 @pytest.mark.parametrize("batch_size", [32, 64, 128])
+def test_amx_linear_bf16(batch_size):
+    input_size = 2048
+    hidden_size = 1024
+    output_size = 4 * hidden_size
+
+    x = torch.tensor(
+        np.arange(input_size * batch_size).reshape(batch_size, input_size),
+        dtype=torch.bfloat16,
+    )
+    w = torch.tensor(
+        np.arange(input_size * output_size).reshape(output_size, input_size),
+        dtype=torch.bfloat16,
+    )
+    b = torch.tensor(np.arange(output_size) / output_size, dtype=torch.float32)
+    y_expected = torch.ops.intel_mlperf.linear(
+        x, torch.ops.intel_mlperf.prepack_linear_weight(w), b, None, None
+    )
+    y = torch.ops.intel_mlperf.amx_linear_bf16(
+        x, transpose_tile_weight_bf16(w.transpose(1, 0)), b
+    )
+    np.testing.assert_equal(y.float().numpy(), y_expected.float().numpy())
+
+
+@pytest.mark.parametrize("batch_size", [32, 64, 128])
 def test_lstm_amx_int8(batch_size):
     dtype = torch.int8
     input_size = 1024
