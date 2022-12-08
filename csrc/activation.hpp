@@ -5,10 +5,16 @@ namespace intel_mlperf {
 at::Tensor sigmoid (
     const at::Tensor& input);
 
+at::Tensor sigmoid_f32 (
+    const at::Tensor& input);
+
 at::Tensor tanh (
     const at::Tensor& input);
 
 at::Tensor tanh_f16 (
+    const at::Tensor& input);
+
+at::Tensor tanh_f32 (
     const at::Tensor& input);
 
 at::Tensor i_gelu (

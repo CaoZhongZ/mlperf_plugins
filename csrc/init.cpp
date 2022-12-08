@@ -105,8 +105,14 @@ TORCH_LIBRARY(intel_mlperf, m) {
       "sigmoid(Tensor _0) -> Tensor",
       intel_mlperf::sigmoid);
   m.def(
+      "sigmoid_f32(Tensor _0) -> Tensor",
+      intel_mlperf::sigmoid_f32);
+  m.def(
       "tanh_f16(Tensor _0) -> Tensor",
       intel_mlperf::tanh_f16);
+  m.def(
+      "tanh_f32(Tensor _0) -> Tensor",
+      intel_mlperf::tanh_f32);
   m.def(
       "lstm_postop(Tensor it, Tensor ft, Tensor gt, Tensor ot, Tensor ct, Scalar? i_scale, Scalar? o_scale, bool skip_quant_y) -> Tensor[]",
       intel_mlperf::lstm_postop);

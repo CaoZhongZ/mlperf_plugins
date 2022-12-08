@@ -59,6 +59,35 @@ public:
   }
 };
 
+static inline __m512 _mm512_tanh_ps(__m512 x){
+    auto c0        = _mm512_set1_ps(4826.25f);
+    auto c1        = _mm512_set1_ps(618.75f);
+    auto c2        = _mm512_set1_ps(13.5f);
+    auto c3        = _mm512_set1_ps((float((1.0/28.0))));
+    auto c1_d      = _mm512_set1_ps(2227.5f);
+    auto c2_d      = _mm512_set1_ps(112.5f);
+    auto hi_bound  = _mm512_set1_ps(4.97f);
+    auto lo_bound  = _mm512_set1_ps(-4.97f);
+    auto ones      = _mm512_set1_ps(1.0f);
+    auto neg_ones  = _mm512_set1_ps(-1.0f);
+
+    auto x2         = _mm512_mul_ps(x, x);
+    auto t1_nom     = _mm512_fmadd_ps(c3, x2, c2);
+    auto t2_nom     = _mm512_fmadd_ps(t1_nom, x2, c1);
+    auto t3_nom     = _mm512_fmadd_ps(t2_nom, x2, c0);
+    auto nom        = _mm512_mul_ps(t3_nom, x);
+    auto t1_denom   =  _mm512_add_ps(x2, c2_d);
+    auto t2_denom   = _mm512_fmadd_ps(t1_denom, x2, c1_d);
+    auto denom      = _mm512_fmadd_ps(t2_denom, x2, c0);
+    auto denom_rcp  = _mm512_rcp14_ps(denom);
+    auto mask_hi    = _mm512_cmp_ps_mask(x, hi_bound, _CMP_GT_OQ);
+    auto mask_lo    = _mm512_cmp_ps_mask(x, lo_bound, _CMP_LT_OQ);
+    auto result     = _mm512_mul_ps(nom, denom_rcp);
+    result          = _mm512_mask_blend_ps(mask_hi, result, ones);
+    result          = _mm512_mask_blend_ps(mask_lo, result, neg_ones);
+    return result;
+}
+
 static inline __m512h _mm512_tanh_ph(__m512h x){
     auto c0        = _mm512_set1_ph(495.0f);
     auto c1        = _mm512_set1_ph(60.0f);
@@ -70,17 +99,17 @@ static inline __m512h _mm512_tanh_ph(__m512h x){
     auto ones      = _mm512_set1_ph(1.0f);
     auto neg_ones  = _mm512_set1_ph(-1.0f);
 
-    auto x2         = _mm512_mul_ph( x, x );
-    auto t1_nom     = _mm512_add_ph( x2, c1 );
-    auto t2_nom     = _mm512_fmadd_ph( t1_nom, x2, c0);
-    auto nom        = _mm512_mul_ph( t2_nom, x);
-    auto t1_denom   = _mm512_fmadd_ph( c3_d, x2, c2_d);
-    auto t2_denom   = _mm512_fmadd_ph( t1_denom, x2, c1_d);
-    auto denom      = _mm512_fmadd_ph( t2_denom, x2, c0 );
-    auto denom_rcp  = _mm512_rcp_ph( denom );
-    auto mask_hi    = _mm512_cmp_ph_mask( x, hi_bound, _CMP_GT_OQ);
-    auto mask_lo    = _mm512_cmp_ph_mask( x, lo_bound, _CMP_LT_OQ);
-    auto result     = _mm512_mul_ph( nom, denom_rcp );
+    auto x2         = _mm512_mul_ph(x, x);
+    auto t1_nom     = _mm512_add_ph(x2, c1);
+    auto t2_nom     = _mm512_fmadd_ph(t1_nom, x2, c0);
+    auto nom        = _mm512_mul_ph(t2_nom, x);
+    auto t1_denom   = _mm512_fmadd_ph(c3_d, x2, c2_d);
+    auto t2_denom   = _mm512_fmadd_ph(t1_denom, x2, c1_d);
+    auto denom      = _mm512_fmadd_ph(t2_denom, x2, c0);
+    auto denom_rcp  = _mm512_rcp_ph(denom);
+    auto mask_hi    = _mm512_cmp_ph_mask(x, hi_bound, _CMP_GT_OQ);
+    auto mask_lo    = _mm512_cmp_ph_mask(x, lo_bound, _CMP_LT_OQ);
+    auto result     = _mm512_mul_ph(nom, denom_rcp);
     result          = _mm512_mask_blend_ph(mask_hi, result, ones);
     result          = _mm512_mask_blend_ph(mask_lo, result, neg_ones);
     return result;
@@ -99,22 +128,55 @@ static inline __m512h _mm512_sigmoid_ph(__m512h x){
     auto neg_ones  = _mm512_set1_ph(-1.0f);
     auto ph_half   = _mm512_set1_ph(0.5f);
 
-    auto x_half     = _mm512_mul_ph(ph_half,x);
-    auto x2         = _mm512_mul_ph( x_half, x_half );
-    auto t1_nom     = _mm512_add_ph( x2, c1 );
-    auto t2_nom     = _mm512_fmadd_ph( t1_nom, x2, c0);
-    auto nom        = _mm512_mul_ph( t2_nom, x_half);
-    auto t1_denom   = _mm512_fmadd_ph( c3_d, x2, c2_d);
-    auto t2_denom   = _mm512_fmadd_ph( t1_denom, x2, c1_d);
-    auto denom      = _mm512_fmadd_ph( t2_denom, x2, c0 );
-    auto denom_rcp  = _mm512_rcp_ph( denom );
-    auto mask_hi    = _mm512_cmp_ph_mask( x_half, hi_bound, _CMP_GT_OQ);
-    auto mask_lo    = _mm512_cmp_ph_mask( x_half, lo_bound, _CMP_LT_OQ);
-    auto result     = _mm512_mul_ph( nom, denom_rcp );
+    auto x_half     = _mm512_mul_ph(ph_half, x);
+    auto x2         = _mm512_mul_ph(x_half, x_half);
+    auto t1_nom     = _mm512_add_ph(x2, c1);
+    auto t2_nom     = _mm512_fmadd_ph(t1_nom, x2, c0);
+    auto nom        = _mm512_mul_ph(t2_nom, x_half);
+    auto t1_denom   = _mm512_fmadd_ph(c3_d, x2, c2_d);
+    auto t2_denom   = _mm512_fmadd_ph(t1_denom, x2, c1_d);
+    auto denom      = _mm512_fmadd_ph(t2_denom, x2, c0);
+    auto denom_rcp  = _mm512_rcp_ph(denom);
+    auto mask_hi    = _mm512_cmp_ph_mask(x_half, hi_bound, _CMP_GT_OQ);
+    auto mask_lo    = _mm512_cmp_ph_mask(x_half, lo_bound, _CMP_LT_OQ);
+    auto result     = _mm512_mul_ph(nom, denom_rcp);
     result          = _mm512_mask_blend_ph(mask_hi, result, ones);
     result          = _mm512_mask_blend_ph(mask_lo, result, neg_ones);
     result          = _mm512_add_ph(result,ones);
     result          = _mm512_mul_ph(result,ph_half);
+    return result;
+}
+
+static inline __m512 _mm512_sigmoid_ps(__m512 x){
+    auto c0        = _mm512_set1_ps(4826.25f);
+    auto c1        = _mm512_set1_ps(618.75f);
+    auto c2        = _mm512_set1_ps(13.5f);
+    auto c3        = _mm512_set1_ps((float((1.0/28.0))));
+    auto c1_d      = _mm512_set1_ps(2227.5f);
+    auto c2_d      = _mm512_set1_ps(112.5f);
+    auto hi_bound  = _mm512_set1_ps(4.97f);
+    auto lo_bound  = _mm512_set1_ps(-4.97f);
+    auto ones      = _mm512_set1_ps(1.0f);
+    auto neg_ones  = _mm512_set1_ps(-1.0f);
+    auto ph_half   = _mm512_set1_ps(0.5f);
+
+    auto x_half     = _mm512_mul_ps(ph_half, x);
+    auto x2         = _mm512_mul_ps(x_half, x_half);
+    auto t1_nom     = _mm512_fmadd_ps(c3, x2, c2);
+    auto t2_nom     = _mm512_fmadd_ps(t1_nom, x2, c1);
+    auto t3_nom     = _mm512_fmadd_ps(t2_nom, x2, c0);
+    auto nom        = _mm512_mul_ps(t3_nom, x_half);
+    auto t1_denom   =  _mm512_add_ps(x2, c2_d);
+    auto t2_denom   = _mm512_fmadd_ps(t1_denom, x2, c1_d);
+    auto denom      = _mm512_fmadd_ps(t2_denom, x2, c0);
+    auto denom_rcp  = _mm512_rcp14_ps(denom);
+    auto mask_hi    = _mm512_cmp_ps_mask(x_half, hi_bound, _CMP_GT_OQ);
+    auto mask_lo    = _mm512_cmp_ps_mask(x_half, lo_bound, _CMP_LT_OQ);
+    auto result     = _mm512_mul_ps(nom, denom_rcp);
+    result          = _mm512_mask_blend_ps(mask_hi, result, ones);
+    result          = _mm512_mask_blend_ps(mask_lo, result, neg_ones);
+    result          = _mm512_add_ps(result, ones);
+    result          = _mm512_mul_ps(result, ph_half);
     return result;
 }
 
