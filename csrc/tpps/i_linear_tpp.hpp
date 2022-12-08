@@ -18,17 +18,21 @@ public:
         ic_(input_feature),
         oc_(output_feature),
         has_bias_(bias),
-        post_op_(post_op) {
-    cols_in_tile_ = input_feature / 64;
-    cols_step_ = output_feature / 64;
+        post_op_(post_op) {}
+
+  constexpr inline void set_compute_blk_cfg(int el_per_tile_row) {
+    cols_in_tile_ = ic_ / el_per_tile_row;
+    cols_step_ = oc_ / el_per_tile_row;
     if (cols_in_tile_ == 16) {
       compute_blk_idx_ = 0;
     } else if (cols_in_tile_ == 32) {
       compute_blk_idx_ = 1;
     } else if (cols_in_tile_ == 64) {
       compute_blk_idx_ = 2;
-    } else {
+    } else if (cols_in_tile_ == 10) {
       compute_blk_idx_ = 3;
+    } else {
+      compute_blk_idx_ = 4;
     }
   }
 
@@ -38,6 +42,9 @@ public:
     i8o32b32,
     i8o32b0,
     i8o32b32_append,
+    i16o32b32,
+    i16o32b0,
+    i16o32b32_append,
   };
 
   template <typename input_type, typename output_type, typename bias_type, Version ver>
@@ -55,7 +62,7 @@ protected:
       void*, size_t, void*, void*, void*, float, bool, float);
 
   template <Version ver>
-  static const compute_block_t compute_block_tbl_[3][4];
+  static const compute_block_t compute_block_tbl_[3][5];
 
   template <int row_tile, int col_tile, Version ver>
   inline typename std::enable_if<ver == i8o8b32, void>::type compute_block(
@@ -95,6 +102,30 @@ protected:
       float o_scale) {
     _tile_dot_product_16x256<row_tile, col_tile, io_policy<col_tile, i_format::plain>>::
         compute_append(C, ldc, A, B, bias, scale, post_op, 0.0);
+  }
+
+  template <int row_tile, int col_tile, Version ver>
+  inline typename std::enable_if<ver == i16o32b32, void>::type compute_block(
+      void* C, size_t ldc, void* A, void* B, void* bias, float scale, bool post_op,
+      float o_scale) {
+    _tile_dot_product_16x256<row_tile, col_tile, io_policy<col_tile, i_format::plain>>::
+        compute_i16o32b32(C, ldc, A, B, bias, 0.0, post_op, 0.0);
+  }
+
+  template <int row_tile, int col_tile, Version ver>
+  inline typename std::enable_if<ver == i16o32b0, void>::type compute_block(
+      void* C, size_t ldc, void* A, void* B, void* bias, float scale, bool post_op,
+      float o_scale) {
+    _tile_dot_product_16x256<row_tile, col_tile, io_policy<col_tile, i_format::plain>>::
+        compute_i16o32b0(C, ldc, A, B, bias, 0.0, post_op, 0.0);
+  }
+
+  template <int row_tile, int col_tile, Version ver>
+  inline typename std::enable_if<ver == i16o32b32_append, void>::type compute_block(
+      void* C, size_t ldc, void* A, void* B, void* bias, float scale, bool post_op,
+      float o_scale) {
+    _tile_dot_product_16x256<row_tile, col_tile, io_policy<col_tile, i_format::plain>>::
+        compute_i16o32b32_append(C, ldc, A, B, bias, 0.0, post_op, 0.0);
   }
 
   size_t sl_;

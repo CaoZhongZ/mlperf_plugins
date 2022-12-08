@@ -11,19 +11,11 @@ const static size_t kBatchNum = 16;
 namespace intel_mlperf {
 typedef unsigned short __bfloat16;
 bool greedy_decode_update(
-    const at::Tensor &symbols,
-    at::Tensor &symbols_added,
-    at::Tensor &res,
-    at::Tensor &res_idx,
-    const at::Tensor &f,
-    const at::Tensor &f_lens,
-    at::Tensor &time_idx,
-    at::Tensor &fi,
-    at::Tensor &pre_g,
-    const std::vector<at::Tensor> &pre_hg,
-    const std::vector<at::Tensor> &pre_cg,
-    const std::vector<at::Tensor> &hg,
-    const std::vector<at::Tensor> &cg) {
+    const at::Tensor &symbols, at::Tensor &symbols_added, at::Tensor &res,
+    at::Tensor &res_idx, const at::Tensor &f, const at::Tensor &f_lens,
+    at::Tensor &time_idx, at::Tensor &fi, at::Tensor &pre_g,
+    const std::vector<at::Tensor> &pre_hg, const std::vector<at::Tensor> &pre_cg,
+    const std::vector<at::Tensor> &hg, const std::vector<at::Tensor> &cg) {
   auto res_sz = res.sizes();
   auto batch_size = res_sz[0];
   auto seq_len = res_sz[1];
@@ -37,7 +29,18 @@ bool greedy_decode_update(
   auto time_idx_ = time_idx.accessor<int32_t, 1>();
   auto f_lens_ = f_lens.accessor<int32_t, 1>();
   auto pre_g_ = pre_g.accessor<int32_t, 2>();
-  //auto finish_t_ = finish_t.accessor<bool, 1>();
+  // auto finish_t_ = finish_t.accessor<bool, 1>();
+
+  auto f_ = f.accessor<at::BFloat16, 3>();
+  auto hg0_ = hg[0].accessor<at::BFloat16, 2>();
+  auto hg1_ = hg[1].accessor<at::BFloat16, 2>();
+  auto cg0_ = cg[0].accessor<float, 2>();
+  auto cg1_ = cg[1].accessor<float, 2>();
+  auto fi_ = fi.accessor<at::BFloat16, 2>();
+  auto pre_hg0_ = pre_hg[0].accessor<at::BFloat16, 2>();
+  auto pre_hg1_ = pre_hg[1].accessor<at::BFloat16, 2>();
+  auto pre_cg0_ = pre_cg[0].accessor<float, 2>();
+  auto pre_cg1_ = pre_cg[1].accessor<float, 2>();
 
   size_t loop_num = (batch_size - 1) / kBatchNum + 1;
 
@@ -52,21 +55,11 @@ bool greedy_decode_update(
     auto batch = kBatchNum;
     if (batch_size - start < kBatchNum) batch = batch_size - start;
     greedy_decode_update_tpp::update_mask(
-        &symbols_[start], &symbols_added_[start], &res_[start][0],
-        &res_idx_[start], &time_idx_[start], &f_lens_[start],
-        &pre_g_[0][start], seq_len, batch, update_g[i], finish[i]);
+        &symbols_[start], &symbols_added_[start], &res_[start][0], &res_idx_[start],
+        &time_idx_[start], &f_lens_[start], &pre_g_[0][start], seq_len, batch,
+        update_g[i], finish[i]);
 
     // data copy part
-    auto pin_f = reinterpret_cast<__bfloat16 (*)[batch_size][trans_hidden_size]>(f.data_ptr());
-    auto pin_hg_0 = reinterpret_cast<__bfloat16 (*)[pred_hidden_size]>(hg[0].data_ptr());
-    auto pin_hg_1 = reinterpret_cast<__bfloat16 (*)[pred_hidden_size]>(hg[1].data_ptr());
-    auto pin_cg_0 = reinterpret_cast<__bfloat16 (*)[pred_hidden_size]>(cg[0].data_ptr());
-    auto pin_cg_1 = reinterpret_cast<__bfloat16 (*)[pred_hidden_size]>(cg[1].data_ptr());
-    auto pout_fi = reinterpret_cast<__bfloat16 (*)[trans_hidden_size]>(fi.data_ptr());
-    auto pout_pre_hg_0 = reinterpret_cast<__bfloat16 (*)[pred_hidden_size]>(pre_hg[0].data_ptr());
-    auto pout_pre_hg_1 = reinterpret_cast<__bfloat16 (*)[pred_hidden_size]>(pre_hg[1].data_ptr());
-    auto pout_pre_cg_0 = reinterpret_cast<__bfloat16 (*)[pred_hidden_size]>(pre_cg[0].data_ptr());
-    auto pout_pre_cg_1 = reinterpret_cast<__bfloat16 (*)[pred_hidden_size]>(pre_cg[1].data_ptr());
     // check whether finished
     // flag is false only when finish is all true.
     if (batch_size - start < kBatchNum) {
@@ -77,18 +70,21 @@ bool greedy_decode_update(
       flag[i] = temp;
     }
     for (auto j = 0; j < batch; j++) {
-      //finish_t[start + j] = finish[i] & (1 << j);
+      // finish_t[start + j] = finish[i] & (1 << j);
       if (~finish[i] & (1 << j)) {
         auto idx = time_idx_[start + j];
-        memcpy(pout_fi[start + j], pin_f[idx][start + j], sizeof(pout_fi[start + j]));
+        memcpy(
+            fi_[start + j].data(), f_[idx][start + j].data(),
+            sizeof(__bfloat16) * trans_hidden_size);
       }
-      //updateg_t[start + j] = update_g[i] & (1 << j);
+      // updateg_t[start + j] = update_g[i] & (1 << j);
       if (update_g[i] & (1 << j)) {
-        auto out_byte = sizeof(pin_hg_0[start + j]);
-        memcpy(pout_pre_hg_0[start + j], pin_hg_0[start + j], out_byte);
-        memcpy(pout_pre_hg_1[start + j], pin_hg_1[start + j], out_byte);
-        memcpy(pout_pre_cg_0[start + j], pin_cg_0[start + j], out_byte);
-        memcpy(pout_pre_cg_1[start + j], pin_cg_1[start + j], out_byte);
+        auto out_byte_hg = sizeof(__bfloat16) * pred_hidden_size;
+        memcpy(pre_hg0_[start + j].data(), hg0_[start + j].data(), out_byte_hg);
+        memcpy(pre_hg1_[start + j].data(), hg1_[start + j].data(), out_byte_hg);
+        auto out_byte_cg = sizeof(float) * pred_hidden_size;
+        memcpy(pre_cg0_[start + j].data(), cg0_[start + j].data(), out_byte_cg);
+        memcpy(pre_cg1_[start + j].data(), cg1_[start + j].data(), out_byte_cg);
       }
     }
   }

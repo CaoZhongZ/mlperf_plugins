@@ -15,14 +15,18 @@ void i_linear::tile_dot_product_16x256(
     void* C, void* A, void* B, void* bias, float scale, float o_scale,
     const size_t chunk_sl, size_t cur_id, size_t total_chunks) {
   constexpr int el_per_tile_row = std::is_same<input_type, int8_t>::value ? 64 : 32;
-  if (total_chunks * 32 > chunk_sl) {
+  // int8 need 4 tiles output to pack 64 results for cache line
+  constexpr int tiles_per_compute_row = std::is_same<input_type, int8_t>::value ? 4 : 2;
+  set_compute_blk_cfg(el_per_tile_row);
+
+  if (32 > chunk_sl) {
     throw std::runtime_error(
-        "chunk_sl should be more than 32*core_num in input split i_linear.");
+        "per core chunk_sl should be more than 32 in input split i_linear.");
   }
   auto C_ = *reinterpret_cast<output_type(*)[chunk_sl][cols_step_][el_per_tile_row]>(C);
   auto A_ = *reinterpret_cast<input_type(*)[chunk_sl][ic_]>(A);
-  auto B_ = *reinterpret_cast<
-      input_type(*)[cols_step_][4][cols_in_tile_][16][el_per_tile_row]>(B);
+  auto B_ = *reinterpret_cast<input_type(*)[cols_step_][tiles_per_compute_row]
+                                           [cols_in_tile_][16][el_per_tile_row]>(B);
   auto bias_ = *reinterpret_cast<bias_type(*)[cols_step_][el_per_tile_row]>(bias);
 
   compute_block_t computer_2 = compute_block_tbl_<ver>[2][compute_blk_idx_];
@@ -40,7 +44,6 @@ void i_linear::tile_dot_product_16x256(
     printf("col_step must divide total_chunks up!\n");
     return;
   }
-  // enlarge the loopweitht size, for example, the weight step change to 512
   if (odd_tile) {
     for (size_t i = 0; i < chunk_step; i++) {
       for (size_t k = 0; k < total_chunks; k++) {
@@ -83,10 +86,14 @@ void i_linear::tile_dot_product_16x256_shortage(
     void* C, void* A, void* B, void* bias, float scale, float o_scale,
     const size_t chunk_sl, size_t cur_id, size_t total_chunks) {
   constexpr int el_per_tile_row = std::is_same<input_type, int8_t>::value ? 64 : 32;
+  // int8 need 4 tiles output to pack 64 results for cache line
+  constexpr int tiles_per_compute_row = std::is_same<input_type, int8_t>::value ? 4 : 2;
+  set_compute_blk_cfg(el_per_tile_row);
+
   auto C_ = *reinterpret_cast<output_type(*)[chunk_sl][cols_step_][el_per_tile_row]>(C);
   auto A_ = *reinterpret_cast<input_type(*)[chunk_sl][ic_]>(A);
-  auto B_ = *reinterpret_cast<
-      input_type(*)[cols_step_][4][cols_in_tile_][16][el_per_tile_row]>(B);
+  auto B_ = *reinterpret_cast<input_type(*)[cols_step_][tiles_per_compute_row]
+                                           [cols_in_tile_][16][el_per_tile_row]>(B);
   auto bias_ = *reinterpret_cast<bias_type(*)[cols_step_][el_per_tile_row]>(bias);
 
   compute_block_t computer_2 = compute_block_tbl_<ver>[2][compute_blk_idx_];
@@ -107,7 +114,6 @@ void i_linear::tile_dot_product_16x256_shortage(
   if (chunk_sl < 16) {
     throw std::runtime_error("chunk_sl less than 16 is not supported in i_linear.");
   }
-  // enlarge the loopweitht size, for example, the weight step change to 512
   size_t wei_start = cur_id * chunk_step;
   size_t wei_end = (cur_id + 1) * chunk_step;
   size_t row_start = 0;
@@ -155,16 +161,18 @@ void i_linear::tile_dot_product_16x256_shortage(
 
 #define DEF_COMPUTE_BLK_TBL(ver)                                                      \
   template <>                                                                         \
-  const i_linear::compute_block_t i_linear::compute_block_tbl_<i_linear::ver>[3][4] = \
+  const i_linear::compute_block_t i_linear::compute_block_tbl_<i_linear::ver>[3][5] = \
       {                                                                               \
           {nullptr, nullptr, nullptr, nullptr},                                       \
           {&i_linear::compute_block<1, 16, i_linear::ver>,                            \
            &i_linear::compute_block<1, 32, i_linear::ver>,                            \
            &i_linear::compute_block<1, 64, i_linear::ver>,                            \
+           &i_linear::compute_block<1, 10, i_linear::ver>,                            \
            &i_linear::compute_block<1, 4, i_linear::ver>},                            \
           {&i_linear::compute_block<2, 16, i_linear::ver>,                            \
            &i_linear::compute_block<2, 32, i_linear::ver>,                            \
            &i_linear::compute_block<2, 64, i_linear::ver>,                            \
+           &i_linear::compute_block<2, 10, i_linear::ver>,                            \
            &i_linear::compute_block<2, 4, i_linear::ver>},                            \
   }
 
@@ -173,7 +181,10 @@ void i_linear::tile_dot_product_16x256_shortage(
   cb(i8o8b16);                   \
   cb(i8o32b32);                  \
   cb(i8o32b0);                   \
-  cb(i8o32b32_append);
+  cb(i8o32b32_append);           \
+  cb(i16o32b32);                 \
+  cb(i16o32b0);                  \
+  cb(i16o32b32_append);
 
 FOREACH_COMPUTE_IMPL(DEF_COMPUTE_BLK_TBL);
 
@@ -188,12 +199,15 @@ FOREACH_COMPUTE_IMPL(DEF_COMPUTE_BLK_TBL);
       void* C, void* A, void* B, void* bias, float scale, float o_scale, \
       const size_t chunk_sl, size_t cur_id, size_t total_chunks)
 
-#define FOREACH_TILE_PRODUCT_VER(cb)     \
-  cb(int8_t, int8_t, float, i8o8b32);    \
-  cb(int8_t, int8_t, _Float16, i8o8b16); \
-  cb(int8_t, float, float, i8o32b32);    \
-  cb(int8_t, float, float, i8o32b0);     \
-  cb(int8_t, float, float, i8o32b32_append);
+#define FOREACH_TILE_PRODUCT_VER(cb)         \
+  cb(int8_t, int8_t, float, i8o8b32);        \
+  cb(int8_t, int8_t, _Float16, i8o8b16);     \
+  cb(int8_t, float, float, i8o32b32);        \
+  cb(int8_t, float, float, i8o32b0);         \
+  cb(int8_t, float, float, i8o32b32_append); \
+  cb(__bfloat16, float, float, i16o32b32);   \
+  cb(__bfloat16, float, float, i16o32b0);    \
+  cb(__bfloat16, float, float, i16o32b32_append);
 
 FOREACH_TILE_PRODUCT_VER(DEF_TEMPLATE_SPECIALIZATION_TILE_PRODUCT)
 

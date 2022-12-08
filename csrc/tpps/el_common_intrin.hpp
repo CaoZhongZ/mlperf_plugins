@@ -2,6 +2,10 @@
 #include <iostream>
 #include <immintrin.h>
 
+namespace intel_mlperf {
+
+typedef unsigned short __bfloat16;
+
 class helper {
 public:
   static void _mm512_print_epi32(__m512i a) {
@@ -687,4 +691,6 @@ static inline __m512 exp_ps_negln2_zero(__m512 x) {
   auto f = x - z * ln2;
 
   return snd_order_poly_exp(z, f, _c);
+}
+
 }

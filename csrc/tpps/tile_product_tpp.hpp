@@ -9,6 +9,7 @@
 
 #include "amx_config.hpp"
 #include "amx_loadd.hpp"
+#include "amx_tdpbf16ps.hpp"
 #include "amx_tdpbssd.hpp"
 #include "el_common_intrin.hpp"
 
@@ -46,10 +47,18 @@ class io_policy<col_tile, i_format::plain> {
 public:
   typedef int8_t (*tile_array)[64];
   typedef int8_t (*block_pointer)[16][col_tile][64];
+  typedef __bfloat16 (*tile_array_bf16)[32];
+  typedef __bfloat16 (*block_pointer_bf16)[16][col_tile][32];
 
   template <int tile_num>
   inline static void tile_load(void *A, int idx) {
     auto A_ = reinterpret_cast<block_pointer>(A);
+    __tile_loadd<tile_num>(A_[idx], col_tile * 64);
+  }
+
+  template <int tile_num>
+  inline static void tile_load_bf16(void *A, int idx) {
+    auto A_ = reinterpret_cast<block_pointer_bf16>(A);
     __tile_loadd<tile_num>(A_[idx], col_tile * 64);
   }
 
@@ -243,7 +252,7 @@ public:
     }
   }
 
-  inline static void float_out(
+  inline static void dequant_float_out(
       void *C, size_t ldc, void *s_0, void *s_1, void *bias, float scale) {
     auto s_0_ = reinterpret_cast<int(*)[2][16][16]>(s_0);
     auto s_1_ = reinterpret_cast<int(*)[2][16][16]>(s_1);
@@ -278,9 +287,9 @@ public:
     }
   }
 
-  inline static void int32_no_bias_out(void *C, size_t ldc, void *s_0, void *s_1) {
-    auto s_0_ = reinterpret_cast<int(*)[2][16][16]>(s_0);
-    auto s_1_ = reinterpret_cast<int(*)[2][16][16]>(s_1);
+  inline static void int32_out_no_bias(void *C, size_t ldc, void *s_0, void *s_1) {
+    auto s_0_ = reinterpret_cast<int32_t(*)[2][16][16]>(s_0);
+    auto s_1_ = reinterpret_cast<int32_t(*)[2][16][16]>(s_1);
 
     auto C_ = reinterpret_cast<int32_t(*)[16 * ldc]>(C);
 #pragma unroll(row_tile)
@@ -298,10 +307,10 @@ public:
     }
   }
 
-  inline static void float_append_out(
+  inline static void dequant_float_out_append(
       void *C, size_t ldc, void *s_0, void *s_1, void *bias, float scale) {
-    auto s_0_ = reinterpret_cast<int(*)[2][16][16]>(s_0);
-    auto s_1_ = reinterpret_cast<int(*)[2][16][16]>(s_1);
+    auto s_0_ = reinterpret_cast<int32_t(*)[2][16][16]>(s_0);
+    auto s_1_ = reinterpret_cast<int32_t(*)[2][16][16]>(s_1);
 
     auto scale_ = _mm512_set1_ps(scale);
     auto bias_ = reinterpret_cast<float(*)[16]>(bias);
@@ -337,6 +346,69 @@ public:
     }
   }
 
+  inline static void float_out(void *C, size_t ldc, void *s, void *bias) {
+    auto s_ = *reinterpret_cast<float(*)[row_tile][2][16][16]>(s);
+
+    auto bias_ = *reinterpret_cast<float(*)[2][16]>(bias);
+
+    auto b0 = _mm512_loadu_ps(bias_[0]);
+    auto b1 = _mm512_loadu_ps(bias_[1]);
+
+    auto C_ = *reinterpret_cast<float(*)[row_tile][16][ldc]>(C);
+#pragma unroll(row_tile)
+    for (int t = 0; t < row_tile; ++t) {
+#pragma unroll(16)
+      for (int i = 0; i < 16; ++i) {
+        auto i0 = _mm512_load_ps(s_[t][0][i]);
+        auto i1 = _mm512_load_ps(s_[t][1][i]);
+
+        _mm512_storeu_ps(&C_[t][i][0], i0 + b0);
+        _mm512_storeu_ps(&C_[t][i][16], i1 + b1);
+      }
+    }
+  }
+
+  inline static void float_out_no_bias(void *C, size_t ldc, void *s) {
+    auto s_ = *reinterpret_cast<float(*)[row_tile][2][16][16]>(s);
+
+    auto C_ = *reinterpret_cast<float(*)[row_tile][16][ldc]>(C);
+#pragma unroll(row_tile)
+    for (int t = 0; t < row_tile; ++t) {
+#pragma unroll(16)
+      for (int i = 0; i < 16; ++i) {
+        auto o0 = _mm512_load_ps(s_[t][0][i]);
+        _mm512_storeu_ps(&C_[t][i][0], o0);
+        auto o1 = _mm512_load_ps(s_[t][1][i]);
+        _mm512_storeu_ps(&C_[t][i][16], o1);
+      }
+    }
+  }
+
+  inline static void float_out_append(void *C, size_t ldc, void *s, void *bias) {
+    auto s_ = *reinterpret_cast<float(*)[row_tile][2][16][16]>(s);
+
+    auto bias_ = *reinterpret_cast<float(*)[2][16]>(bias);
+
+    auto b0 = _mm512_loadu_ps(bias_[0]);
+    auto b1 = _mm512_loadu_ps(bias_[1]);
+
+    auto C_ = *reinterpret_cast<float(*)[row_tile][16][ldc]>(C);
+#pragma unroll(row_tile)
+    for (int t = 0; t < row_tile; ++t) {
+#pragma unroll(16)
+      for (int i = 0; i < 16; ++i) {
+        auto i0 = _mm512_load_ps(s_[t][0][i]);
+        auto i1 = _mm512_load_ps(s_[t][1][i]);
+
+        auto a0 = _mm512_load_ps(&C_[t][i][0]);
+        auto a1 = _mm512_load_ps(&C_[t][i][16]);
+
+        _mm512_storeu_ps(&C_[t][i][0], i0 + a0 + b0);
+        _mm512_storeu_ps(&C_[t][i][16], i1 + a1 + b1);
+      }
+    }
+  }
+
   inline static void compute(
       void *C, size_t ldc, void *A, void *B, void *bias, float scale,
       bool post_op = false, float o_scale = 1.0) {
@@ -345,7 +417,7 @@ public:
     if (o_scale) {
       quant_out(C, ldc, scratch[0], scratch[1], bias, scale, post_op, o_scale);
     } else {
-      float_out(C, ldc, scratch[0], scratch[1], bias, scale);
+      dequant_float_out(C, ldc, scratch[0], scratch[1], bias, scale);
     }
   }
 
@@ -362,7 +434,7 @@ public:
       bool post_op = false, float o_scale = 1.0) {
     alignas(64) int scratch[2][row_tile][2][16][16];
     _compute_impl(scratch, A, B);
-    int32_no_bias_out(C, ldc, scratch[0], scratch[1]);
+    int32_out_no_bias(C, ldc, scratch[0], scratch[1]);
   }
 
   inline static void compute_append(
@@ -370,14 +442,40 @@ public:
       bool post_op = false, float o_scale = 1.0) {
     alignas(64) int scratch[2][row_tile][2][16][16];
     _compute_impl(scratch, A, B);
-    float_append_out(C, ldc, scratch[0], scratch[1], bias, scale);
+    dequant_float_out_append(C, ldc, scratch[0], scratch[1], bias, scale);
+  }
+
+  inline static void compute_i16o32b32(
+      void *C, size_t ldc, void *A, void *B, void *bias, float scale,
+      bool post_op = false, float o_scale = 1.0) {
+    alignas(64) int scratch[row_tile][2][16][16];
+    _compute_impl_bf16(scratch, A, B);
+    float_out(C, ldc, scratch, bias);
+  }
+
+  inline static void compute_i16o32b0(
+      void *C, size_t ldc, void *A, void *B, void *bias, float scale,
+      bool post_op = false, float o_scale = 1.0) {
+    alignas(64) float scratch[row_tile][2][16][16];
+    _compute_impl_bf16(scratch, A, B);
+    float_out_no_bias(C, ldc, scratch);
+  }
+
+  inline static void compute_i16o32b32_append(
+      void *C, size_t ldc, void *A, void *B, void *bias, float scale,
+      bool post_op = false, float o_scale = 1.0) {
+    alignas(64) float scratch[row_tile][2][16][16];
+    _compute_impl_bf16(scratch, A, B);
+    float_out_append(C, ldc, scratch, bias);
   }
 
   inline static void _compute_impl(void *scratch, void *A, void *B) {
-    auto scratch_ = reinterpret_cast<int(*)[row_tile][2][16][16]>(scratch);
+    // compute two scratch once to get 64=2*16*register_column(2)*1byte(int8) results
+    // per row_tile(16 rows per row_tile), and to match cache line size 64.
+    auto scratch_ = *reinterpret_cast<int(*)[2][row_tile][2][16][16]>(scratch);
 
     auto A_ = reinterpret_cast<typename io_policy::tile_array>(A);
-    auto B_ = reinterpret_cast<int8_t(*)[col_tile][16][64]>(B);
+    auto B_ = *reinterpret_cast<int8_t(*)[4][col_tile][16][64]>(B);
 
     _tile_dot_product_16x256<row_tile, col_tile, io_policy>::zero_accum();
 
@@ -398,6 +496,26 @@ public:
 
     _tile_dot_product_16x256<row_tile, col_tile, io_policy>::store(scratch_[1]);
   }
+
+  inline static void _compute_impl_bf16(void *scratch, void *A, void *B) {
+    // only need to compute one scratch once to get
+    // 64=1*16*register_column(2)*2bytes(bf16) results per row_tile(16 rows
+    // per row_tile), and to match cache line size 64.
+    auto scratch_ = *reinterpret_cast<float(*)[row_tile][2][16][16]>(scratch);
+
+    auto A_ = reinterpret_cast<typename io_policy::tile_array_bf16>(A);
+    auto B_ = *reinterpret_cast<__bfloat16(*)[2][col_tile][16][32]>(B);
+
+    _tile_dot_product_16x256<row_tile, col_tile, io_policy>::zero_accum();
+
+#pragma unroll(col_tile)
+    for (int i = 0; i < col_tile; ++i) {
+      _tile_dot_product_16x256<row_tile, col_tile, io_policy>::dot_prod_bf16(
+          A_[i], B_[0][i]);
+    }
+
+    _tile_dot_product_16x256<row_tile, col_tile, io_policy>::store(scratch_);
+  }
 };
 
 template <int col_tile, typename io_policy>
@@ -415,6 +533,19 @@ public:
     _tile_loadd(TMM7, B_[1], 64);
 
     __tile_dpbssd<TMM1, TMM4, TMM7>();
+  }
+
+  inline static void dot_prod_bf16(void *A, void *B) {
+    auto B_ = reinterpret_cast<__bfloat16(*)[col_tile][16][32]>(B);
+
+    _tile_loadd(TMM6, B_[0], 64);
+
+    io_policy::template tile_load_bf16<TMM4>(A, 0);
+    __tile_dpbf16ps<TMM0, TMM4, TMM6>();
+
+    _tile_loadd(TMM7, B_[1], 64);
+
+    __tile_dpbf16ps<TMM1, TMM4, TMM7>();
   }
 
   inline static void store(void *S) {
@@ -449,6 +580,22 @@ public:
     _tile_loadd(TMM7, B_[1], 64);
     __tile_dpbssd<TMM3, TMM5, TMM7>();
     __tile_dpbssd<TMM1, TMM4, TMM7>();
+  }
+
+  inline static void dot_prod_bf16(void *A, void *B) {
+    auto B_ = reinterpret_cast<__bfloat16(*)[col_tile][16][32]>(B);
+
+    _tile_loadd(TMM6, B_[0], 64);
+
+    io_policy::template tile_load_bf16<TMM4>(A, 0);
+    __tile_dpbf16ps<TMM0, TMM4, TMM6>();
+
+    io_policy::template tile_load_bf16<TMM5>(A, 1);
+    __tile_dpbf16ps<TMM2, TMM5, TMM6>();
+
+    _tile_loadd(TMM7, B_[1], 64);
+    __tile_dpbf16ps<TMM3, TMM5, TMM7>();
+    __tile_dpbf16ps<TMM1, TMM4, TMM7>();
   }
 
   inline static void store(void *S) {

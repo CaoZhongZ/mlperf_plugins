@@ -13,7 +13,7 @@
 #include "stack_time.hpp"
 #include "lstm.hpp"
 #include "lstm_postop.hpp"
-#include "lstm_int8.hpp"
+#include "lstm_amx.hpp"
 #include "greedy_decode_update.hpp"
 
 TORCH_LIBRARY(intel_mlperf, m) {
@@ -117,11 +117,17 @@ TORCH_LIBRARY(intel_mlperf, m) {
       "lstm_postop(Tensor it, Tensor ft, Tensor gt, Tensor ot, Tensor ct, Scalar? i_scale, Scalar? o_scale, bool skip_quant_y) -> Tensor[]",
       intel_mlperf::lstm_postop);
   m.def(
-      "lstm_layer_int8(Tensor x, Tensor hx, Tensor cx, Tensor w_ih, Tensor w_hh, Tensor b_ih, Tensor b_hh, Scalar? rb_scale, Scalar? i_scale, Scalar? o_scale, bool skip_quant_y) -> (Tensor, Tensor, Tensor)",
-      intel_mlperf::lstm_layer_int8);
+      "lstm_layer_amx_int8(Tensor x, Tensor hx, Tensor cx, Tensor w_ih, Tensor w_hh, Tensor b_ih, Tensor b_hh, Scalar? rb_scale, Scalar? i_scale, Scalar? o_scale, bool skip_quant_y) -> (Tensor, Tensor, Tensor)",
+      intel_mlperf::lstm_layer_amx_int8);
   m.def(
-      "lstm_int8(Tensor x, Tensor[] hx, Tensor[] cx, Tensor[][] all_weights, Tensor rb_scale, Tensor i_scale, Tensor o_scale, bool skip_quant_y) -> (Tensor, Tensor[], Tensor[])",
-      intel_mlperf::lstm_int8);
+      "lstm_amx_int8(Tensor x, Tensor[] hx, Tensor[] cx, Tensor[][] all_weights, Tensor rb_scale, Tensor i_scale, Tensor o_scale, bool skip_quant_y) -> (Tensor, Tensor[], Tensor[])",
+      intel_mlperf::lstm_amx_int8);
+  m.def(
+      "lstm_layer_amx_bf16(Tensor x, Tensor hx, Tensor cx, Tensor w_ih, Tensor w_hh, Tensor b_ih, Tensor b_hh) -> (Tensor, Tensor, Tensor)",
+      intel_mlperf::lstm_layer_amx_bf16);
+  m.def(
+      "lstm_amx_bf16(Tensor x, Tensor[] hx, Tensor[] cx, Tensor[][] all_weights) -> (Tensor, Tensor[], Tensor[])",
+      intel_mlperf::lstm_amx_bf16);
   m.def(
       "greedy_decode_update(Tensor symbols, Tensor symbols_added, Tensor res, Tensor res_idx, Tensor f, Tensor f_lens, Tensor time_idx, Tensor fi, Tensor pre_g, Tensor[] pre_hg, Tensor[] pre_cg, Tensor[] hg, Tensor[] cg) -> bool",
       intel_mlperf::greedy_decode_update);
