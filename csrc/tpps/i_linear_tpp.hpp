@@ -45,6 +45,7 @@ public:
     i16o32b32,
     i16o32b0,
     i16o32b32_append,
+    i16o16b32,
   };
 
   template <typename input_type, typename output_type, typename bias_type, Version ver>
@@ -85,7 +86,7 @@ protected:
       void* C, size_t ldc, void* A, void* B, void* bias, float scale, bool post_op,
       float o_scale) {
     _tile_dot_product_16x256<row_tile, col_tile, io_policy<col_tile, i_format::plain>>::
-        compute(C, ldc, A, B, bias, scale, post_op, 0.0);
+        compute_i8o32b32(C, ldc, A, B, bias, scale, post_op, 0.0);
   }
 
   template <int row_tile, int col_tile, Version ver>
@@ -93,7 +94,7 @@ protected:
       void* C, size_t ldc, void* A, void* B, void* bias, float scale, bool post_op,
       float o_scale) {
     _tile_dot_product_16x256<row_tile, col_tile, io_policy<col_tile, i_format::plain>>::
-        compute_no_bias(C, ldc, A, B, bias, scale, post_op, 0.0);
+        compute_i8o32b0(C, ldc, A, B, bias, scale, post_op, 0.0);
   }
 
   template <int row_tile, int col_tile, Version ver>
@@ -101,7 +102,7 @@ protected:
       void* C, size_t ldc, void* A, void* B, void* bias, float scale, bool post_op,
       float o_scale) {
     _tile_dot_product_16x256<row_tile, col_tile, io_policy<col_tile, i_format::plain>>::
-        compute_append(C, ldc, A, B, bias, scale, post_op, 0.0);
+        compute_i8o32b32_append(C, ldc, A, B, bias, scale, post_op, 0.0);
   }
 
   template <int row_tile, int col_tile, Version ver>
@@ -126,6 +127,14 @@ protected:
       float o_scale) {
     _tile_dot_product_16x256<row_tile, col_tile, io_policy<col_tile, i_format::plain>>::
         compute_i16o32b32_append(C, ldc, A, B, bias, 0.0, post_op, 0.0);
+  }
+
+  template <int row_tile, int col_tile, Version ver>
+  inline typename std::enable_if<ver == i16o16b32, void>::type compute_block(
+      void* C, size_t ldc, void* A, void* B, void* bias, float scale, bool post_op,
+      float o_scale) {
+    _tile_dot_product_16x256<row_tile, col_tile, io_policy<col_tile, i_format::plain>>::
+        compute_i16o16b32(C, ldc, A, B, bias, 0.0, post_op, 0.0);
   }
 
   size_t sl_;

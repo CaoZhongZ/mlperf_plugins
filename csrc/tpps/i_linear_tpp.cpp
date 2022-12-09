@@ -177,14 +177,15 @@ void i_linear::tile_dot_product_16x256_shortage(
   }
 
 #define FOREACH_COMPUTE_IMPL(cb) \
-  cb(i8o8b32);                   \
   cb(i8o8b16);                   \
   cb(i8o32b32);                  \
   cb(i8o32b0);                   \
   cb(i8o32b32_append);           \
   cb(i16o32b32);                 \
   cb(i16o32b0);                  \
-  cb(i16o32b32_append);
+  cb(i16o32b32_append);          \
+  cb(i16o16b32);                 \
+  cb(i8o8b32);
 
 FOREACH_COMPUTE_IMPL(DEF_COMPUTE_BLK_TBL);
 
@@ -199,15 +200,16 @@ FOREACH_COMPUTE_IMPL(DEF_COMPUTE_BLK_TBL);
       void* C, void* A, void* B, void* bias, float scale, float o_scale, \
       const size_t chunk_sl, size_t cur_id, size_t total_chunks)
 
-#define FOREACH_TILE_PRODUCT_VER(cb)         \
-  cb(int8_t, int8_t, float, i8o8b32);        \
-  cb(int8_t, int8_t, _Float16, i8o8b16);     \
-  cb(int8_t, float, float, i8o32b32);        \
-  cb(int8_t, float, float, i8o32b0);         \
-  cb(int8_t, float, float, i8o32b32_append); \
-  cb(__bfloat16, float, float, i16o32b32);   \
-  cb(__bfloat16, float, float, i16o32b0);    \
-  cb(__bfloat16, float, float, i16o32b32_append);
+#define FOREACH_TILE_PRODUCT_VER(cb)              \
+  cb(int8_t, int8_t, _Float16, i8o8b16);          \
+  cb(int8_t, float, float, i8o32b32);             \
+  cb(int8_t, float, float, i8o32b0);              \
+  cb(int8_t, float, float, i8o32b32_append);      \
+  cb(__bfloat16, float, float, i16o32b32);        \
+  cb(__bfloat16, float, float, i16o32b0);         \
+  cb(__bfloat16, float, float, i16o32b32_append); \
+  cb(__bfloat16, __bfloat16, float, i16o16b32);   \
+  cb(int8_t, int8_t, float, i8o8b32);
 
 FOREACH_TILE_PRODUCT_VER(DEF_TEMPLATE_SPECIALIZATION_TILE_PRODUCT)
 

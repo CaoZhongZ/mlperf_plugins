@@ -188,8 +188,8 @@ at::Tensor amx_linear_bf16(
 
   // output shape: [bs, output_feature]
   auto output = at::empty(
-      {bs, output_f},
-      at::TensorOptions().dtype<float>().memory_format(c10::MemoryFormat::Contiguous));
+      {bs, output_f}, at::TensorOptions().dtype<at::BFloat16>().memory_format(
+                          c10::MemoryFormat::Contiguous));
 
   auto total_sl = bs;
 
@@ -197,7 +197,7 @@ at::Tensor amx_linear_bf16(
 
   auto input_ = input.accessor<at::BFloat16, 2>();
   auto weight_ = weight.accessor<at::BFloat16, 5>();
-  auto output_ = output.accessor<float, 2>();
+  auto output_ = output.accessor<at::BFloat16, 2>();
   auto bias_ = bias.accessor<float, 1>();
 
   amx_init::amx_init();
@@ -212,17 +212,17 @@ at::Tensor amx_linear_bf16(
 
     if (total_sl < minimum_sl) {
       block_computer.tile_dot_product_16x256_shortage<
-          __bfloat16, float, float, i_linear::i16o32b32>(
+          __bfloat16, __bfloat16, float, i_linear::i16o16b32>(
           output_.data(), input_.data(), weight_.data(), bias_.data(), 0.0, 0.0,
           total_sl, core_id, total_core_num);
     } else {
       block_computer
-          .tile_dot_product_16x256<__bfloat16, float, float, i_linear::i16o32b32>(
+          .tile_dot_product_16x256<__bfloat16, __bfloat16, float, i_linear::i16o16b32>(
               output_[start_].data(), input_[start_].data(), weight_.data(),
               bias_.data(), 0.0, 0.0, chunk_sl_, core_id, total_core_num);
     }
     Tilecfg().release_config();
   }
-  return output.to(at::kBFloat16);
+  return output;
 }
 }  // namespace intel_mlperf
