@@ -43,7 +43,7 @@ std::tuple<at::Tensor, at::Tensor> stack_time(
   auto in = input.accessor<int8_t, 3>();
   auto out = output.accessor<int8_t, 3>();
 
-#pragma omp parallel for collapse(2)
+#pragma omp parallel for collapse(1)
   for (int32_t ni = 0; ni < batch_size; ++ni) {
     for (int32_t ti = 0; ti < input_lens_[ni]; ++ti) {
       int32_t c_offset = ti % factor_ * hidden_size;
