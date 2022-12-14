@@ -38,44 +38,37 @@ void i_linear::tile_dot_product_16x256(
   bool odd_tile = row_tile % 2;
   size_t row_step = row_tile / 2;
 
-  // must divided total_chunks up
-  size_t chunk_step = cols_step_ / total_chunks;
-  if (cols_step_ % total_chunks != 0) {
-    printf("col_step must divide total_chunks up!\n");
-    return;
+  size_t col_start = 0;
+  // col sharding to avoid bank conflict
+  if (cols_step_ >= total_chunks) {
+    col_start = cols_step_ * cur_id / total_chunks;
   }
   if (odd_tile) {
-    for (size_t i = 0; i < chunk_step; i++) {
-      for (size_t k = 0; k < total_chunks; k++) {
-        int cur_offset = cur_id + k;
-        int col_pos =
-            cur_offset + (i - (int)(cur_offset >= total_chunks)) * total_chunks;
-        size_t row_pos = 0;
-        for (size_t j = 0; j < row_step; j++) {
-          row_pos = j * 32;
-          (this->*computer_2)(
-              C_[row_pos][col_pos], oc_, A_[row_pos], B_[col_pos], bias_[col_pos],
-              scale, post_op_, o_scale);
-        }
-        row_pos += 32 - roll_back;
-        (this->*computer_1)(
+    for (size_t k = 0; k < cols_step_; k++) {
+      auto col_pos = col_start + k;
+      col_pos = col_pos - (int)(col_pos >= cols_step_) * cols_step_;
+      size_t row_pos = 0;
+      for (size_t j = 0; j < row_step; j++) {
+        row_pos = j * 32;
+        (this->*computer_2)(
             C_[row_pos][col_pos], oc_, A_[row_pos], B_[col_pos], bias_[col_pos], scale,
             post_op_, o_scale);
       }
+      row_pos += 32 - roll_back;
+      (this->*computer_1)(
+          C_[row_pos][col_pos], oc_, A_[row_pos], B_[col_pos], bias_[col_pos], scale,
+          post_op_, o_scale);
     }
   } else {
-    for (size_t i = 0; i < chunk_step; i++) {
-      for (size_t k = 0; k < total_chunks; k++) {
-        int cur_offset = cur_id + k;
-        int col_pos =
-            cur_offset + (i - (int)(cur_offset >= total_chunks)) * total_chunks;
-        for (size_t j = 0; j < row_step; j++) {
-          size_t rollback_ = (j == row_step - 1) * roll_back;
-          auto row_pos = j * 32 - rollback_;
-          (this->*computer_2)(
-              C_[row_pos][col_pos], oc_, A_[row_pos], B_[col_pos], bias_[col_pos],
-              scale, post_op_, o_scale);
-        }
+    for (size_t k = 0; k < cols_step_; k++) {
+      auto col_pos = col_start + k;
+      col_pos = col_pos - (int)(col_pos >= cols_step_) * cols_step_;
+      for (size_t j = 0; j < row_step; j++) {
+        size_t rollback_ = (j == row_step - 1) * roll_back;
+        auto row_pos = j * 32 - rollback_;
+        (this->*computer_2)(
+            C_[row_pos][col_pos], oc_, A_[row_pos], B_[col_pos], bias_[col_pos], scale,
+            post_op_, o_scale);
       }
     }
   }
@@ -109,7 +102,8 @@ void i_linear::tile_dot_product_16x256_shortage(
   size_t chunk_step = cols_step_ / total_chunks;
   if (cols_step_ % total_chunks != 0) {
     throw std::runtime_error(
-        "output_feature must be divided by core_num*64 up in weight split i_linear.");
+        "output_feature must be divisible by core_num * 64(for int8) or 32(for bf16) "
+        "in weight split i_linear.");
   }
   if (chunk_sl < 16) {
     throw std::runtime_error("chunk_sl less than 16 is not supported in i_linear.");
@@ -119,7 +113,7 @@ void i_linear::tile_dot_product_16x256_shortage(
   size_t row_start = 0;
   // row sharding to avoid bank conflict
   if (chunk_sl >= total_chunks * 32) {
-    row_start = chunk_sl * cur_id / total_chunks;
+    row_start = chunk_sl * cur_id / total_chunks / 32 * 32;
   }
   if (chunk_sl < 32) {
     size_t k = 0;

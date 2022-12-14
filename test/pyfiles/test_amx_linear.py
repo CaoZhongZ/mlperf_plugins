@@ -3,6 +3,7 @@ import os
 import sys
 import numpy as np
 import torch
+import torch.nn.functional as F
 import pytest
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
@@ -11,7 +12,7 @@ np.set_printoptions(threshold=sys.maxsize)
 torch.set_printoptions(precision=10)
 
 
-def transpose_tile_weight(weight, padding=False):
+def transpose_tile_weight(weight, padding: bool = False):
     row = weight.shape[0]
     col = weight.shape[1]
 
@@ -19,15 +20,13 @@ def transpose_tile_weight(weight, padding=False):
     col_tile = (row + 63) // 64
     if padding:
         pad_size = (0, col_step * 64 - col, 0, col_tile * 64 - row)
-        weight = torch.nn.functional.pad(weight, pad_size, "constant", 0)
-        # print("prepack weight padding", weight.shape, row, col)
+        weight = F.pad(weight, pad_size, "constant", 0.0)
 
-    weight = weight.view(col_tile * 16, 4, col)
-    weight = weight.transpose(1, 2).reshape(col_tile * 16, col * 4)
-    weight = weight.view(col_tile, 16, col * 4)
+    weight = weight.view(col_tile * 16, 4, col_step * 64)
+    weight = weight.transpose(1, 2).reshape(col_tile * 16, col_step * 256)
+    weight = weight.view(col_tile, 16, col_step * 256)
     weight = weight.view(col_tile, 16, col_step, 4, 64)
     weight = weight.permute(2, 3, 0, 1, 4).contiguous()
-    # print("after prepack weight shape", weight.shape, row, col)
 
     return weight
 
@@ -40,11 +39,11 @@ def transpose_tile_weight_bf16(weight, padding: bool = False):
     col_tile = (row + 31) // 32
     if padding:
         pad_size = (0, col_step * 32 - col, 0, col_tile * 32 - row)
-        weight = torch.nn.functional.pad(weight, pad_size, "constant", 0.0)
+        weight = F.pad(weight, pad_size, "constant", 0.0)
 
-    weight = weight.view(col_tile * 16, 2, col)
-    weight = weight.transpose(1, 2).reshape(col_tile * 16, col * 2)
-    weight = weight.view(col_tile, 16, col * 2)
+    weight = weight.view(col_tile * 16, 2, col_step * 32)
+    weight = weight.transpose(1, 2).reshape(col_tile * 16, col_step * 64)
+    weight = weight.view(col_tile, 16, col_step * 64)
     weight = weight.view(col_tile, 16, col_step, 2, 32)
     weight = weight.permute(2, 3, 0, 1, 4).contiguous()
 
@@ -104,15 +103,15 @@ def get_2d_input(input_size, output_size, dtype=torch.int8):
 @pytest.mark.parametrize("batch_size", [32, 30, 33, 64])
 def test_amx_linear(batch_size):
     input_size = 2048
-    hidden_size = 1024
-    output_size = 4 * hidden_size
+    output_size = 4096
 
     x = torch.tensor(
-        np.arange(input_size * batch_size).reshape(batch_size, input_size),
+        np.ones(input_size * batch_size).reshape(batch_size, input_size),
         dtype=torch.int8,
     )
     w = torch.tensor(
-        np.arange(input_size * output_size).reshape(output_size, input_size),
+        np.arange(input_size * output_size).reshape(output_size, input_size)
+        / input_size,
         dtype=torch.int8,
     )
     b = torch.tensor(np.arange(output_size) / output_size, dtype=torch.float32)
@@ -127,33 +126,55 @@ def test_amx_linear(batch_size):
     np.testing.assert_equal(y.numpy(), y_expected.numpy())
 
 
-@pytest.mark.parametrize("batch_size", [32, 64, 128])
-def test_amx_linear_padding(batch_size):
+@pytest.mark.parametrize("batch_size,output_size", [(32, 1024), (128, 61)])
+def test_amx_linear_padding(batch_size, output_size):
     input_size = 240
-    hidden_size = 1024
-    output_size = 4 * hidden_size
 
     x = torch.tensor(
         np.ones(input_size * batch_size).reshape(batch_size, input_size),
         dtype=torch.int8,
     )
     w = torch.tensor(
-        np.ones(input_size * output_size).reshape(output_size, input_size),
+        np.arange(input_size * output_size).reshape(output_size, input_size),
         dtype=torch.int8,
     )
-    b = torch.tensor(np.ones(output_size) / output_size, dtype=torch.float32)
+    b = torch.tensor(np.arange(output_size) / output_size, dtype=torch.float32)
+    b_pad = F.pad(b, (0, 64 - output_size % 64), "constant", 0)
     y_expected = torch.ops.intel_mlperf.linear(
         x, torch.ops.intel_mlperf.prepack_linear_weight(w), b, 0.1, None
     )
-    # y = torch.ops.intel_mlperf.amx_linear(x.reshape(batch_size, 1, input_size), transpose_tile_weight(w.transpose(1, 0)), b, 0.1, False, 1.0)
     pad_size = (0, 64 - x.shape[-1] % 64)
-    x = torch.nn.functional.pad(x, pad_size, "constant", 0)
-    # print("first layer padding x.shape", x.shape)
+    x = F.pad(x, pad_size, "constant", 0)
     y = torch.ops.intel_mlperf.amx_linear_i8o32(
-        x, transpose_tile_weight(w.transpose(1, 0), True), b, 0.1
+        x, transpose_tile_weight(w.transpose(1, 0), True), b_pad, 0.1
     )
-    # np.testing.assert_equal(y.reshape(-1, output_size).numpy(), y_expected.numpy())
+    y_expected = F.pad(y_expected, (0, y.shape[-1] - output_size), "constant", 0)
     np.testing.assert_equal(y.numpy(), y_expected.numpy())
+
+
+@pytest.mark.parametrize("batch_size,output_size", [(32, 1024), (128, 29)])
+def test_amx_linear_bf16_padding(batch_size, output_size):
+    input_size = 121
+
+    x = torch.tensor(
+        np.ones(input_size * batch_size).reshape(batch_size, input_size),
+        dtype=torch.bfloat16,
+    )
+    w = torch.tensor(
+        np.arange(input_size * output_size).reshape(output_size, input_size)
+        / input_size,
+        dtype=torch.bfloat16,
+    )
+    b = torch.tensor(np.arange(output_size), dtype=torch.float32)
+    b_pad = F.pad(b, (0, 32 - output_size % 32), "constant", 0)
+    y_expected = torch.matmul(x.float(), w.transpose(1, 0).float()) + b
+    pad_size = (0, 32 - x.shape[-1] % 32)
+    x = F.pad(x, pad_size, "constant", 0)
+    y = torch.ops.intel_mlperf.amx_linear_i16o32(
+        x, transpose_tile_weight_bf16(w.transpose(1, 0), True), b_pad
+    )
+    y_expected = F.pad(y_expected, (0, y.shape[-1] - output_size), "constant", 0)
+    np.testing.assert_equal(y.float().numpy(), y_expected.float().numpy())
 
 
 @pytest.mark.parametrize("batch_size", [32, 64, 128])
@@ -163,11 +184,12 @@ def test_amx_linear_bf16_relu(batch_size):
     output_size = 4 * hidden_size
 
     x = torch.tensor(
-        np.arange(input_size * batch_size).reshape(batch_size, input_size),
+        np.ones(input_size * batch_size).reshape(batch_size, input_size),
         dtype=torch.bfloat16,
     )
     w = torch.tensor(
-        np.arange(input_size * output_size).reshape(output_size, input_size),
+        np.arange(input_size * output_size).reshape(output_size, input_size)
+        / input_size,
         dtype=torch.bfloat16,
     )
     b = torch.tensor(np.arange(output_size) / output_size, dtype=torch.float32)
