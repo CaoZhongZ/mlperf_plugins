@@ -66,7 +66,8 @@ def get_weight(input_size, output_size, use_amx_linear=True, dtype=torch.int8):
             return transpose_tile_weight_bf16(
                 torch.tensor(
                     np.arange(input_size * output_size).reshape(input_size, output_size)
-                    / output_size / input_size,
+                    / output_size
+                    / input_size,
                     dtype=dtype,
                 ).transpose(1, 0)
             )
@@ -79,7 +80,8 @@ def get_weight(input_size, output_size, use_amx_linear=True, dtype=torch.int8):
         else:
             return torch.tensor(
                 np.arange(input_size * output_size).reshape(input_size, output_size)
-                / output_size / input_size,
+                / output_size
+                / input_size,
                 dtype=dtype,
             )
 
@@ -93,7 +95,8 @@ def get_2d_input(input_size, output_size, dtype=torch.int8):
     else:
         return torch.tensor(
             np.arange(input_size * output_size).reshape(input_size, output_size)
-            / output_size / input_size,
+            / output_size
+            / input_size,
             dtype=dtype,
         )
 
@@ -154,7 +157,7 @@ def test_amx_linear_padding(batch_size):
 
 
 @pytest.mark.parametrize("batch_size", [32, 64, 128])
-def test_amx_linear_bf16(batch_size):
+def test_amx_linear_bf16_relu(batch_size):
     input_size = 2048
     hidden_size = 1024
     output_size = 4 * hidden_size
@@ -168,11 +171,20 @@ def test_amx_linear_bf16(batch_size):
         dtype=torch.bfloat16,
     )
     b = torch.tensor(np.arange(output_size) / output_size, dtype=torch.float32)
-    y_expected = torch.ops.intel_mlperf.linear(
-        x, torch.ops.intel_mlperf.prepack_linear_weight(w), b, None, None
+    y_expected = torch.relu(
+        torch.ops.intel_mlperf.linear(
+            x, torch.ops.intel_mlperf.prepack_linear_weight(w), b, None, None
+        )
+        + torch.ops.intel_mlperf.linear(
+            x, torch.ops.intel_mlperf.prepack_linear_weight(w), b, None, None
+        )
     )
-    y = torch.ops.intel_mlperf.amx_linear_bf16(
-        x, transpose_tile_weight_bf16(w.transpose(1, 0)), b
+    y = torch.ops.intel_mlperf.amx_linear_bf16_accum_relu(
+        x,
+        transpose_tile_weight_bf16(w.transpose(1, 0)),
+        x,
+        transpose_tile_weight_bf16(w.transpose(1, 0)),
+        b + b,
     )
     np.testing.assert_equal(y.float().numpy(), y_expected.float().numpy())
 

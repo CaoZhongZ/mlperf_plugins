@@ -159,33 +159,24 @@ void i_linear::tile_dot_product_16x256_shortage(
   }
 }
 
-#define DEF_COMPUTE_BLK_TBL(ver)                                                      \
-  template <>                                                                         \
-  const i_linear::compute_block_t i_linear::compute_block_tbl_<i_linear::ver>[3][5] = \
-      {                                                                               \
-          {nullptr, nullptr, nullptr, nullptr},                                       \
-          {&i_linear::compute_block<1, 16, i_linear::ver>,                            \
-           &i_linear::compute_block<1, 32, i_linear::ver>,                            \
-           &i_linear::compute_block<1, 64, i_linear::ver>,                            \
-           &i_linear::compute_block<1, 10, i_linear::ver>,                            \
-           &i_linear::compute_block<1, 4, i_linear::ver>},                            \
-          {&i_linear::compute_block<2, 16, i_linear::ver>,                            \
-           &i_linear::compute_block<2, 32, i_linear::ver>,                            \
-           &i_linear::compute_block<2, 64, i_linear::ver>,                            \
-           &i_linear::compute_block<2, 10, i_linear::ver>,                            \
-           &i_linear::compute_block<2, 4, i_linear::ver>},                            \
+#define DEF_COMPUTE_BLK_TBL(ver)                                   \
+  template <>                                                      \
+  const i_linear::compute_block_t i_linear::compute_block_tbl_<    \
+      i_linear::ver>[compute_blk_tbl_row][compute_blk_tbl_col] = { \
+      {nullptr, nullptr, nullptr, nullptr},                        \
+      {&i_linear::compute_block<1, 16, i_linear::ver>,             \
+       &i_linear::compute_block<1, 32, i_linear::ver>,             \
+       &i_linear::compute_block<1, 64, i_linear::ver>,             \
+       &i_linear::compute_block<1, 10, i_linear::ver>,             \
+       &i_linear::compute_block<1, 42, i_linear::ver>,             \
+       &i_linear::compute_block<1, 4, i_linear::ver>},             \
+      {&i_linear::compute_block<2, 16, i_linear::ver>,             \
+       &i_linear::compute_block<2, 32, i_linear::ver>,             \
+       &i_linear::compute_block<2, 64, i_linear::ver>,             \
+       &i_linear::compute_block<2, 10, i_linear::ver>,             \
+       &i_linear::compute_block<2, 42, i_linear::ver>,             \
+       &i_linear::compute_block<2, 4, i_linear::ver>},             \
   }
-
-#define FOREACH_COMPUTE_IMPL(cb) \
-  cb(i8o8b16);                   \
-  cb(i8o32b32);                  \
-  cb(i8o32b0);                   \
-  cb(i8o32b32_append);           \
-  cb(i16o32b32);                 \
-  cb(i16o32b0);                  \
-  cb(i16o32b32_append);          \
-  cb(i16o16b32);                 \
-  cb(i8o8b32);
 
 FOREACH_COMPUTE_IMPL(DEF_COMPUTE_BLK_TBL);
 
@@ -200,15 +191,16 @@ FOREACH_COMPUTE_IMPL(DEF_COMPUTE_BLK_TBL);
       void* C, void* A, void* B, void* bias, float scale, float o_scale, \
       const size_t chunk_sl, size_t cur_id, size_t total_chunks)
 
-#define FOREACH_TILE_PRODUCT_VER(cb)              \
-  cb(int8_t, int8_t, _Float16, i8o8b16);          \
-  cb(int8_t, float, float, i8o32b32);             \
-  cb(int8_t, float, float, i8o32b0);              \
-  cb(int8_t, float, float, i8o32b32_append);      \
-  cb(__bfloat16, float, float, i16o32b32);        \
-  cb(__bfloat16, float, float, i16o32b0);         \
-  cb(__bfloat16, float, float, i16o32b32_append); \
-  cb(__bfloat16, __bfloat16, float, i16o16b32);   \
+#define FOREACH_TILE_PRODUCT_VER(cb)                       \
+  cb(int8_t, int8_t, _Float16, i8o8b16);                   \
+  cb(int8_t, float, float, i8o32b32);                      \
+  cb(int8_t, float, float, i8o32b0);                       \
+  cb(int8_t, float, float, i8o32b32_accum);                \
+  cb(__bfloat16, float, float, i16o32b32);                 \
+  cb(__bfloat16, float, float, i16o32b0);                  \
+  cb(__bfloat16, float, float, i16o32b32_accum);           \
+  cb(__bfloat16, __bfloat16, float, i16o16b0);             \
+  cb(__bfloat16, __bfloat16, float, i16o16b32_accum_relu); \
   cb(int8_t, int8_t, float, i8o8b32);
 
 FOREACH_TILE_PRODUCT_VER(DEF_TEMPLATE_SPECIALIZATION_TILE_PRODUCT)

@@ -131,7 +131,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_layer_amx_int8(
       auto total_core_num = omp_get_num_threads();
       auto core_id = omp_get_thread_num();
       linear_hh.tile_dot_product_16x256_shortage<
-          int8_t, float, float, i_linear::i8o32b32_append>(
+          int8_t, float, float, i_linear::i8o32b32_accum>(
           output_[i], input_, weight_, bias_, rb_scale_, 0.0, bs, core_id,
           total_core_num);
       Tilecfg().release_config();
@@ -247,7 +247,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> lstm_layer_amx_bf16(
       auto total_core_num = omp_get_num_threads();
       auto core_id = omp_get_thread_num();
       linear_hh.tile_dot_product_16x256_shortage<
-          __bfloat16, float, float, i_linear::i16o32b32_append>(
+          __bfloat16, float, float, i_linear::i16o32b32_accum>(
           y_[i].data(), hx_.data(), w_hh_.data(), b_hh_.data(), 0.0, 0.0, bs, core_id,
           total_core_num);
       Tilecfg().release_config();

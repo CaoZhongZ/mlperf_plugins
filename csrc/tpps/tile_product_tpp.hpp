@@ -305,7 +305,7 @@ public:
     }
   }
 
-  inline static void dequant_float_out_append(
+  inline static void dequant_float_out_accum(
       void *C, size_t ldc, void *s_0, void *s_1, void *bias, float scale) {
     auto s_0_ = reinterpret_cast<int32_t(*)[2][16][16]>(s_0);
     auto s_1_ = reinterpret_cast<int32_t(*)[2][16][16]>(s_1);
@@ -382,7 +382,7 @@ public:
     }
   }
 
-  inline static void float_out_append(void *C, size_t ldc, void *s, void *bias) {
+  inline static void float_out_accum(void *C, size_t ldc, void *s, void *bias) {
     auto s_ = *reinterpret_cast<float(*)[row_tile][2][16][16]>(s);
 
     auto bias_ = *reinterpret_cast<float(*)[2][16]>(bias);
@@ -407,13 +407,8 @@ public:
     }
   }
 
-  inline static void bf16_out(void *C, size_t ldc, void *s, void *bias) {
+  inline static void bf16_out_no_bias(void *C, size_t ldc, void *s) {
     auto s_ = *reinterpret_cast<float(*)[row_tile][2][16][16]>(s);
-
-    auto bias_ = *reinterpret_cast<float(*)[2][16]>(bias);
-
-    auto b0 = _mm512_loadu_ps(bias_[0]);
-    auto b1 = _mm512_loadu_ps(bias_[1]);
 
     auto C_ = *reinterpret_cast<__bfloat16(*)[row_tile][16][ldc]>(C);
 #pragma unroll(row_tile)
@@ -422,12 +417,38 @@ public:
       for (int i = 0; i < 16; ++i) {
         auto i0 = _mm512_load_ps(s_[t][0][i]);
         auto i1 = _mm512_load_ps(s_[t][1][i]);
-        io_policy::_mm512_coalescing_packs_ps_store_pbh(C_[t][i], i0 + b0, i1 + b1);
+        io_policy::_mm512_coalescing_packs_ps_store_pbh(C_[t][i], i0, i1);
       }
     }
   }
 
-  inline static void compute(
+  inline static void bf16_out_accum_relu(void *C, size_t ldc, void *s, void *bias) {
+    auto s_ = *reinterpret_cast<float(*)[row_tile][2][16][16]>(s);
+
+    auto bias_ = *reinterpret_cast<float(*)[2][16]>(bias);
+
+    auto b0 = _mm512_loadu_ps(bias_[0]);
+    auto b1 = _mm512_loadu_ps(bias_[1]);
+    auto zeros = _mm512_set1_ps(0.0);
+
+    auto C_ = *reinterpret_cast<__bfloat16(*)[row_tile][16][ldc]>(C);
+#pragma unroll(row_tile)
+    for (int t = 0; t < row_tile; ++t) {
+#pragma unroll(16)
+      for (int i = 0; i < 16; ++i) {
+        auto i0 = _mm512_load_ps(s_[t][0][i]);
+        auto i1 = _mm512_load_ps(s_[t][1][i]);
+        auto a_bf = _mm512_loadu_epi16(C_[t][i]);
+        auto a0 = _mm512_cvtpbh_ps(_mm512_extractf32x8_ps(a_bf, 0));
+        auto a1 = _mm512_cvtpbh_ps(_mm512_extractf32x8_ps(a_bf, 1));
+        auto o0 = _mm512_max_ps(i0 + a0 + b0, zeros);
+        auto o1 = _mm512_max_ps(i1 + a1 + b1, zeros);
+        io_policy::_mm512_coalescing_packs_ps_store_pbh(C_[t][i], o0, o1);
+      }
+    }
+  }
+
+  inline static void compute_i8o8b32(
       void *C, size_t ldc, void *A, void *B, void *bias, float scale,
       bool post_op = false, float o_scale = 1.0) {
     alignas(64) int scratch[2][row_tile][2][16][16];
@@ -435,13 +456,17 @@ public:
     quant_out(C, ldc, scratch[0], scratch[1], bias, scale, post_op, o_scale);
   }
 
-  inline static void compute_fp16(
+  constexpr static auto compute = compute_i8o8b32;
+
+  inline static void compute_i8o8b16(
       void *C, size_t ldc, void *A, void *B, void *bias, float scale,
       bool post_op = false, float o_scale = 1.0) {
     alignas(64) int scratch[2][row_tile][2][16][16];
     _compute_impl(scratch, A, B);
     quant_out_fp16(C, ldc, scratch[0], scratch[1], bias, scale, post_op, o_scale);
   }
+
+  constexpr static auto compute_fp16 = compute_i8o8b16;
 
   inline static void compute_i8o32b32(
       void *C, size_t ldc, void *A, void *B, void *bias, float scale,
@@ -459,12 +484,12 @@ public:
     int32_out_no_bias(C, ldc, scratch[0], scratch[1]);
   }
 
-  inline static void compute_i8o32b32_append(
+  inline static void compute_i8o32b32_accum(
       void *C, size_t ldc, void *A, void *B, void *bias, float scale,
       bool post_op = false, float o_scale = 1.0) {
     alignas(64) int scratch[2][row_tile][2][16][16];
     _compute_impl(scratch, A, B);
-    dequant_float_out_append(C, ldc, scratch[0], scratch[1], bias, scale);
+    dequant_float_out_accum(C, ldc, scratch[0], scratch[1], bias, scale);
   }
 
   inline static void compute_i16o32b32(
@@ -483,20 +508,28 @@ public:
     float_out_no_bias(C, ldc, scratch);
   }
 
-  inline static void compute_i16o32b32_append(
+  inline static void compute_i16o32b32_accum(
       void *C, size_t ldc, void *A, void *B, void *bias, float scale,
       bool post_op = false, float o_scale = 1.0) {
     alignas(64) float scratch[row_tile][2][16][16];
     _compute_impl_bf16(scratch, A, B);
-    float_out_append(C, ldc, scratch, bias);
+    float_out_accum(C, ldc, scratch, bias);
   }
 
-  inline static void compute_i16o16b32(
+  inline static void compute_i16o16b0(
       void *C, size_t ldc, void *A, void *B, void *bias, float scale,
       bool post_op = false, float o_scale = 1.0) {
     alignas(64) int scratch[row_tile][2][16][16];
     _compute_impl_bf16(scratch, A, B);
-    bf16_out(C, ldc, scratch, bias);
+    bf16_out_no_bias(C, ldc, scratch);
+  }
+
+  inline static void compute_i16o16b32_accum_relu(
+      void *C, size_t ldc, void *A, void *B, void *bias, float scale,
+      bool post_op = false, float o_scale = 1.0) {
+    alignas(64) int scratch[row_tile][2][16][16];
+    _compute_impl_bf16(scratch, A, B);
+    bf16_out_accum_relu(C, ldc, scratch, bias);
   }
 
   inline static void _compute_impl(void *scratch, void *A, void *B) {
