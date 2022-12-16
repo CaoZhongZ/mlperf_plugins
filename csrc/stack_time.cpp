@@ -24,7 +24,7 @@ namespace intel_mlperf {
  *  | *  | *  | *  | *  | *  | *  | *  | *  |]
  * Notice: for int8 only
 */
-std::tuple<at::Tensor, at::Tensor> stack_time(
+at::Tensor stack_time(
     const at::Tensor &input,
     const at::Tensor &input_lens,
     const at::Scalar &factor) {
@@ -51,9 +51,7 @@ std::tuple<at::Tensor, at::Tensor> stack_time(
     }
   }
 
-  at::Tensor output_lens = at::ceil(input_lens / factor).to(torch::kInt32);
-
-  return {output, output_lens};
+  return output;
 }
 
 } // namespace intel_mlperf
