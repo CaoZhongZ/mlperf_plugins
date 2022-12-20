@@ -87,7 +87,7 @@ TORCH_LIBRARY(intel_mlperf, m) {
       "i_layernorm_pad(Tensor input, Tensor weight, Tensor bias, Tensor length, Scalar ? eps, Scalar ? unbiased, Tensor ? output_shape) -> Tensor",
       intel_mlperf::i_layernorm_pad);
   m.def(
-      "preemphasis(Tensor input, Scalar ? coeff) -> Tensor",
+      "preemphasis(Tensor input, Scalar ? coeff, Scalar ? pad_size) -> Tensor",
       intel_mlperf::preemphasis);
   m.def(
       "frame_splicing(Tensor input, Scalar factor) -> Tensor",

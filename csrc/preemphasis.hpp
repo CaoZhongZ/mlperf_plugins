@@ -3,7 +3,8 @@
 
 namespace intel_mlperf {
 
-at::Tensor preemphasis(const at::Tensor &input,
-                       const c10::optional<at::Scalar> &coeff);
+at::Tensor preemphasis(
+    const at::Tensor &input, const at::optional<at::Scalar> &coeff,
+    const at::optional<at::Scalar> &pad_size);
 
 }
