@@ -152,7 +152,7 @@ def test_amx_linear_padding(batch_size, output_size):
     np.testing.assert_equal(y.numpy(), y_expected.numpy())
 
 
-@pytest.mark.parametrize("batch_size,output_size", [(32, 1024), (128, 29)])
+@pytest.mark.parametrize("batch_size,output_size", [(32, 1024), (64, 29)])
 def test_amx_linear_bf16_padding(batch_size, output_size):
     input_size = 121
 

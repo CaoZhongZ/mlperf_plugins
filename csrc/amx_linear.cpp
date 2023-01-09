@@ -77,7 +77,7 @@ at::Tensor amx_linear_impl(
     size_t chunk_sl_ = (total_sl * core_id + total_sl) / total_core_num - start_;
     size_t minimum_sl = 32 * total_core_num;
 
-    if (total_sl < minimum_sl) {
+    if (total_sl < minimum_sl && output_f > el_per_tile_row) {
       block_computer.tile_dot_product_16x256_shortage<itype, otype, btype, ver>(
           output_.data(), input_.data(), weight_.data(), bias_.data(), scale, o_scale,
           total_sl, core_id, total_core_num);

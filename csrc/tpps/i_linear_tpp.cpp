@@ -19,9 +19,9 @@ void i_linear::tile_dot_product_16x256(
   constexpr int tiles_per_compute_row = std::is_same<input_type, int8_t>::value ? 4 : 2;
   set_compute_blk_cfg(el_per_tile_row);
 
-  if (32 > chunk_sl) {
+  if (16 > chunk_sl) {
     throw std::runtime_error(
-        "per core chunk_sl should be more than 32 in input split i_linear.");
+        "per core chunk_sl should be more than 16 in input split i_linear.");
   }
   auto C_ = *reinterpret_cast<output_type(*)[chunk_sl][cols_step_][el_per_tile_row]>(C);
   auto A_ = *reinterpret_cast<input_type(*)[chunk_sl][ic_]>(A);
@@ -47,14 +47,14 @@ void i_linear::tile_dot_product_16x256(
     for (size_t k = 0; k < cols_step_; k++) {
       auto col_pos = col_start + k;
       col_pos = col_pos - (int)(col_pos >= cols_step_) * cols_step_;
-      size_t row_pos = 0;
-      for (size_t j = 0; j < row_step; j++) {
+      size_t row_pos = 0, j = 0;
+      for (j = 0; j < row_step; j++) {
         row_pos = j * 32;
         (this->*computer_2)(
             C_[row_pos][col_pos], oc_, A_[row_pos], B_[col_pos], bias_[col_pos], scale,
             post_op_, o_scale);
       }
-      row_pos += 32 - roll_back;
+      row_pos = j * 32 - roll_back;
       (this->*computer_1)(
           C_[row_pos][col_pos], oc_, A_[row_pos], B_[col_pos], bias_[col_pos], scale,
           post_op_, o_scale);
