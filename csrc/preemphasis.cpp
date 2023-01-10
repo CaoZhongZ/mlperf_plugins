@@ -17,7 +17,7 @@ at::Tensor preemphasis(
   auto batch = in_sz[0];
   auto seq_len = in_sz[1];
   auto pad_size_ = pad_size.value_or(0).toInt();
-  auto output = at::zeros(
+  auto output = at::empty(
       {batch, seq_len + 2 * pad_size_},
       at::TensorOptions().dtype<float>().memory_format(c10::MemoryFormat::Contiguous));
 
@@ -30,6 +30,8 @@ at::Tensor preemphasis(
   } else {
 #pragma omp parallel for
     for (auto i = 0; i < batch; i++) {
+      memset(&dst[i][0], 0, pad_size_ * sizeof(float));
+      memset(&dst[i][pad_size_ + seq_len], 0, pad_size_ * sizeof(float));
       preemphasis_tpp::ref(&dst[i][pad_size_], &src[i][0], seq_len, coeff_);
     }
   }

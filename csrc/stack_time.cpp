@@ -38,7 +38,7 @@ at::Tensor stack_time(
   auto batch_size = in_sz[1];
   auto hidden_size = in_sz[2];
   auto padded_len = (seq_len + factor_ - 1) / factor_;
-  auto output = at::zeros({padded_len, batch_size, hidden_size * factor_}, input.dtype());
+  auto output = at::empty({padded_len, batch_size, hidden_size * factor_}, input.dtype());
 
   auto in = input.accessor<int8_t, 3>();
   auto out = output.accessor<int8_t, 3>();
@@ -48,6 +48,10 @@ at::Tensor stack_time(
     for (int32_t ti = 0; ti < input_lens_[ni]; ++ti) {
       int32_t c_offset = ti % factor_ * hidden_size;
       memcpy(&out[ti / factor_][ni][c_offset], &in[ti][ni][0], hidden_size);
+    }
+    for (int32_t ti = input_lens_[ni]; ti < padded_len * factor_; ++ti) {
+      int32_t c_offset = ti % factor_ * hidden_size;
+      memset(&out[ti / factor_][ni][c_offset], 0, hidden_size);
     }
   }
 
