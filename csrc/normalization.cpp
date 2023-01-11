@@ -5,7 +5,7 @@
 #include <c10/core/TensorOptions.h>
 
 namespace intel_mlperf {
-at::Tensor i_layernorm_pad(const at::Tensor &input, const at::Tensor &weight,
+std::tuple<at::Tensor, at::Tensor> i_layernorm_pad(const at::Tensor &input, const at::Tensor &weight,
                              const at::Tensor &bias, const at::Tensor &length,
                              const c10::optional<at::Scalar> &eps,
                              const c10::optional<at::Scalar> &unbiased,
@@ -13,13 +13,16 @@ at::Tensor i_layernorm_pad(const at::Tensor &input, const at::Tensor &weight,
   if (!input.is_contiguous()) {
     throw std::runtime_error("Input should be contiguous.");
   }
+  auto intra = at::get_num_threads();
   auto in_sz = input.sizes();
-  auto batch = in_sz[0];
+  auto actual_batch = in_sz[0];
+  auto padded_batch = (actual_batch < intra * 16) ? intra * 16 : intra * 32;
   auto inner = in_sz[1];
   auto out_feat = output_shape ? output_shape.value().size(1) : inner;
-  auto out_len = *at::_ops::max::call(length).data_ptr<int32_t>();
-  at::Tensor output = at::empty({batch, out_feat, out_len},
+  auto max_len = *at::_ops::max::call(length).data_ptr<int32_t>();
+  at::Tensor output = at::empty({padded_batch, out_feat, max_len},
                       at::TensorOptions().dtype<float>().memory_format(c10::MemoryFormat::Contiguous));
+  auto output_length = at::pad(length, {0, padded_batch - actual_batch}, "constant", 0);
 
 
   auto in = input.accessor<float, 3>();
@@ -31,7 +34,7 @@ at::Tensor i_layernorm_pad(const at::Tensor &input, const at::Tensor &weight,
 
   if (data_type == c10::ScalarType::Float) {
 #pragma omp parallel for collapse(2)
-    for (auto i = 0; i < batch; ++i) {
+    for (auto i = 0; i < actual_batch; ++i) {
       for (auto j = 0; j < inner; ++j) {
         i_layernorm_tpp<16>::ref(
             &out[i][j][0], &in[i][j][0], &w[i][j][0], &b[i][j][0], len[i],
@@ -40,7 +43,7 @@ at::Tensor i_layernorm_pad(const at::Tensor &input, const at::Tensor &weight,
     }
   } // throw here
 
-  return output;
+  return {output, output_length};
 }
 
 at::Tensor i_layernorm(const at::Tensor &input, const at::Tensor &weight,
