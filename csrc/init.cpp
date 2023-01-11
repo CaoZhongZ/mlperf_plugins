@@ -77,7 +77,7 @@ TORCH_LIBRARY(intel_mlperf, m) {
       "i_layernorm(Tensor input, Tensor weight, Tensor bias, Scalar oscale, Scalar ? eps, Scalar ? o_off) -> Tensor",
       intel_mlperf::i_layernorm);
   m.def(
-      "i_layernorm_unpad(Tensor input, Tensor weight, Tensor bias, Tensor length, Scalar ? eps, Scalar ? unbiased) -> Tensor",
+      "i_layernorm_unpad(Tensor input, Tensor weight, Tensor bias, Tensor length, Scalar ? eps, Scalar ? unbiased) -> (Tensor, Tensor)",
       intel_mlperf::i_layernorm_unpad);
   m.def(
       "preemphasis(Tensor input, Scalar ? coeff) -> Tensor",
