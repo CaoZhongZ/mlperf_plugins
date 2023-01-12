@@ -5,6 +5,7 @@
 #include <c10/core/TensorOptions.h>
 
 #include "tpps/preemphasis_tpp.hpp"
+#include "tpps/reflection_copy_tpp.hpp"
 
 namespace intel_mlperf {
 at::Tensor preemphasis(
@@ -30,9 +31,12 @@ at::Tensor preemphasis(
   } else {
 #pragma omp parallel for
     for (auto i = 0; i < batch; i++) {
-      memset(&dst[i][0], 0, pad_size_ * sizeof(float));
-      memset(&dst[i][pad_size_ + seq_len], 0, pad_size_ * sizeof(float));
       preemphasis_tpp::ref(&dst[i][pad_size_], &src[i][0], seq_len, coeff_);
+      if (pad_size_ > 0) {
+        reflection_copy_tpp::ref(&dst[i][0], &dst[i][pad_size_ + 1], pad_size_);
+        reflection_copy_tpp::ref(
+            &dst[i][pad_size_ + seq_len], &dst[i][seq_len - 1], pad_size_);
+      }
     }
   }
 

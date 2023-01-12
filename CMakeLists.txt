@@ -38,7 +38,8 @@ add_subdirectory(onednn)
 set(tpps_src csrc/tpps/i_softmax_tpp.cpp csrc/tpps/i_gelu_tpp.cpp csrc/tpps/i_linear_tpp.cpp
   csrc/tpps/i_layernorm_tpp.cpp csrc/tpps/i_mha_tpp.cpp csrc/tpps/preemphasis_tpp.cpp
   csrc/tpps/frame_splicing_tpp.cpp csrc/tpps/tanh_tpp.cpp csrc/tpps/sigmoid_tpp.cpp csrc/tpps/lstm_postop_tpp.cpp
-  csrc/tpps/greedy_decode_update_tpp.cpp csrc/tpps/quant_tpp.cpp csrc/tpps/power_spectrum_tpp.cpp)
+  csrc/tpps/greedy_decode_update_tpp.cpp csrc/tpps/quant_tpp.cpp csrc/tpps/power_spectrum_tpp.cpp
+  csrc/tpps/reflection_copy_tpp.cpp)
 set(plugin_src csrc/init.cpp csrc/amx_init.cpp csrc/linear.cpp csrc/cpu.cpp csrc/softmax.cpp
   csrc/amx_mha.cpp csrc/amx_mha_concat.cpp csrc/amx_linear.cpp csrc/activation.cpp csrc/normalization.cpp
   csrc/preemphasis.cpp csrc/frame_splicing.cpp csrc/stack_time.cpp csrc/lstm.cpp csrc/lstm_postop.cpp
