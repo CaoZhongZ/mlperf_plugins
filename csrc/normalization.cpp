@@ -15,10 +15,10 @@ std::tuple<at::Tensor, at::Tensor> i_layernorm_pad(const at::Tensor &input, cons
   }
   auto in_sz = input.sizes();
   auto actual_batch = in_sz[0];
-  // pad N to ensure last batch accuracy
-  auto padded_batch = (actual_batch + 31) / 32 * 32;
+  auto out_batch = output_shape.value().size(0);
+  auto padded_batch = (out_batch == 1) ? actual_batch : out_batch;
   auto inner = in_sz[1];
-  auto out_feat = output_shape ? output_shape.value().size(1) : inner;
+  auto out_feat = output_shape.value().size(1);
   auto max_len = *at::_ops::max::call(length).data_ptr<int32_t>();
   at::Tensor output = at::empty({padded_batch, out_feat, max_len},
                       at::TensorOptions().dtype<float>().memory_format(c10::MemoryFormat::Contiguous));
