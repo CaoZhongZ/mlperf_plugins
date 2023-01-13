@@ -13,10 +13,10 @@ std::tuple<at::Tensor, at::Tensor> i_layernorm_pad(const at::Tensor &input, cons
   if (!input.is_contiguous()) {
     throw std::runtime_error("Input should be contiguous.");
   }
-  auto intra = at::get_num_threads();
   auto in_sz = input.sizes();
   auto actual_batch = in_sz[0];
-  auto padded_batch = (actual_batch < intra * 16) ? intra * 16 : intra * 32;
+  // pad N to ensure last batch accuracy
+  auto padded_batch = (actual_batch + 31) / 32 * 32;
   auto inner = in_sz[1];
   auto out_feat = output_shape ? output_shape.value().size(1) : inner;
   auto max_len = *at::_ops::max::call(length).data_ptr<int32_t>();
