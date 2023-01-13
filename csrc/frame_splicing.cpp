@@ -1,9 +1,12 @@
 #include "frame_splicing.hpp"
-#include "tpps/frame_splicing_tpp.hpp"
+
 #include <c10/core/MemoryFormat.h>
 #include <c10/core/ScalarType.h>
 #include <c10/core/TensorOptions.h>
+
 #include <stdexcept>
+
+#include "tpps/frame_splicing_tpp.hpp"
 
 namespace intel_mlperf {
 at::Tensor frame_splicing(const at::Tensor &input, const at::Scalar &factor) {
@@ -16,19 +19,19 @@ at::Tensor frame_splicing(const at::Tensor &input, const at::Scalar &factor) {
   auto freq = in_sz[1];
   auto time = in_sz[2];
   auto factor_ = factor.toInt();
-  auto padded_time = ((time + 2) / factor_);
-  auto output = at::empty({batch, freq * factor_, padded_time},
-                          at::TensorOptions().dtype<float>().memory_format(
-                              c10::MemoryFormat::Contiguous));
+  auto padded_time = ((time + factor_ - 1) / factor_);
+  auto output = at::empty(
+      {batch, freq * factor_, padded_time},
+      at::TensorOptions().dtype<float>().memory_format(c10::MemoryFormat::Contiguous));
 
   auto in = input.accessor<float, 3>();
   auto out = output.accessor<float, 3>();
 
   if (factor_ == 3) {
-#pragma omp parallel for collapse(2)
+#pragma omp parallel for collapse(1)
     for (auto i = 0; i < batch; i++) {
       for (int32_t j = 0; j < freq; j++) {
-        frame_splicing_tpp<3>::ref(&out[i][j][0], &in[i][0][0], j, freq, time);
+        frame_splicing_tpp<3>::ref(&out[i][j][0], &in[i][j][0], j, freq, time);
       }
     }
   } else {
@@ -38,4 +41,4 @@ at::Tensor frame_splicing(const at::Tensor &input, const at::Scalar &factor) {
   return output;
 }
 
-} // namespace intel_mlperf
+}  // namespace intel_mlperf

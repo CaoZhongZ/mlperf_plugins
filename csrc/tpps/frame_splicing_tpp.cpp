@@ -1,7 +1,9 @@
 #include "frame_splicing_tpp.hpp"
-#include "el_common_intrin.hpp"
+
 #include <cstdlib>
 #include <stdexcept>
+
+#include "el_common_intrin.hpp"
 
 namespace intel_mlperf {
 
@@ -22,8 +24,8 @@ namespace intel_mlperf {
  * | 12 | 15 | 18 | 0  |
  */
 template <>
-void frame_splicing_tpp<3>::ref(float *pout, float *pin, int32_t fi, int64_t fl,
-                                int64_t tl) {
+void frame_splicing_tpp<3>::ref(
+    float *pout, float *pin, int32_t fi, int64_t fl, int64_t tl) {
   const int32_t padded_tl = (tl + 2) / 3;
   // remember the index should be reversed.
   const auto idx_base =
@@ -31,60 +33,70 @@ void frame_splicing_tpp<3>::ref(float *pout, float *pin, int32_t fi, int64_t fl,
   const auto c3 = _mm512_set1_epi32(3);
   const auto zeros = _mm512_setzero_ps();
   // need to use mullo rather than default mul
-  const auto t0 = _mm512_mullo_epi32(idx_base, c3); // idx: 3n
-  const auto t1 = t0 + _mm512_set1_epi32(1);        // idx: 3n+1
-  const auto t2 = t0 + _mm512_set1_epi32(2);        // idx: 3n+2
+  const auto t0 = _mm512_mullo_epi32(idx_base, c3);  // idx: 3n
+  const auto t1 = t0 + _mm512_set1_epi32(1);         // idx: 3n+1
+  const auto t2 = t0 + _mm512_set1_epi32(2);         // idx: 3n+2
   int32_t j = 0;
   for (; j < tl / 48; j++) {
-    int32_t base = j * 48 + fi * tl;
+    int32_t base = j * 48;
     auto base_ = _mm512_set1_epi32(base);
 
     auto idx_front_ = t0 + base_;
     auto rst_front = _mm512_i32gather_ps(idx_front_, pin, 4);
-    // out[j * 16] = int[j * 48 + freq_i * time_len + 3n]
+    // out[j * 16] = in[j * 48 + freq_i * time_len + 3n]
     _mm512_storeu_ps(&pout[j * 16], rst_front);
 
     auto idx_middle_ = t1 + base_;
     auto rst_middle = _mm512_i32gather_ps(idx_middle_, pin, 4);
     // out[j * 16 + padded_time_len * freq_len]
-    // = int[j * 48 + freq_i * time_len + 3n + 1]
+    // = in[j * 48 + freq_i * time_len + 3n + 1]
     _mm512_storeu_ps(&pout[j * 16 + padded_tl * fl], rst_middle);
 
     auto idx_back_ = t2 + base_;
     auto rst_back = _mm512_i32gather_ps(idx_back_, pin, 4);
     // out[j * 16 + padded_time_len * freq_len * 2]
-    // = int[j * 48 + freq_i * time_len + 3n + 2]
+    // = in[j * 48 + freq_i * time_len + 3n + 2]
     _mm512_storeu_ps(&pout[j * 16 + padded_tl * fl * 2], rst_back);
   }
   // Tail
   {
-    int32_t base = j * 48 + fi * tl;
-    int64_t p;
-    p = ((fi + 1) * tl - base) / 3;
-    __mmask16 mask_front = (1 << p) - 1;
-    p = ((fi + 1) * tl - base - 1) / 3;
-    __mmask16 mask_middle = (1 << p) - 1;
-    p = ((fi + 1) * tl - base - 2) / 3;
-    __mmask16 mask_back = (1 << p) - 1;
+    int32_t base = j * 48;
     auto base_ = _mm512_set1_epi32(base);
 
-    auto idx_front_ = t0 + base_;
-    auto rst_front =
-        _mm512_mask_i32gather_ps(zeros, mask_front, idx_front_, pin, 4);
-    _mm512_mask_storeu_ps(&pout[j * 16], mask_front, rst_front);
-
-    auto idx_middle_ = t1 + base_;
-    auto rst_middle =
-        _mm512_mask_i32gather_ps(zeros, mask_middle, idx_middle_, pin, 4);
-    _mm512_mask_storeu_ps(&pout[j * 16 + padded_tl * fl], mask_middle,
-                          rst_middle);
-
-    auto idx_back_ = t2 + base_;
-    auto rst_back =
-        _mm512_mask_i32gather_ps(zeros, mask_back, idx_back_, pin, 4);
-    _mm512_mask_storeu_ps(&pout[j * 16 + padded_tl * fl * 2], mask_back,
-                          rst_back);
+    int64_t p;
+    // remain input items for front line
+    p = (tl - base + 2) / 3;
+    __mmask16 mask_write = (1 << p) - 1;
+    if (p > 0) {
+      __mmask16 mask_front = (1 << p) - 1;
+      auto idx_front_ = t0 + base_;
+      auto rst_front = _mm512_mask_i32gather_ps(zeros, mask_front, idx_front_, pin, 4);
+      _mm512_mask_storeu_ps(&pout[j * 16], mask_write, rst_front);
+    } else {
+      _mm512_mask_storeu_ps(&pout[j * 16], mask_write, zeros);
+    }
+    // remain input items for middle line
+    p = (tl - base + 1) / 3;
+    if (p > 0) {
+      __mmask16 mask_middle = (1 << p) - 1;
+      auto idx_middle_ = t1 + base_;
+      auto rst_middle =
+          _mm512_mask_i32gather_ps(zeros, mask_middle, idx_middle_, pin, 4);
+      _mm512_mask_storeu_ps(&pout[j * 16 + padded_tl * fl], mask_write, rst_middle);
+    } else {
+      _mm512_mask_storeu_ps(&pout[j * 16 + padded_tl * fl], mask_write, zeros);
+    }
+    // remain input items for back line
+    p = (tl - base) / 3;
+    if (p > 0) {
+      __mmask16 mask_back = (1 << p) - 1;
+      auto idx_back_ = t2 + base_;
+      auto rst_back = _mm512_mask_i32gather_ps(zeros, mask_back, idx_back_, pin, 4);
+      _mm512_mask_storeu_ps(&pout[j * 16 + padded_tl * fl * 2], mask_write, rst_back);
+    } else {
+      _mm512_mask_storeu_ps(&pout[j * 16 + padded_tl * fl * 2], mask_write, zeros);
+    }
   }
 }
 
-} // namespace intel_mlperf
+}  // namespace intel_mlperf
