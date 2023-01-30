@@ -12,6 +12,7 @@
 #include "frame_splicing.hpp"
 #include "stack_time.hpp"
 #include "power_spectrum.hpp"
+#include "stft.hpp"
 #include "lstm.hpp"
 #include "lstm_postop.hpp"
 #include "lstm_amx.hpp"
@@ -99,6 +100,9 @@ TORCH_LIBRARY(intel_mlperf, m) {
   m.def(
       "power_spectrum(Tensor input) -> Tensor",
       intel_mlperf::power_spectrum);
+  m.def(
+      "stft(Tensor input, Tensor window, Scalar n_fft, Scalar hop_length, Scalar win_length) -> Tensor",
+      intel_mlperf::stft);
   m.def(
       "lstm_layer_1dnn(Tensor x, Tensor hx, Tensor cx, Tensor w_ih, Tensor w_hh, Tensor b_ih, Tensor b_hh) -> (Tensor, Tensor, Tensor)",
       intel_mlperf::lstm_layer_1dnn);
