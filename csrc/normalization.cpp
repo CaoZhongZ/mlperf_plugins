@@ -37,7 +37,7 @@ std::tuple<at::Tensor, at::Tensor> i_layernorm_pad(const at::Tensor &input, cons
     for (auto i = 0; i < actual_batch; ++i) {
       for (auto j = 0; j < inner; ++j) {
         i_layernorm_tpp<16>::ref(
-            &out[i][j][0], &in[i][j][0], &w[i][j][0], &b[i][j][0], len[i],
+            &out[i][j][0], &in[i][j][0], &w[0][j][0], &b[0][j][0], len[i],
             eps.value_or(1e-12).toFloat(), unbiased.value_or(false).toBool());
       }
     }
