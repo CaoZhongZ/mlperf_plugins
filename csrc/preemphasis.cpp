@@ -9,8 +9,8 @@
 
 namespace intel_mlperf {
 at::Tensor preemphasis(
-    const at::Tensor &input, const at::optional<at::Scalar> &coeff,
-    const at::optional<at::Scalar> &pad_size) {
+    const at::Tensor &input, const at::Tensor &length,
+    const at::optional<at::Scalar> &coeff, const at::optional<at::Scalar> &pad_size) {
   if (!input.is_contiguous()) {
     throw std::runtime_error("Input should be contiguous.");
   }
@@ -24,6 +24,7 @@ at::Tensor preemphasis(
 
   auto src = input.accessor<float, 2>();
   auto dst = output.accessor<float, 2>();
+  auto len = length.accessor<int32_t, 1>();
   auto coeff_ = coeff.value_or(0.97f).toFloat();
 
   if (coeff_ == 0.0f) {
@@ -31,12 +32,13 @@ at::Tensor preemphasis(
   } else {
 #pragma omp parallel for
     for (auto i = 0; i < batch; i++) {
-      preemphasis_tpp::ref(&dst[i][pad_size_], &src[i][0], seq_len, coeff_);
+      preemphasis_tpp::ref(&dst[i][pad_size_], &src[i][0], len[i], coeff_);
       if (pad_size_ > 0) {
         reflection_copy_tpp::ref(&dst[i][0], &dst[i][pad_size_ + 1], pad_size_);
         reflection_copy_tpp::ref(
-            &dst[i][pad_size_ + seq_len], &dst[i][seq_len - 1], pad_size_);
+            &dst[i][pad_size_ + len[i]], &dst[i][len[i] - 1], pad_size_);
       }
+      memset(&dst[i][len[i] + 2 * pad_size_], 0, sizeof(float) * (seq_len - len[i]));
     }
   }
 
