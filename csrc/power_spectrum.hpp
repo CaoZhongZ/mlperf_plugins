@@ -3,6 +3,6 @@
 
 namespace intel_mlperf {
 
-at::Tensor power_spectrum(const at::Tensor &input);
+at::Tensor power_spectrum(const at::Tensor &input, const at::Tensor &length);
 
 }

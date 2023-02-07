@@ -97,7 +97,7 @@ TORCH_LIBRARY(intel_mlperf, m) {
       "stack_time(Tensor input, Tensor input_lens, Scalar factor) -> Tensor",
       intel_mlperf::stack_time);
   m.def(
-      "power_spectrum(Tensor input) -> Tensor",
+      "power_spectrum(Tensor input, Tensor length) -> Tensor",
       intel_mlperf::power_spectrum);
   m.def(
       "lstm_layer_1dnn(Tensor x, Tensor hx, Tensor cx, Tensor w_ih, Tensor w_hh, Tensor b_ih, Tensor b_hh) -> (Tensor, Tensor, Tensor)",
