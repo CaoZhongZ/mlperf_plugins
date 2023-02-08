@@ -91,7 +91,7 @@ TORCH_LIBRARY(intel_mlperf, m) {
       "preemphasis(Tensor input, Tensor length, Scalar ? coeff, Scalar ? pad_size) -> Tensor",
       intel_mlperf::preemphasis);
   m.def(
-      "frame_splicing(Tensor input, Scalar factor) -> Tensor",
+      "frame_splicing(Tensor input, Tensor length, Scalar factor) -> Tensor",
       intel_mlperf::frame_splicing);
   m.def(
       "stack_time(Tensor input, Tensor input_lens, Scalar factor) -> Tensor",

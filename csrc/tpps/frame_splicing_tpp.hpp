@@ -3,9 +3,10 @@
 
 namespace intel_mlperf {
 
-template <int factor> class frame_splicing_tpp {
+template <int factor>
+class frame_splicing_tpp {
 public:
-  static void ref(float *pout, float *pin, int32_t fi, int64_t fl, int64_t tl);
+  static void ref(float *pout, float *pin, int64_t fl, int64_t tl, int64_t out_tl);
 };
 
-} // namespace intel_mlperf
+}  // namespace intel_mlperf

@@ -3,6 +3,7 @@
 
 namespace intel_mlperf {
 
-at::Tensor frame_splicing(const at::Tensor &input, const at::Scalar &factor);
+at::Tensor frame_splicing(
+    const at::Tensor &input, const at::Tensor &length, const at::Scalar &factor);
 
 }
