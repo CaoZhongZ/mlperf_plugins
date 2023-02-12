@@ -18,24 +18,25 @@ std::tuple<at::Tensor, at::Tensor> i_layernorm_pad(
   auto output_length = length;
   auto in_sz = input.sizes();
   auto actual_batch = in_sz[0];
-  int64_t padded_batch, out_feat;
+  int64_t out_batch, out_feat, out_len;
   if (output_shape) {
     auto output_shape_ = output_shape->accessor<int32_t, 1>();
-    padded_batch = output_shape_[0];
-    if (padded_batch == 1) {
-      padded_batch = actual_batch;
+    out_batch = output_shape_[0];
+    if (out_batch == 1) {
+      out_batch = actual_batch;
     } else {
-      output_length = at::pad(length, {0, padded_batch - actual_batch}, "constant", 0);
+      output_length = at::pad(length, {0, out_batch - actual_batch}, "constant", 0);
     }
     out_feat = output_shape_[1];
+    out_len = output_shape_[2];
   } else {
-    padded_batch = actual_batch;
+    out_batch = actual_batch;
     out_feat = in_sz[1];
+    out_len = *at::_ops::max::call(length).data_ptr<int32_t>();
   }
   auto inner = in_sz[1];
-  auto max_len = *at::_ops::max::call(length).data_ptr<int32_t>();
   at::Tensor output = at::empty(
-      {padded_batch, out_feat, max_len},
+      {out_batch, out_feat, out_len},
       at::TensorOptions().dtype<float>().memory_format(c10::MemoryFormat::Contiguous));
 
   auto in = input.accessor<float, 3>();
@@ -47,7 +48,7 @@ std::tuple<at::Tensor, at::Tensor> i_layernorm_pad(
 
   if (data_type == c10::ScalarType::Float) {
 #pragma omp parallel for
-    for (auto i = 0; i < padded_batch; ++i) {
+    for (auto i = 0; i < out_batch; ++i) {
       if (i < actual_batch) {
         for (auto j = 0; j < inner; ++j) {
           i_layernorm_tpp<16>::ref(
@@ -55,7 +56,7 @@ std::tuple<at::Tensor, at::Tensor> i_layernorm_pad(
               eps.value_or(1e-12).toFloat(), unbiased.value_or(false).toBool());
         }
       } else {
-        memset(&out[i][0][0], 0, sizeof(float) * out_feat * max_len);
+        memset(&out[i][0][0], 0, sizeof(float) * out_feat * out_len);
       }
     }
   }  // throw here
