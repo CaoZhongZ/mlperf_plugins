@@ -1,13 +1,12 @@
 #include "preemphasis_tpp.hpp"
+
 #include <cstdlib>
 #include <stdexcept>
 
 namespace intel_mlperf {
 
-void preemphasis_tpp::ref_head(float *pout, float *pin, int64_t rl,
-                               float coeff) {
-  if (rl > 16)
-    throw std::runtime_error("length should not be larger than 16.");
+void preemphasis_tpp::ref_head(float *pout, float *pin, int64_t rl, float coeff) {
+  if (rl > 16) throw std::runtime_error("length should not be larger than 16.");
 
   auto vcoeff = _mm512_set1_ps(coeff);
   // Head & Tail
@@ -23,8 +22,7 @@ void preemphasis_tpp::ref_head(float *pout, float *pin, int64_t rl,
   }
 }
 
-void preemphasis_tpp::ref(float *pout, float *pin, int64_t rl, float coeff) {
-  int64_t d = 0;
+void preemphasis_tpp::ref(float *pout, float *pin, int64_t rl, float coeff, int64_t d) {
   auto vcoeff = _mm512_set1_ps(coeff);
 
   // Head
@@ -32,9 +30,10 @@ void preemphasis_tpp::ref(float *pout, float *pin, int64_t rl, float coeff) {
     return ref_head(pout, pin, rl, coeff);
   } else {
     ref_head(pout, pin, 16, coeff);
+    d += 16;
   }
   // Body
-  for (d = 16; d < rl / 16 * 16; d += 16) {
+  for (; d < rl / 16 * 16; d += 16) {
     auto a = _mm512_loadu_ps(&pin[d]);
     auto b = _mm512_loadu_ps(&pin[d - 1]);
     auto o = a - vcoeff * b;
@@ -52,4 +51,4 @@ void preemphasis_tpp::ref(float *pout, float *pin, int64_t rl, float coeff) {
   }
 }
 
-} // namespace intel_mlperf
+}  // namespace intel_mlperf
